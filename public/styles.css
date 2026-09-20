@@ -968,19 +968,12 @@
     }
     body.anim-off .cell.placing,
     body.anim-off .cell.clearing,
-    body.anim-off .cell[class*="clearing-"] {
+    body.anim-off .cell[class*="clearing-"],
+    body.anim-soft .cell.placing {
       animation-duration: 0.01ms !important;
     }
-    /* soft = gentler, not near-instant */
-    body.anim-soft .cell.placing {
-      animation-duration: 0.55s !important;
-      animation-timing-function: cubic-bezier(0.22, 0.8, 0.28, 1) !important;
-    }
     body.anim-soft .cell.clearing,
-    body.anim-soft .cell[class*="clearing-"] {
-      animation-duration: 0.22s !important;
-      animation-timing-function: ease-out !important;
-    }
+    body.anim-soft .cell[class*="clearing-"] { animation-duration: 0.05s !important; }
     body.anim-off .score-float,
     body.anim-off .combo-banner { display: none !important; }
     body.no-floats .score-float { display: none !important; }
@@ -6035,11 +6028,9 @@
       50%  { transform: scale(1.015); opacity: 1; filter: brightness(1.02); }
       100% { transform: scale(1); opacity: 1; filter: brightness(1); }
     }
-    body.anim-off .cell.placing {
-      animation-duration: 0.01ms !important;
-    }
+    body.anim-off .cell.placing,
     body.anim-soft .cell.placing {
-      animation-duration: 0.55s !important;
+      animation-duration: 0.01ms !important;
     }
     body.skin-fx-prism .cell.placing::after,
     .player-panel.opp.skin-fx-prism .cell.placing::after {
@@ -11124,111 +11115,3 @@
     }
   
     /* Prism: board + tray share the same rules above — do not strip ::after here */
-
-
-/* ========== Mobile / touch: smoother, less harsh ========== */
-body.touch-ui .cell.placing {
-  animation-duration: 0.9s !important;
-  animation-timing-function: cubic-bezier(0.22, 0.75, 0.25, 1) !important;
-}
-body.touch-ui .cell.clearing,
-body.touch-ui .cell[class*="clearing-"],
-body.touch-ui .cell.filled[class*="clearing-"],
-body.touch-ui .board-wrap .cell[class*="clearing-"] {
-  animation-duration: 0.26s !important;
-  animation-timing-function: ease-out !important;
-}
-body.touch-ui .score-float {
-  animation-duration: 1.15s !important;
-}
-body.touch-ui .combo-banner {
-  animation-duration: 0.55s !important;
-}
-body.touch-ui .screen.active {
-  animation-duration: 0.5s !important;
-}
-body.touch-ui .screen.active.screen-enter > *,
-body.touch-ui .screen.active.screen-enter .bot-card,
-body.touch-ui .screen.active.screen-enter .home-mode,
-body.touch-ui .screen.active.screen-enter .home-nav-btn {
-  animation-duration: 0.55s !important;
-  animation-timing-function: cubic-bezier(0.22, 0.85, 0.28, 1) !important;
-}
-/* Ghost: slightly longer glide between cells — less snappy */
-body.touch-ui #ghost.cell-glide {
-  transition: transform 0.14s cubic-bezier(0.25, 0.8, 0.25, 1) !important;
-}
-/* Piece tray: softer lift */
-body.touch-ui .piece-slot {
-  transition: transform 0.22s cubic-bezier(0.22, 0.9, 0.3, 1), opacity 0.22s ease, box-shadow 0.22s ease !important;
-}
-body.touch-ui .piece-slot.lifting {
-  transition: transform 0.2s cubic-bezier(0.22, 0.9, 0.3, 1), opacity 0.2s ease !important;
-}
-/* Avoid heavy filter/blur thrash on weak GPUs */
-body.touch-ui .screen.active {
-  filter: none !important;
-}
-
-/*
- * Mobile perf: cells transition only compositor-friendly props.
- * Animating background/filter/box-shadow every preview hop forces style+paint on 64 cells.
- */
-body.touch-ui .cell {
-  transition: transform 0.28s cubic-bezier(0.33, 0, 0.2, 1), opacity 0.24s ease !important;
-  contain: layout style paint;
-}
-body.touch-ui .board-wrap .cell:not(.filled):not(.preview-ok):not(.preview-bad) {
-  transition: transform 0.28s cubic-bezier(0.33, 0, 0.2, 1), opacity 0.24s ease !important;
-}
-/* During active drag: zero cell transitions — preview hops must be instant */
-body.is-dragging .cell,
-body.is-dragging .board-wrap .cell {
-  transition: none !important;
-}
-/* Preview paint without background transition thrash */
-body.touch-ui .cell.preview-ok,
-body.touch-ui .cell.preview-bad {
-  transition: none !important;
-}
-/* Pause continuous field ambient animations (pseudo-elements) on touch — static look kept */
-body.touch-ui .board-wrap[class*="board-fx-"]::before,
-body.touch-ui .board-wrap[class*="board-fx-"]::after {
-  animation-play-state: paused !important;
-}
-/* Slightly lighter filled volume on mobile (same structure, fewer blur layers) */
-body.touch-ui .board-wrap .cell.filled {
-  box-shadow:
-    inset 0 1.5px 0 rgba(255,255,255,0.22),
-    inset 0 -1px 2px rgba(0,0,0,0.1),
-    0 0.5px 1px rgba(0,0,0,0.05) !important;
-}
-body.touch-ui body.skin-fx-prism .board-wrap .cell.filled,
-body.touch-ui.skin-fx-prism .board-wrap .cell.filled,
-body.touch-ui .player-panel.opp.skin-fx-prism .board-wrap .cell.filled {
-  box-shadow:
-    inset 0 2px 0 rgba(255,255,255,0.45),
-    inset 0 -1px 2px rgba(0,0,0,0.1),
-    0 0 8px color-mix(in srgb, var(--cell-glow, var(--cell-base)) 22%, transparent) !important;
-}
-/* Ghost on compositor */
-body.touch-ui #ghost {
-  will-change: transform;
-  backface-visibility: hidden;
-  -webkit-backface-visibility: hidden;
-}
-/* Particles: shorter + no blur filters on mobile */
-body.touch-ui .legend-spark,
-body.touch-ui .epic-spark,
-body.touch-ui .skin-particle {
-  filter: none !important;
-  box-shadow: none !important;
-}
-@media (hover: none) and (pointer: coarse) {
-  .cell.placing {
-    animation-duration: 0.85s;
-  }
-  .cell {
-    transition: transform 0.28s cubic-bezier(0.33, 0, 0.2, 1), opacity 0.24s ease !important;
-  }
-}
