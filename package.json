@@ -1,0 +1,17 @@
+{
+  "name": "block-puzzle-peer-server",
+  "version": "1.1.0",
+  "description": "Block Puzzle game + PeerJS on one Render service",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "cors": "^2.8.5",
+    "express": "^4.21.2",
+    "peer": "^1.0.2"
+  }
+}
