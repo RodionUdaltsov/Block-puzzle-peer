@@ -968,12 +968,19 @@
     }
     body.anim-off .cell.placing,
     body.anim-off .cell.clearing,
-    body.anim-off .cell[class*="clearing-"],
-    body.anim-soft .cell.placing {
+    body.anim-off .cell[class*="clearing-"] {
       animation-duration: 0.01ms !important;
     }
+    /* soft = gentler, not near-instant */
+    body.anim-soft .cell.placing {
+      animation-duration: 0.55s !important;
+      animation-timing-function: cubic-bezier(0.22, 0.8, 0.28, 1) !important;
+    }
     body.anim-soft .cell.clearing,
-    body.anim-soft .cell[class*="clearing-"] { animation-duration: 0.05s !important; }
+    body.anim-soft .cell[class*="clearing-"] {
+      animation-duration: 0.22s !important;
+      animation-timing-function: ease-out !important;
+    }
     body.anim-off .score-float,
     body.anim-off .combo-banner { display: none !important; }
     body.no-floats .score-float { display: none !important; }
@@ -6028,9 +6035,11 @@
       50%  { transform: scale(1.015); opacity: 1; filter: brightness(1.02); }
       100% { transform: scale(1); opacity: 1; filter: brightness(1); }
     }
-    body.anim-off .cell.placing,
-    body.anim-soft .cell.placing {
+    body.anim-off .cell.placing {
       animation-duration: 0.01ms !important;
+    }
+    body.anim-soft .cell.placing {
+      animation-duration: 0.55s !important;
     }
     body.skin-fx-prism .cell.placing::after,
     .player-panel.opp.skin-fx-prism .cell.placing::after {
@@ -11115,3 +11124,54 @@
     }
   
     /* Prism: board + tray share the same rules above — do not strip ::after here */
+
+
+/* ========== Mobile / touch: smoother, less harsh ========== */
+body.touch-ui .cell.placing {
+  animation-duration: 0.9s !important;
+  animation-timing-function: cubic-bezier(0.22, 0.75, 0.25, 1) !important;
+}
+body.touch-ui .cell.clearing,
+body.touch-ui .cell[class*="clearing-"],
+body.touch-ui .cell.filled[class*="clearing-"],
+body.touch-ui .board-wrap .cell[class*="clearing-"] {
+  animation-duration: 0.26s !important;
+  animation-timing-function: ease-out !important;
+}
+body.touch-ui .score-float {
+  animation-duration: 1.15s !important;
+}
+body.touch-ui .combo-banner {
+  animation-duration: 0.55s !important;
+}
+body.touch-ui .screen.active {
+  animation-duration: 0.5s !important;
+}
+body.touch-ui .screen.active.screen-enter > *,
+body.touch-ui .screen.active.screen-enter .bot-card,
+body.touch-ui .screen.active.screen-enter .home-mode,
+body.touch-ui .screen.active.screen-enter .home-nav-btn {
+  animation-duration: 0.55s !important;
+  animation-timing-function: cubic-bezier(0.22, 0.85, 0.28, 1) !important;
+}
+/* Ghost: slightly longer glide between cells — less snappy */
+body.touch-ui #ghost.cell-glide {
+  transition: transform 0.14s cubic-bezier(0.25, 0.8, 0.25, 1) !important;
+}
+/* Piece tray: softer lift */
+body.touch-ui .piece-slot {
+  transition: transform 0.22s cubic-bezier(0.22, 0.9, 0.3, 1), opacity 0.22s ease, box-shadow 0.22s ease !important;
+}
+body.touch-ui .piece-slot.lifting {
+  transition: transform 0.2s cubic-bezier(0.22, 0.9, 0.3, 1), opacity 0.2s ease !important;
+}
+/* Avoid heavy filter/blur thrash on weak GPUs */
+body.touch-ui .screen.active {
+  filter: none !important;
+}
+@media (hover: none) and (pointer: coarse) {
+  /* Extra safety if class missing */
+  .cell.placing {
+    animation-duration: 0.85s;
+  }
+}

@@ -1676,6 +1676,27 @@
     function saveSettings() {
       try { localStorage.setItem('bp_settings', JSON.stringify(settings)); } catch (_) {}
     }
+
+    // Mobile / touch: smoother motion, softer haptics (class used by CSS)
+    (function initTouchUi() {
+      try {
+        const coarse = window.matchMedia('(pointer: coarse)').matches
+          || window.matchMedia('(hover: none)').matches
+          || ('ontouchstart' in window && navigator.maxTouchPoints > 0);
+        if (coarse) {
+          document.body.classList.add('touch-ui');
+          // First launch on phone: prefer soft animations if user never set anim
+          try {
+            const raw = localStorage.getItem('bp_settings');
+            if (!raw) {
+              settings.anim = 'soft';
+              saveSettings();
+            }
+          } catch (_) {}
+        }
+      } catch (_) {}
+    })();
+
     function renderScalePreviews() {
       const cs = parseFloat(settings.classicScale) || 1;
       const vs = parseFloat(settings.versusScale) || 1;
@@ -1867,7 +1888,9 @@
     });
     function applySettings() {
       applyBoardScales();
+      const keepTouch = document.body.classList.contains('touch-ui');
       document.body.classList.remove('theme-ocean', 'theme-sunset', 'theme-mono', 'anim-off', 'anim-soft', 'no-floats', 'no-preview', 'big-text', 'hi-contrast');
+      if (keepTouch) document.body.classList.add('touch-ui');
       if (settings.theme === 'ocean') document.body.classList.add('theme-ocean');
       if (settings.theme === 'sunset') document.body.classList.add('theme-sunset');
       if (settings.theme === 'mono') document.body.classList.add('theme-mono');
@@ -1951,7 +1974,13 @@
     function hapticTap(ms) {
       if (settings.haptics !== '1') return;
       try {
-        if (navigator.vibrate) navigator.vibrate(ms || 12);
+        if (!navigator.vibrate) return;
+        let d = ms || 12;
+        // Phones: shorter pulses — long vibrate feels harsh
+        if (document.body.classList.contains('touch-ui')) {
+          d = Math.min(Math.max(4, Math.round(d * 0.45)), 10);
+        }
+        navigator.vibrate(d);
       } catch (_) {}
     }
 
