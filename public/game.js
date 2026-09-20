@@ -4499,6 +4499,60 @@
     }
     function notifyLeavingMatch() {
       if (!mpMode) return;
+      // Pre-live leave (loading / "Старт!" animation): tell peer to cancel and do not leave broken state
+      const preLive = !vsActive && (
+        (typeof isMatchLoadActive === 'function' && isMatchLoadActive())
+        || !!mpLoading || !!vsIntroLock || !!mpMatchStarting
+      );
+      if (preLive) {
+        try {
+          mpSend({ type: 'match_load_abort', reason: 'peer_left_before_start' });
+        } catch (_) {}
+        try { if (mpConn && mpConn.open) mpConn.close(); } catch (_) {}
+        // After boards were prepared / "Старт!" shown — record local forfeit so history is not empty
+        try {
+          const bound = (_matchLoad && _matchLoad.meBound && _matchLoad.peerBound)
+            || mode === 'versus'
+            || !!vsIntroLock
+            || !!mpMatchStarting;
+          if (bound && !window._matchEnded) {
+            // Soft local loss record without full live fight UI
+            window._matchEnded = true;
+            vsActive = false;
+            const opp = oppName || mpOppName || 'Соперник';
+            const entry = {
+              id: Date.now() + '_' + Math.random().toString(36).slice(2, 7),
+              opp: opp,
+              oppName: opp,
+              botId: null,
+              mySkinId: (typeof equippedSkinId !== 'undefined' ? equippedSkinId : null) || 'default',
+              myBoardId: (typeof equippedBoardId !== 'undefined' ? equippedBoardId : null) || 'field_default',
+              oppSkinId: (typeof window.mpOppSkinId === 'string' && window.mpOppSkinId) ? window.mpOppSkinId : null,
+              oppBoardId: (typeof window.mpOppBoardId === 'string' && window.mpOppBoardId) ? window.mpOppBoardId : null,
+              my: 0,
+              oppScore: 0,
+              result: 'Поражение',
+              delta: 0,
+              mode: mpFromMatchmaking ? 'online' : 'friendly',
+              difficulty: '',
+              duration: vsDuration || 120,
+              timeLeft: vsDuration || 120,
+              date: Date.now(),
+              reason: 'leave_before_start',
+              moves: []
+            };
+            try {
+              matchHistory.unshift(entry);
+              if (matchHistory.length > 30) matchHistory = matchHistory.slice(0, 30);
+              localStorage.setItem('bp_history', JSON.stringify(matchHistory));
+            } catch (_) {}
+          }
+        } catch (_) {}
+        try { clearMatchLoadState(); } catch (_) {}
+        try { hideMatchLoading(); } catch (_) {}
+        try { vsIntroLock = false; mpMatchStarting = false; mpLoading = false; } catch (_) {}
+        return;
+      }
       // Allow leave stamp even if vsActive just flipped — still need rejoin snapshot
       if (!vsActive && !readLiveMatch()) return;
       try {
@@ -5613,11 +5667,16 @@
         if (timeInfo) timeInfo.textContent = '';
       } catch (_) {}
       try {
+        const surrRanked = !!(mpGameSource === 'ranked' || mpFromMatchmaking
+          || (vsModeType === 'online' && !currentBot));
+        try { window._lastMatchWasRanked = !!surrRanked; } catch (_) {}
         lastMatchResult = {
           result: 'Поражение', won: false, draw: false,
           my: myScoreNow, opp: oppScoreNow, oppName: oppName || 'Соперник',
           delta: 0, timeLeft: vsTimeLeft, duration: vsDuration,
-          mode: vsModeType, botId: null, date: Date.now()
+          mode: surrRanked ? 'online' : (vsModeType || 'online'),
+          ranked: surrRanked,
+          botId: null, date: Date.now()
         };
       } catch (_) {}
       try { showScreen('versus'); } catch (_) {}
@@ -7067,6 +7126,22 @@
 
     function handleOpponentDisconnect() {
       if (window._matchEnded || !vsActive || !mpMode) return;
+      // Race: peer closed during/right after "Старт!" — no real fight yet → cancel, not AFK win on empty board
+      try {
+        const wentLive = (typeof window._matchWentLiveAt === 'number' && window._matchWentLiveAt > 0)
+          ? window._matchWentLiveAt
+          : (matchStartTs || 0);
+        const age = Date.now() - (wentLive || 0);
+        let hasPlace = false;
+        try {
+          hasPlace = Array.isArray(matchLog) && matchLog.some(e => e && (e.type === 'place' || e.type === 'opp_place'));
+        } catch (_) {}
+        if (age >= 0 && age < 3500 && !hasPlace && (score|0) === 0 && (oppScore|0) === 0) {
+          try { vsActive = false; } catch (_) {}
+          try { abortPreMatchMissingPeer('Соперник отключился перед стартом'); } catch (_) {}
+          return;
+        }
+      } catch (_) {}
       // Already counting down disconnect — keep deadline (no reset / no extend)
       if (oppDisconnected && dcDeadlineTs) {
         oppDisconnected = true;
@@ -7770,6 +7845,13 @@
           break;
         case 'ranked_search_start':
           // Opponent has chosen a fresh ranked search instead of a rematch.
+          // Do NOT force this client into matchmaking — they stay on result/menu.
+          // Mark so the subsequent data-channel close does NOT look like a pre-start abort.
+          try { window._peerLeftForRankedSearch = Date.now(); } catch (_) {}
+          try {
+            const prev = (mpConn && mpConn.peer) || mpRemotePeerId || null;
+            if (prev) mmRememberExcludePeer(prev, 90000);
+          } catch (_) {}
           try {
             postMatchOnlineEligible = false;
             rematchPending = false;
@@ -7778,6 +7860,11 @@
             pendingRematchOfferName = null;
             hideRematchOffer();
             hideRematchWait();
+            try { vsIntroLock = false; } catch (_) {}
+            try { mpLoading = false; } catch (_) {}
+            try { mpMatchStarting = false; } catch (_) {}
+            try { clearMatchLoadState(); } catch (_) {}
+            try { mmFound = false; } catch (_) {}
           } catch (_) {}
           break;
         case 'rematch_invite':
@@ -7994,9 +8081,33 @@
             mpOppConnected = false;
           }
         } catch (_) {}
+        // Opponent intentionally left for a fresh ranked queue — never treat as pre-start abort
+        let peerChoseSearch = false;
+        try {
+          peerChoseSearch = !!(window._peerLeftForRankedSearch
+            && (Date.now() - window._peerLeftForRankedSearch) < 15000);
+        } catch (_) {}
+        let onResultScreen = false;
+        try {
+          const vr = document.getElementById('versusResult');
+          onResultScreen = !!(vr && vr.classList.contains('visible'));
+        } catch (_) {}
         if (vsActive && mpMode) {
           try { handleOpponentDisconnect(); } catch (_) {}
-        } else if (mpMode && !vsActive && (isMatchLoadActive() || vsIntroLock || mode === 'versus' || mpLoading)) {
+        } else if (peerChoseSearch || onResultScreen) {
+          // Soft: peer left post-match / for new search — stay on result/menu
+          try {
+            hideRematchWait();
+            rematchPending = false;
+            rematchIWant = false;
+            vsIntroLock = false;
+            mpLoading = false;
+            mpMatchStarting = false;
+            clearMatchLoadState();
+          } catch (_) {}
+        } else if (mpMode && !vsActive && !postMatchOnlineEligible
+          && (isMatchLoadActive() || !!vsIntroLock || !!mpLoading || !!mmFound)) {
+          // Real pre-start handshake only — NOT residual mode==="versus" after result screen
           try { abortPreMatchMissingPeer('Соперник отключился до старта'); } catch (_) {}
         } else if (postMatchOnlineEligible && !vsActive) {
           // Soft disconnect — do not destroy peer; opponent may return
@@ -9872,6 +9983,9 @@
         vsActive = true;
         placingLock = false;
         matchStartTs = Date.now();
+        try { window._matchWentLiveAt = matchStartTs; } catch (_) {}
+        // Snapshot immediately so pagehide/leave during the same tick still records history
+        try { persistLiveMatch(); } catch (_) {}
         const piecesEl = document.getElementById('piecesAreaVs');
         if (piecesEl) piecesEl.style.pointerEvents = '';
         try { startAfkWatch(); } catch (_) {}
@@ -9898,6 +10012,14 @@
             });
           }
         } catch (_) {}
+        // Peer may have closed during the "Старт!" overlay — abort cleanly instead of empty AFK fight
+        if (!mpConn || !mpConn.open) {
+          try {
+            vsActive = false;
+            abortPreMatchMissingPeer('Соперник отключился перед стартом');
+          } catch (_) {}
+          return;
+        }
         window._matchClockEndTs = Date.now() + Math.max(0, vsTimeLeft || vsDuration || 120) * 1000;
         try { startMatchWallClock(window._matchClockEndTs); } catch (_) {}
         vsIntroLock = false;
@@ -9905,12 +10027,40 @@
       }, 500);
     }
 
-    /** Peer left during loading / before vsActive — cancel, no AFK, no history */
+    /** Peer left during loading / before vsActive — cancel, no AFK, no history.
+     *  Also used right after go-live race when peer closed during "Старт!" (empty board). */
     function abortPreMatchMissingPeer(reason) {
       if (window._preMatchAborting) return;
-      // Only cancel if fight has not become live yet
-      if (vsActive && !mpLoading) return;
+      // Never abort-toast when the peer just chose «Ещё матч» ranked search or result is open
+      try {
+        if (window._peerLeftForRankedSearch && (Date.now() - window._peerLeftForRankedSearch) < 15000) {
+          return;
+        }
+      } catch (_) {}
+      try {
+        const vr = document.getElementById('versusResult');
+        if (vr && vr.classList.contains('visible') && !isMatchLoadActive() && !mpLoading) {
+          return;
+        }
+      } catch (_) {}
+      // Only cancel if fight has not become a real live match yet
+      // (vsActive may be true for a few hundred ms after "Старт!" — still treat as pre-start)
+      try {
+        const wentLive = (typeof window._matchWentLiveAt === 'number' && window._matchWentLiveAt > 0)
+          ? window._matchWentLiveAt
+          : (matchStartTs || 0);
+        const age = wentLive ? (Date.now() - wentLive) : 99999;
+        let hasPlace = false;
+        try {
+          hasPlace = Array.isArray(matchLog) && matchLog.some(e => e && (e.type === 'place' || e.type === 'opp_place'));
+        } catch (_) {}
+        const stillPre = !vsActive || mpLoading || (age < 3500 && !hasPlace && (score|0) === 0 && (oppScore|0) === 0);
+        if (!stillPre) return;
+      } catch (_) {
+        if (vsActive && !mpLoading) return;
+      }
       window._preMatchAborting = true;
+      try { vsActive = false; } catch (_) {}
       clearMatchLoadState();
       try { hideMatchLoading(); } catch (_) {}
       try { vsIntroLock = false; } catch (_) {}
@@ -9957,19 +10107,44 @@
       } catch (_) {}
 
       if (ranked) {
+        // Only auto-requeue if THIS player was actively in ranked queue/handshake —
+        // never yank someone sitting on the result screen into search because the
+        // other side clicked «Ещё матч» / tore down the post-match link.
+        let wasActivelySearching = false;
+        try {
+          const matchScreen = document.getElementById('screenMatch');
+          wasActivelySearching = !!(mmFound || mmActive
+            || (matchScreen && matchScreen.classList.contains('active'))
+            || isMatchLoadActive()
+            || mpLoading);
+        } catch (_) {}
         try { destroyMp(); } catch (_) {}
         mmFound = false;
         mmActive = false;
-        try {
-          window._preMatchAborting = false;
-          startOnlineMatchmaking();
-          mmSetStatus('Соперник не подключился', 'Ищем снова…');
-        } catch (_) {
+        if (wasActivelySearching) {
+          try {
+            window._preMatchAborting = false;
+            startOnlineMatchmaking();
+            mmSetStatus('Соперник не подключился', 'Ищем снова…');
+          } catch (_) {
+            window._preMatchAborting = false;
+            try {
+              showScreen('duration');
+              mmSetStatus('Соперник не подключился', 'Попробуй поиск снова');
+            } catch (_2) {}
+          }
+        } else {
           window._preMatchAborting = false;
           try {
-            showScreen('duration');
-            mmSetStatus('Соперник не подключился', 'Попробуй поиск снова');
-          } catch (_2) {}
+            // Stay on result / menu — player can press «Ещё матч» themselves
+            if (document.getElementById('versusResult')
+              && document.getElementById('versusResult').classList.contains('visible')) {
+              /* keep result UI */
+            } else {
+              showScreen('menu');
+              updateMenuStats();
+            }
+          } catch (_) {}
         }
         return;
       }
@@ -13530,6 +13705,23 @@
     let mmHostBucket = null;
     let mmSearchGen = 0;
     let mmExpandTimers = [];
+    /** After ranked match / «Ещё матч», avoid instantly re-pairing the same peer. */
+    let mmExcludePeerId = null;
+    let mmExcludeUntil = 0;
+    function mmRememberExcludePeer(peerId, ms) {
+      try {
+        if (!peerId) return;
+        mmExcludePeerId = String(peerId);
+        mmExcludeUntil = Date.now() + (typeof ms === 'number' ? ms : 90000);
+      } catch (_) {}
+    }
+    function mmIsExcludedPeer(peerId) {
+      try {
+        if (!peerId || !mmExcludePeerId) return false;
+        if (Date.now() > mmExcludeUntil) { mmExcludePeerId = null; return false; }
+        return String(peerId) === String(mmExcludePeerId);
+      } catch (_) { return false; }
+    }
 
     // Every ranked-search run gets its own generation. Late PeerJS promises from an
     // older search must never attach themselves to a newer queue.
@@ -13660,6 +13852,13 @@
       if (gen == null) gen = mmSearchGen;
       if (gen !== mmSearchGen) { try { conn && conn.close(); } catch (_) {} return; }
       if (mmFound || !mmActive) return;
+      try {
+        const pid = conn && conn.peer;
+        if (mmIsExcludedPeer(pid)) {
+          try { conn.close(); } catch (_) {}
+          return;
+        }
+      } catch (_) {}
       mmFound = true;
       mmActive = false;
       clearTimeout(mmTimeout);
@@ -13687,9 +13886,31 @@
         });
         conn.on('close', () => {
           try { mpOppConnected = false; } catch (_) {}
+          let peerChoseSearch = false;
+          try {
+            peerChoseSearch = !!(window._peerLeftForRankedSearch
+              && (Date.now() - window._peerLeftForRankedSearch) < 15000);
+          } catch (_) {}
+          let onResultScreen = false;
+          try {
+            const vr = document.getElementById('versusResult');
+            onResultScreen = !!(vr && vr.classList.contains('visible'));
+          } catch (_) {}
           if (vsActive && mpMode) handleOpponentDisconnect();
-          else if (mpMode && !vsActive && (isMatchLoadActive() || vsIntroLock || mode === 'versus' || mpLoading || mmFound)) {
+          else if (peerChoseSearch || onResultScreen) {
+            try {
+              hideRematchWait();
+              rematchPending = false;
+              rematchIWant = false;
+              vsIntroLock = false;
+              mpLoading = false;
+              mpMatchStarting = false;
+              clearMatchLoadState();
+            } catch (_) {}
+          } else if (mpMode && !vsActive && !postMatchOnlineEligible
+            && (isMatchLoadActive() || !!vsIntroLock || !!mpLoading || !!mmFound)) {
             // Peer left during handshake / intro — cancel, no AFK
+            // Do not treat post-match result screen (mode may still be "versus") as pre-start
             try { abortPreMatchMissingPeer('Соперник отключился до старта'); } catch (_) {}
           } else if (postMatchOnlineEligible && !vsActive) {
             try {
@@ -14100,10 +14321,16 @@
       vsTimeLeft = selectedDuration;
       // Tell the old post-match opponent that this player is entering a fresh ranked queue.
       // This prevents a simultaneous rematch click from racing the old connection teardown.
+      try { window._peerLeftForRankedSearch = Date.now(); } catch (_) {}
       try {
-        if (postMatchOnlineEligible && mpConn && mpConn.open) {
+        if ((postMatchOnlineEligible || mpMode) && mpConn && mpConn.open) {
           mpConn.send({ type: 'ranked_search_start' });
         }
+      } catch (_) {}
+      // Do not instantly re-queue against the same opponent after «Ещё матч»
+      try {
+        const prev = (mpConn && mpConn.peer) || mpRemotePeerId || null;
+        if (prev) mmRememberExcludePeer(prev, 90000);
       } catch (_) {}
       // Tear down any previous room / friendly / rematch link so we never re-pair the same foe
       try { closeRoomLobby(); } catch (_) {}
@@ -15042,10 +15269,15 @@
       // Keep P2P session eligible for rematch (menu / delayed result still works)
       if (vsModeType === 'online' && mpMode) {
         postMatchOnlineEligible = true;
+        // Clear load/intro flags so a later peer close is soft (not "до старта")
+        try { vsIntroLock = false; } catch (_) {}
+        try { mpLoading = false; } catch (_) {}
+        try { mpMatchStarting = false; } catch (_) {}
+        try { clearMatchLoadState(); } catch (_) {}
         try {
           if (mpConn) noteMpRemotePeer(mpConn);
           ensurePostMatchHostAccept();
-          wireMpConnLifetime(mpConn);
+          wireMpConnResume(mpConn);
         } catch (_) {}
       } else {
         postMatchOnlineEligible = false;
@@ -15090,6 +15322,7 @@
       const resultLabel = draw ? 'Ничья' : won ? 'Победа' : 'Поражение';
       const botCups = currentBot ? currentBot.trophies : 0;
       const wasRanked = !!(mpGameSource === 'ranked' || (mpFromMatchmaking && mpGameSource !== 'lobby'));
+      try { window._lastMatchWasRanked = !!wasRanked; } catch (_) {}
       lastMatchResult = {
         result: resultLabel, won, draw, my, opp, oppName,
         delta: actualDelta, timeLeft: vsTimeLeft, duration: vsDuration,
@@ -17437,9 +17670,22 @@
       rematchTheyWant = false;
       pendingRematchOfferName = null;
       pendingJoinAfterForfeit = null;
-      if (mpMode && mpFromMatchmaking) {
+      // Ranked «Ещё матч»: new opponent search (not same-peer rematch).
+      // Use durable signals — after peer teardown / false abort, mpFromMatchmaking &
+      // mpGameSource are often cleared; lastMatchResult / _lastMatchWasRanked must still win.
+      const wantRankedAgain = !!(
+        window._lastMatchWasRanked
+        || mpGameSource === 'ranked'
+        || (lastMatchResult && lastMatchResult.ranked)
+        || (lastMatchResult && lastMatchResult.mode === 'online')
+        || (mpMode && mpFromMatchmaking)
+      );
+      if (wantRankedAgain) {
         // startOnlineMatchmaking() performs the single authoritative teardown.
         vsModeType = 'online';
+        mpFromMatchmaking = true;
+        mpGameSource = 'ranked';
+        try { window._peerLeftForRankedSearch = 0; } catch (_) {}
         startOnlineMatchmaking();
         return;
       }
