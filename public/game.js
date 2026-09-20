@@ -3181,12 +3181,16 @@
                 handleIncomingChallenge(data, conn);
               } else if (data.type === 'challenge_cancel') {
                 try {
+                  if (conn && conn._bpChallengeSuperseded) return;
                   const room = String(data.room || '').toUpperCase();
                   const match = chPending && (
                     !room || String(chPending.room || '').toUpperCase() === room ||
                     (data.code && normalizeFriendCode(chPending.code) === normalizeFriendCode(data.code))
                   );
-                  if (match) {
+                  // Only honor cancel from the conn currently bound to chPending (or no bound conn)
+                  if (match && chPending.conn && conn && chPending.conn !== conn && !chPending.conn._bpChallengeSuperseded) {
+                    // Stale cancel from older dial
+                  } else if (match) {
                     chPending = null;
                     hideChToast(true);
                     renderFriendRequests();
@@ -4238,7 +4242,7 @@
           score: score,
           oppScore: oppScore,
           vsTimeLeft: vsTimeLeft,
-          // Wall-clock match end — keeps ticking while both players are offline
+          // Wall-clock match end — never invent a LATER end than previously committed
           clockEndTs: (function () {
             try {
               if (typeof window._matchClockEndTs === 'number' && window._matchClockEndTs > 0) {
@@ -4250,9 +4254,18 @@
                 return prev.clockEndTs;
               }
             } catch (_) {}
+            // Last resort only when no prior end exists
             const end = Date.now() + Math.max(0, vsTimeLeft || 0) * 1000;
             window._matchClockEndTs = end;
             return end;
+          })(),
+          remainingMs: (function () {
+            try {
+              const end = (typeof window._matchClockEndTs === 'number' && window._matchClockEndTs > 0)
+                ? window._matchClockEndTs : 0;
+              if (end > 0) return Math.max(0, end - Date.now());
+            } catch (_) {}
+            return Math.max(0, (vsTimeLeft || 0) * 1000);
           })(),
           vsDuration: vsDuration,
           oppName: oppName || mpOppName,
@@ -4324,23 +4337,173 @@
         }
       } catch (_) {}
     }
-    /** Sync vsTimeLeft from wall-clock end; start 1s tick. Time runs even if peer is gone. */
+    /**
+     * Host-authoritative match clock + monotonic guard.
+     *
+     * Dual budget (always take the SMALLER remaining):
+     *  1) Wall:  _matchClockEndTs - Date.now()     — shared via remainingMs from host
+     *  2) Perf:  _matchPerfEnd - performance.now() — immune to system clock rollback
+     *
+     * Extra play time via "set clock back" is blocked by (2).
+     * Clock jump forward still ends the match via (1).
+     * Host remainingMs is authoritative for shortening; never extends.
+     */
+    let _matchPerfStart = 0;
+    let _matchPerfEnd = 0;
+    let _matchDurationMs = 0;
+
+    function getMatchClockEndTs() {
+      try {
+        if (typeof window._matchClockEndTs === 'number' && window._matchClockEndTs > 0) {
+          return window._matchClockEndTs;
+        }
+      } catch (_) {}
+      return 0;
+    }
+    /** Remaining ms = min(wall remaining, monotonic remaining). */
+    function getMatchRemainingMs() {
+      const nowWall = Date.now();
+      const end = getMatchClockEndTs();
+      let wallRem = (end > 0) ? Math.max(0, end - nowWall) : Infinity;
+      let perfRem = Infinity;
+      try {
+        if (_matchPerfEnd > 0 && typeof performance !== 'undefined' && performance.now) {
+          perfRem = Math.max(0, _matchPerfEnd - performance.now());
+        }
+      } catch (_) {}
+      let rem = Math.min(wallRem, perfRem);
+      if (!Number.isFinite(rem)) {
+        rem = Math.max(0, (vsTimeLeft || 0) * 1000);
+      }
+      // Hard cap to configured duration + small slack
+      const cap = (Math.max(vsDuration || 120, 60) + 5) * 1000;
+      if (rem > cap) rem = cap;
+      return rem;
+    }
+    function _setMonotonicBudget(remainingMs, opts) {
+      opts = opts || {};
+      try {
+        if (typeof performance === 'undefined' || !performance.now) return;
+        const nowP = performance.now();
+        const rem = Math.max(0, remainingMs | 0);
+        if (!_matchPerfEnd || opts.force) {
+          _matchPerfStart = nowP;
+          _matchDurationMs = rem;
+          _matchPerfEnd = nowP + rem;
+        } else {
+          // Only shorten monotonic budget — never extend
+          const cur = Math.max(0, _matchPerfEnd - nowP);
+          if (rem < cur) {
+            _matchPerfEnd = nowP + rem;
+            _matchDurationMs = rem;
+          }
+        }
+      } catch (_) {}
+    }
+    function clearMatchClock() {
+      try { window._matchClockEndTs = 0; } catch (_) {}
+      _matchPerfStart = 0;
+      _matchPerfEnd = 0;
+      _matchDurationMs = 0;
+    }
+    /** Commit absolute wall end + align monotonic budget to same remaining. */
+    function commitMatchClockEndTs(endTs, opts) {
+      opts = opts || {};
+      const now = Date.now();
+      let end = (typeof endTs === 'number' && endTs > 0) ? endTs : 0;
+      if (!end) {
+        const durSec = Math.max(0, (typeof vsTimeLeft === 'number' && vsTimeLeft > 0)
+          ? vsTimeLeft
+          : (vsDuration || 120));
+        end = now + durSec * 1000;
+      }
+      // Never extend beyond an already-committed earlier wall end (unless force first commit)
+      if (!opts.force && !opts.allowExtend) {
+        const prev = getMatchClockEndTs();
+        if (prev > 0 && end > prev) end = prev;
+      } else if (opts.force && !opts.allowExtend) {
+        const prev = getMatchClockEndTs();
+        // force still refuses to EXTEND an existing live clock (rejoin / sync safety)
+        if (prev > 0 && end > prev && vsActive) end = prev;
+      }
+      const maxEnd = now + Math.max(vsDuration || 120, 180) * 1000 + 15000;
+      if (end > maxEnd) end = maxEnd;
+      try { window._matchClockEndTs = end; } catch (_) {}
+      const rem = Math.max(0, end - now);
+      _setMonotonicBudget(rem, { force: !!(opts.force && !_matchPerfEnd) });
+      // Also allow shortening monotonic when force shortens wall
+      if (_matchPerfEnd) _setMonotonicBudget(rem, { force: false });
+      vsTimeLeft = Math.max(0, Math.ceil(getMatchRemainingMs() / 1000));
+      return end;
+    }
+    /** Apply peer clock: prefer remainingMs (skew-safe), else absolute endTs with clamp. */
+    function applyRemoteMatchClock(data) {
+      if (!data || typeof data !== 'object') return false;
+      const now = Date.now();
+      // remainingMs is relative — immune to absolute clock skew between devices
+      if (typeof data.remainingMs === 'number' && Number.isFinite(data.remainingMs)) {
+        const rem = Math.max(0, Math.min(data.remainingMs, ((vsDuration || 180) + 5) * 1000));
+        // Never grant more than local remaining (wall + monotonic)
+        const localRem = getMatchRemainingMs();
+        const adopted = (getMatchClockEndTs() > 0 || _matchPerfEnd > 0)
+          ? Math.min(localRem, rem)
+          : rem;
+        const end = now + adopted;
+        commitMatchClockEndTs(end, { force: true });
+        _setMonotonicBudget(adopted, { force: false });
+        return true;
+      }
+      if (typeof data.clockEndTs === 'number' && data.clockEndTs > 0) {
+        const prev = getMatchClockEndTs();
+        if (!prev || data.clockEndTs <= prev + 500) {
+          commitMatchClockEndTs(data.clockEndTs, { force: true });
+          return true;
+        }
+        vsTimeLeft = Math.max(0, Math.ceil(getMatchRemainingMs() / 1000));
+        return false;
+      }
+      if (typeof data.vsTimeLeft === 'number' && data.vsTimeLeft >= 0) {
+        const rem = Math.max(0, data.vsTimeLeft * 1000);
+        const localRem = getMatchRemainingMs();
+        const adopted = (getMatchClockEndTs() > 0 || _matchPerfEnd > 0)
+          ? Math.min(localRem, rem)
+          : rem;
+        commitMatchClockEndTs(now + adopted, { force: true });
+        return true;
+      }
+      return false;
+    }
+    /** Host: build authoritative clock fields for go / time_sync / rejoin. */
+    function hostClockPayload() {
+      const end = getMatchClockEndTs();
+      const rem = getMatchRemainingMs();
+      return {
+        clockEndTs: end || 0,
+        remainingMs: rem,
+        vsTimeLeft: Math.max(0, Math.ceil(rem / 1000)),
+        hostNow: Date.now()
+      };
+    }
+
+    /** Sync vsTimeLeft from dual budget; start tick. Time runs even if peer is gone. */
     function startMatchWallClock(endTs) {
       try {
         if (typeof endTs === 'number' && endTs > 0) {
-          window._matchClockEndTs = endTs;
-        } else if (!(typeof window._matchClockEndTs === 'number' && window._matchClockEndTs > 0)) {
-          window._matchClockEndTs = Date.now() + Math.max(0, vsTimeLeft || vsDuration || 120) * 1000;
+          commitMatchClockEndTs(endTs, { force: true });
+        } else if (!getMatchClockEndTs()) {
+          commitMatchClockEndTs(0, { force: true });
+        } else {
+          vsTimeLeft = Math.max(0, Math.ceil(getMatchRemainingMs() / 1000));
         }
-        vsTimeLeft = Math.max(0, Math.ceil((window._matchClockEndTs - Date.now()) / 1000));
         try { updateTimerDisplay(); } catch (_) {}
         if (vsTimerId) { try { clearInterval(vsTimerId); } catch (_) {} vsTimerId = null; }
         vsTimerId = setInterval(() => {
           if (!vsActive || window._matchEnded) return;
-          vsTimeLeft = Math.max(0, Math.ceil((window._matchClockEndTs - Date.now()) / 1000));
+          if (!getMatchClockEndTs() && !_matchPerfEnd) return;
+          vsTimeLeft = Math.max(0, Math.ceil(getMatchRemainingMs() / 1000));
           try { updateTimerDisplay(); } catch (_) {}
           if (vsTimeLeft <= 0) {
-            try { endVersus(); } catch (_) {}
+            try { endVersus({ reason: 'time_up' }); } catch (_) {}
           }
         }, 250);
       } catch (_) {}
@@ -5865,11 +6028,17 @@
     let _mpOutSeq = 0;
     let _mpExpectSeq = 1;
     let _mpSeqBuf = Object.create(null);
-    const MP_SEQ_TYPES = { place: 1, deal: 1, score: 1, clear_fx: 1, stuck: 1, end: 1, match_over: 1 };
+    // Only gameplay stream is ordered. Control/terminal msgs (end, match_over, time_sync,
+    // rematch_*, ping) must NOT wait on a missing place/deal — or match can hang forever.
+    const MP_SEQ_TYPES = { place: 1, deal: 1, score: 1, clear_fx: 1, stuck: 1 };
+    const MP_SEQ_BUF_MAX = 48;
+    const MP_SEQ_GAP_MS = 2500;
+    let _mpSeqGapTimer = null;
     function resetMpSeq() {
       _mpOutSeq = 0;
       _mpExpectSeq = 1;
       _mpSeqBuf = Object.create(null);
+      if (_mpSeqGapTimer) { try { clearTimeout(_mpSeqGapTimer); } catch (_) {} _mpSeqGapTimer = null; }
     }
     function mpStampSeq(obj) {
       if (!obj || typeof obj !== 'object') return obj;
@@ -5878,6 +6047,119 @@
         obj._seq = _mpOutSeq;
       }
       return obj;
+    }
+    function _scheduleSeqGapFlush() {
+      if (_mpSeqGapTimer) return;
+      _mpSeqGapTimer = setTimeout(() => {
+        _mpSeqGapTimer = null;
+        try {
+          const keys = Object.keys(_mpSeqBuf).map(Number).filter(n => n > 0).sort((a, b) => a - b);
+          if (!keys.length) return;
+          // Skip permanent hole: advance expect to next buffered seq and drain
+          if (keys[0] > _mpExpectSeq) {
+            console.warn('[mp] seq gap skip', _mpExpectSeq, '->', keys[0]);
+            _mpExpectSeq = keys[0];
+            // Request full peer state — missing place/deal left boards inconsistent
+            try { requestMpStateSync('seq_gap'); } catch (_) {}
+          }
+          while (_mpSeqBuf[_mpExpectSeq]) {
+            const next = _mpSeqBuf[_mpExpectSeq];
+            delete _mpSeqBuf[_mpExpectSeq];
+            _mpExpectSeq += 1;
+            _dispatchMpMessage(next);
+          }
+          if (Object.keys(_mpSeqBuf).length) _scheduleSeqGapFlush();
+        } catch (_) {}
+      }, MP_SEQ_GAP_MS);
+    }
+    let _stateSyncReqAt = 0;
+    function requestMpStateSync(reason) {
+      if (!mpMode || !vsActive || window._matchEnded || !mpIsLinked()) return;
+      const now = Date.now();
+      if (now - _stateSyncReqAt < 1500) return; // throttle
+      _stateSyncReqAt = now;
+      try {
+        mpSend({
+          type: 'state_sync_req',
+          reason: reason || 'recovery',
+          myScore: score,
+          oppScore: oppScore,
+          vsTimeLeft: vsTimeLeft
+        });
+      } catch (_) {}
+    }
+    function buildMpStateSyncPayload() {
+      const packPieces = (arr) => (arr || []).map(p => ({
+        shape: (p && p.shape) ? p.shape.map(c => Array.isArray(c) ? c.slice() : [0, 0]) : [[0, 0]],
+        color: (p && p.color) ? String(p.color) : '#7c5cff',
+        used: !!(p && p.used)
+      }));
+      const clock = (typeof hostClockPayload === 'function') ? hostClockPayload() : {};
+      return {
+        type: 'state_sync',
+        score: score,
+        oppScore: oppScore,
+        grid: grid,
+        oppGrid: oppGrid,
+        pieces: packPieces(pieces),
+        oppPieces: packPieces(oppPieces),
+        vsTimeLeft: clock.vsTimeLeft != null ? clock.vsTimeLeft : vsTimeLeft,
+        remainingMs: clock.remainingMs,
+        clockEndTs: clock.clockEndTs,
+        hostNow: clock.hostNow,
+        boardId: equippedBoardId,
+        skinId: equippedSkinId,
+        _seqOut: _mpOutSeq
+      };
+    }
+    function applyMpStateSync(data) {
+      if (!data || !vsActive || window._matchEnded || replayMode) return;
+      // Drop in-flight remote anim queue — snapshot is newer truth
+      try {
+        _oppPlaceAnimBusy = false;
+        _pendingOppDeal = null;
+        _pendingOppPlaces = [];
+      } catch (_) {}
+      // Peer's "me" is our "opp" — invert boards/scores/trays
+      if (typeof data.score === 'number' && Number.isFinite(data.score)) {
+        const next = Math.max(0, Math.min(data.score | 0, 999999));
+        // Soft authority: accept peer self-score only inside a plausible band (AND, not OR)
+        const lo = (oppScore || 0) - 50;
+        const hi = (oppScore || 0) + 800;
+        if (next >= lo && next <= hi) {
+          oppScore = next;
+        } else if (next > hi) {
+          // Large forward jump after gap — still adopt (recovery after packet loss)
+          oppScore = next;
+        }
+      }
+      // Local "me" score stays authoritative — peer cannot lower or raise it here
+      try {
+        document.getElementById('myScore').textContent = score;
+        document.getElementById('oppScore').textContent = oppScore;
+      } catch (_) {}
+      try { applyRemoteMatchClock(data); } catch (_) {}
+      const dragging = !!(typeof isDragging !== 'undefined' && isDragging);
+      if (!dragging) {
+        if (Array.isArray(data.grid) && data.grid.length === SIZE) {
+          oppGrid = data.grid.map(row => Array.isArray(row) ? row.slice() : row);
+          try { if (typeof boardOpp !== 'undefined' && boardOpp) renderGrid(oppGrid, boardOpp); } catch (_) {}
+        }
+        if (Array.isArray(data.pieces) && data.pieces.length) {
+          oppPieces = data.pieces.map(p => ({
+            shape: (p.shape || [[0, 0]]).map(c => Array.isArray(c) ? [+c[0] || 0, +c[1] || 0] : [0, 0]),
+            color: p.color || '#7c5cff',
+            used: !!p.used
+          }));
+          try { if (typeof renderOppPieces === 'function') renderOppPieces(); } catch (_) {}
+        }
+      }
+      if (typeof data._seqOut === 'number' && data._seqOut >= _mpExpectSeq - 1) {
+        _mpExpectSeq = (data._seqOut | 0) + 1;
+        _mpSeqBuf = Object.create(null);
+      }
+      try { ensureMatchClockRunning(); } catch (_) {}
+      try { persistLiveMatch(); } catch (_) {}
     }
     /** Validate remote place against local view of opponent grid. Soft: reject only clearly illegal. */
     function validateRemotePlace(data, shape) {
@@ -5891,6 +6173,13 @@
           if (!canPlaceOn(oppGrid, shape, data.r | 0, data.c | 0)) return false;
         }
       } catch (_) {}
+      // Score anti-cheat: reported score cannot jump more than placePts + max clear bonus
+      if (typeof data.score === 'number' && Number.isFinite(data.score)) {
+        const placePts = (typeof data.placePts === 'number') ? data.placePts : (shape.length * 10);
+        const maxJump = placePts + 5000; // generous clear/chain ceiling
+        if (data.score > (oppScore || 0) + maxJump) return false;
+        if (data.score < (oppScore || 0) - 20) return false; // score should not go backwards
+      }
       return true;
     }
 
@@ -5946,10 +6235,12 @@
       return !!(mpConn && mpConn.open);
     }
 
+    const MP_PROTO = 2; // bump when wire format changes
     function mpSend(obj) {
       if (mpConn && mpConn.open) {
         try {
           mpStampSeq(obj);
+          if (obj && obj.type === 'hello' && obj.v == null) obj.v = MP_PROTO;
           mpConn.send(obj);
         } catch (e) { console.warn('mp send', e); }
       }
@@ -6531,17 +6822,15 @@
     }
 
     function buildStartPayload(extra) {
+      // duration only — absolute match end is committed at go-live by host (see match_load_go)
       const dur = (typeof vsDuration === 'number' && vsDuration > 0) ? vsDuration : (mpLobbyDuration || 120);
-      const clockEndTs = Date.now() + dur * 1000;
-      try { window._matchClockEndTs = clockEndTs; } catch (_) {}
       const base = {
         type: 'start',
         duration: dur,
         boardId: equippedBoardId,
         skinId: equippedSkinId,
         hostName: myNickname,
-        trophies: typeof trophies === 'number' ? trophies : 0,
-        clockEndTs: clockEndTs
+        trophies: typeof trophies === 'number' ? trophies : 0
       };
       if (extra && typeof extra === 'object') {
         for (const k in extra) if (Object.prototype.hasOwnProperty.call(extra, k)) base[k] = extra[k];
@@ -6571,6 +6860,12 @@
 
     function wireMpConnection(conn, alreadyOpen) {
       if (!conn) return;
+      // Promote this connection as the only active match channel
+      try {
+        if (mpConn && mpConn !== conn) {
+          try { mpConn._bpSuperseded = true; } catch (_) {}
+        }
+      } catch (_) {}
       mpConn = conn;
       try { noteMpRemotePeer(conn); } catch (_) {}
       // Avoid stacking data/close/error handlers on the same DataConnection
@@ -6586,7 +6881,10 @@
         return;
       }
       conn._bpWired = true;
+      conn._bpSuperseded = false;
       const onOpen = () => {
+        // Stale open from a replaced connection
+        if (mpConn !== conn || conn._bpSuperseded) return;
         clearMpJoinTimer();
         const wasConnected = mpOppConnected;
         mpOppConnected = true;
@@ -6644,8 +6942,14 @@
       } else {
         conn.on('open', onOpen);
       }
-      conn.on('data', (data) => onMpMessage(data));
+      conn.on('data', (data) => {
+        // Ignore data from superseded / non-active connections (old channel after reconnect)
+        if (mpConn !== conn || conn._bpSuperseded) return;
+        onMpMessage(data);
+      });
       conn.on('close', () => {
+        // Close of an OLD connection must not tear down a newer live link
+        if (mpConn !== conn || conn._bpSuperseded) return;
         if (mpPendingJoin && mpPendingJoin.conn === conn) {
           mpPendingJoin = null;
           hideRjToast(true);
@@ -6729,19 +7033,29 @@
               color: p && p.color,
               used: !!(p && p.used)
             }));
+            const clock = (typeof hostClockPayload === 'function') ? hostClockPayload() : {
+              vsTimeLeft: vsTimeLeft,
+              clockEndTs: (typeof window._matchClockEndTs === 'number') ? window._matchClockEndTs : 0,
+              remainingMs: 0,
+              hostNow: Date.now()
+            };
             const payload = {
               type: 'match_rejoin_ok',
               stillLive: true,
               name: myNickname,
               score: score,
               oppScore: oppScore,
-              vsTimeLeft: vsTimeLeft,
+              vsTimeLeft: clock.vsTimeLeft,
+              clockEndTs: clock.clockEndTs,
+              remainingMs: clock.remainingMs,
+              hostNow: clock.hostNow,
               grid: grid,
               oppGrid: oppGrid,
               pieces: packPieces(pieces),
               oppPieces: packPieces(oppPieces),
               boardId: equippedBoardId,
-              skinId: equippedSkinId
+              skinId: equippedSkinId,
+              _seqOut: (typeof _mpOutSeq === 'number') ? _mpOutSeq : 0
             };
             try { conn.send(payload); } catch (_) { mpSend(payload); }
             // Second copy a bit later (rejoiner may attach data handler late)
@@ -7331,7 +7645,7 @@
 
     function onMpMessage(data) {
       if (!data || !data.type) return;
-      // Ordered delivery for critical game events (best-effort seq)
+      // Ordered delivery for gameplay stream only (place/deal/score/clear_fx/stuck)
       if (MP_SEQ_TYPES[data.type] && typeof data._seq === 'number' && data._seq > 0) {
         const s = data._seq | 0;
         if (s < _mpExpectSeq) {
@@ -7339,8 +7653,8 @@
           return;
         }
         if (s > _mpExpectSeq) {
-          // buffer out-of-order (cap to avoid memory blowup)
-          if (Object.keys(_mpSeqBuf).length < 64) _mpSeqBuf[s] = data;
+          if (Object.keys(_mpSeqBuf).length < MP_SEQ_BUF_MAX) _mpSeqBuf[s] = data;
+          _scheduleSeqGapFlush();
           return;
         }
         // s === _mpExpectSeq — process, then drain buffer
@@ -7424,6 +7738,61 @@
         case 'match_load_go':
           try { onMatchLoadGo(data); } catch (_) {}
           break;
+        case 'match_load_go_req':
+          // Guest lost host go — host re-sends authoritative go if still loading or just live
+          try {
+            if (mpRole === 'host' && mpIsLinked()) {
+              const durSec = (vsDuration === 60 || vsDuration === 120 || vsDuration === 180) ? vsDuration : 120;
+              if (!getMatchClockEndTs() && (isMatchLoadActive() || vsActive)) {
+                commitMatchClockEndTs(Date.now() + durSec * 1000, { force: true, allowExtend: true });
+                _setMonotonicBudget(durSec * 1000, { force: true });
+              }
+              const clock = hostClockPayload();
+              const loadId = (_matchLoad && _matchLoad.id) || (data && data.id) || 0;
+              mpSend({
+                type: 'match_load_go',
+                id: loadId,
+                name: myNickname,
+                duration: vsDuration,
+                clockEndTs: clock.clockEndTs || 0,
+                remainingMs: clock.remainingMs || 0,
+                vsTimeLeft: clock.vsTimeLeft || vsTimeLeft,
+                hostNow: clock.hostNow || Date.now(),
+                role: 'host',
+                resent: true
+              });
+              // If still in load and both bound, finish host side too
+              if (_matchLoad && !_matchLoad.finished && _matchLoad.meBound && _matchLoad.peerBound) {
+                _matchLoad.goSent = true;
+                _finishMatchLoadAndGoLive();
+              }
+            }
+          } catch (_) {}
+          break;
+        case 'time_sync':
+          // Host remaining time — guest may only shorten local clock, never extend
+          if (mpRole !== 'host' && vsActive && !window._matchEnded) {
+            try {
+              applyRemoteMatchClock(data);
+              try { updateTimerDisplay(); } catch (_) {}
+            } catch (_) {}
+          }
+          break;
+        case 'state_sync_req':
+          if (vsActive && !window._matchEnded && mpMode) {
+            try {
+              const payload = buildMpStateSyncPayload();
+              mpSend(payload);
+              // second copy — reliable channel still occasionally drops first frame
+              setTimeout(() => { try { mpSend(payload); } catch (_) {} }, 120);
+            } catch (_) {}
+          }
+          break;
+        case 'state_sync':
+          if (vsActive && !window._matchEnded && !replayMode) {
+            try { applyMpStateSync(data); } catch (_) {}
+          }
+          break;
         case 'match_load_abort':
           try { onMatchLoadAbort(data); } catch (_) {}
           break;
@@ -7446,26 +7815,30 @@
           }
           break;
         case 'start':
+          // Ignore late/duplicate start once match is live or already loading
+          if (vsActive || window._matchEnded) break;
+          if (mpLoading || (typeof isMatchLoadActive === 'function' && isMatchLoadActive())) break;
           try { resetMpSeq(); } catch (_) {}
           vsDuration = (data.duration === 60 || data.duration === 120 || data.duration === 180) ? data.duration : (mpLobbyDuration || 120);
           vsTimeLeft = vsDuration;
-          // Shared wall-clock when host provides absolute end timestamp
-          if (typeof data.clockEndTs === 'number' && data.clockEndTs > Date.now()) {
-            try {
-              window._matchClockEndTs = data.clockEndTs;
-              vsTimeLeft = Math.max(0, Math.ceil((data.clockEndTs - Date.now()) / 1000));
-            } catch (_) {}
-          }
+          // Absolute clock is committed later at match_load_go — only seed duration here
+          try { clearMatchClock(); } catch (_) { try { window._matchClockEndTs = 0; } catch (_2) {} }
           vsModeType = 'online';
           mpMode = true;
           currentBot = null;
           oppName = data.hostName || mpOppName;
           if (typeof data.trophies === 'number') mpOppTrophies = data.trophies;
           if (data.boardId && typeof data.boardId === 'string') {
-            try { window.mpOppBoardId = data.boardId; } catch (_) {}
+            try {
+              window.mpOppBoardId = data.boardId;
+              if (typeof applyOppBoard === 'function') applyOppBoard(data.boardId);
+            } catch (_) {}
           }
           if (data.skinId && typeof data.skinId === 'string') {
-            try { window.mpOppSkinId = data.skinId; } catch (_) {}
+            try {
+              window.mpOppSkinId = data.skinId;
+              if (typeof applyOppSkin === 'function') applyOppSkin(data.skinId);
+            } catch (_) {}
           }
           if (data.lobby || mpRoomCode) {
             mpFromMatchmaking = false;
@@ -7483,11 +7856,13 @@
           }
           break;
         case 'place':
-          if (replayMode || !vsActive) break;
+          if (replayMode || !vsActive || window._matchEnded) break;
+          if (window._mpRejoiningMatch && !window._rejoinStateApplied) break;
           applyOppRemotePlace(data);
           break;
         case 'deal':
-          if (replayMode || !vsActive) break;
+          if (replayMode || !vsActive || window._matchEnded) break;
+          if (window._mpRejoiningMatch && !window._rejoinStateApplied) break;
           applyOppRemoteDeal(data);
           break;
         case 'stuck':
@@ -7532,6 +7907,7 @@
                   color: p.color,
                   used: !!p.used
                 }));
+                const clock = hostClockPayload();
                 const payload = {
                   type: 'match_rejoin_ok',
                   stillLive: true,
@@ -7539,8 +7915,10 @@
                   // local = sender; peer maps inverted
                   score: score,
                   oppScore: oppScore,
-                  vsTimeLeft: vsTimeLeft,
-                  clockEndTs: (typeof window._matchClockEndTs === 'number') ? window._matchClockEndTs : 0,
+                  vsTimeLeft: clock.vsTimeLeft,
+                  clockEndTs: clock.clockEndTs,
+                  remainingMs: clock.remainingMs,
+                  hostNow: clock.hostNow,
                   grid: grid,
                   oppGrid: oppGrid,
                   pieces: packPieces(pieces),
@@ -7586,17 +7964,10 @@
             // Invert scores/boards/trays: sender's "me" is our "opp"
             if (typeof data.score === 'number') oppScore = data.score;
             if (typeof data.oppScore === 'number') score = data.oppScore;
-            if (typeof data.vsTimeLeft === 'number') {
-              vsTimeLeft = data.vsTimeLeft;
-              try { updateTimerDisplay(); } catch (_) {}
-            }
-            if (typeof data.clockEndTs === 'number' && data.clockEndTs > Date.now()) {
-              try {
-                window._matchClockEndTs = data.clockEndTs;
-                vsTimeLeft = Math.max(0, Math.ceil((data.clockEndTs - Date.now()) / 1000));
-                updateTimerDisplay();
-              } catch (_) {}
-            }
+            // Prefer remainingMs (skew-safe); never extend local remaining time
+            try { applyRemoteMatchClock(data); } catch (_) {}
+            try { updateTimerDisplay(); } catch (_) {}
+            try { ensureMatchClockRunning(); } catch (_) {}
             // Align sequence counters so post-rejoin events are not dropped as "late"
             if (typeof data._seqOut === 'number' && data._seqOut >= 0) {
               _mpExpectSeq = (data._seqOut | 0) + 1;
@@ -7779,28 +8150,67 @@
             const quiet = (typeof shouldQuietMatchEnd === 'function')
               ? shouldQuietMatchEnd()
               : !vsActive;
+            /**
+             * Authoritative end policy (anti-cheat):
+             * - Local "me" score is NEVER lowered by peer payload.
+             * - Peer "youWin" (peer admits loss / forfeit) → we may forceWin.
+             * - Peer "youLose" (peer claims victory) → TRUST ONLY if local scores
+             *   already have us behind, or we are in a real DC/forfeit state.
+             * - Otherwise result is score-based (no peer-forced loss).
+             */
             const applyEnd = () => {
               try {
-                if (typeof data.myScore === 'number') oppScore = Math.max(0, data.myScore);
-                if (typeof data.oppScore === 'number') score = Math.max(0, data.oppScore);
+                // Peer's myScore = our oppScore view; may raise but not invent huge jumps
+                if (typeof data.myScore === 'number' && Number.isFinite(data.myScore)) {
+                  const reported = Math.max(0, data.myScore | 0);
+                  if (reported <= (oppScore || 0) + 800) {
+                    oppScore = Math.max(oppScore || 0, reported);
+                  }
+                }
+                // Peer's oppScore = their view of us — never decrease local score
+                if (typeof data.oppScore === 'number' && Number.isFinite(data.oppScore)) {
+                  const reportedUs = Math.max(0, data.oppScore | 0);
+                  if (reportedUs > score && reportedUs <= score + 200) {
+                    /* ignore — local me is authoritative */
+                  }
+                }
                 const myEl = document.getElementById('myScore');
                 const oppEl = document.getElementById('oppScore');
                 if (myEl) myEl.textContent = score;
                 if (oppEl) oppEl.textContent = oppScore;
               } catch (_) {}
               if (window._matchEnded) return;
+              const reason = String(data.reason || 'disconnect');
               const opts = {
                 silent: true,
                 quiet: quiet,
-                reason: data.reason || 'disconnect'
+                reason: reason
               };
-              if (data.youLose) endVersus({ forceLoss: true, ...opts });
-              else if (data.youWin) endVersus({ forceWin: true, ...opts });
-              else endVersus({ ...opts });
+              const peerClaimsWeWin = !!data.youWin;   // peer forceLoss / forfeit → we win
+              const peerClaimsWeLose = !!data.youLose; // peer forceWin → we lose (dangerous)
+              const forfeitLike = /forfeit|leave|disconnect|afk|opp_dc|leave_for_lobby|time_up/i.test(reason);
+              const localBehind = (score || 0) < (oppScore || 0);
+              const weAreDcSide = !!(typeof oppDisconnected !== 'undefined' && oppDisconnected);
+              if (peerClaimsWeWin) {
+                // Peer admits defeat — safe to accept
+                endVersus({ forceWin: true, ...opts });
+              } else if (peerClaimsWeLose) {
+                // Only accept forced loss if scores already say so, or forfeit-like + we were DC'd
+                if (localBehind) {
+                  endVersus({ forceLoss: true, ...opts });
+                } else if (forfeitLike && weAreDcSide) {
+                  endVersus({ forceLoss: true, ...opts });
+                } else {
+                  // Ignore peer-forced win for them — decide by local scores
+                  endVersus({ ...opts });
+                }
+              } else {
+                endVersus({ ...opts });
+              }
             };
             if (vsActive || isOnVersusScreen()) {
               if (data.youLose || data.youWin) applyEnd();
-              else endVersus({ silent: true, quiet: quiet });
+              else endVersus({ silent: true, quiet: quiet, reason: data.reason || 'normal' });
             } else if (!window._matchEnded && (data.youWin || data.youLose)) {
               // Menu / rejoin panel — toast only, stay where we are
               try {
@@ -7809,7 +8219,6 @@
                   try { restoreSnapState(snap); } catch (_) {}
                 }
               } catch (_) {}
-              // Do NOT force vsActive/screen for quiet menu toast
               if (quiet) {
                 applyEnd();
               } else {
@@ -7904,7 +8313,10 @@
           rematchPending = false;
           rematchIWant = false;
           rematchTheyWant = false;
-          startRematchMatch();
+          // Ignore accept that races with a new live match / loading
+          if (!vsActive && !isMatchLoadActive() && !mpLoading) {
+            startRematchMatch();
+          }
           break;
         case 'rematch_decline':
           {
@@ -8076,20 +8488,21 @@
     }
 
     /** Wire data/close for an already-open match connection (MM or room). */
-    function wireMpConnLifetime(conn) {
+    function wireMpConnData(conn) {
       if (!conn || conn._bpRematchWired) return;
       conn._bpRematchWired = true;
       noteMpRemotePeer(conn);
       conn.on('data', (data) => {
+        if (mpConn !== conn || conn._bpSuperseded) return;
         try { mpOppConnected = true; } catch (_) {}
         try { onMpMessage(data); } catch (_) {}
       });
       conn.on('close', () => {
         try {
-          if (mpConn === conn) {
-            mpOppConnected = false;
-          }
+          if (mpConn !== conn || conn._bpSuperseded) return;
+          mpOppConnected = false;
         } catch (_) {}
+        if (mpConn !== conn) return;
         if (vsActive && mpMode) {
           try { handleOpponentDisconnect(); } catch (_) {}
         } else if (mpMode && !vsActive && (isMatchLoadActive() || vsIntroLock || mode === 'versus' || mpLoading)) {
@@ -8104,7 +8517,7 @@
         }
       });
       try {
-        if (conn.open) mpOppConnected = true;
+        if (conn.open && mpConn === conn) mpOppConnected = true;
       } catch (_) {}
     }
 
@@ -8462,35 +8875,67 @@
         }
       }
     }
+    let _rematchStartBusy = false;
     function startRematchMatch() {
-      try { bumpAchStat('rematchPlayed', 1); } catch (_) {}
-      hideRematchOffer();
-      hideRematchWait();
-      try { hideRmToast(false); } catch (_) {}
-      rematchIWant = false;
-      rematchTheyWant = false;
-      rematchPending = false;
-      rematchClickCount = 0;
-      pendingRematchOfferName = null;
-      postMatchOnlineEligible = false; // in-match again; endVersus will re-arm
-      try { if (mpMode) startAfkWatch(); } catch (_) {}
-      try { dismissPostMatchResult(); } catch (_) {
-        try { document.getElementById('versusResult').classList.remove('visible'); } catch (_) {}
-        try { document.getElementById('reviewBar').classList.remove('visible'); } catch (_) {}
+      // Single-flight: simultaneous accept/invite must not double-start
+      if (_rematchStartBusy) return;
+      if (vsActive || isMatchLoadActive() || mpLoading) return;
+      _rematchStartBusy = true;
+      try {
+        try { bumpAchStat('rematchPlayed', 1); } catch (_) {}
+        hideRematchOffer();
+        hideRematchWait();
+        try { hideRmToast(false); } catch (_) {}
+        rematchIWant = false;
+        rematchTheyWant = false;
+        rematchPending = false;
+        rematchClickCount = 0;
+        pendingRematchOfferName = null;
+        postMatchOnlineEligible = false; // in-match again; endVersus will re-arm
+        // Clear end locks from previous match so endVersus/start can run again
+        try { window._matchEnded = false; } catch (_) {}
+        try { window._endVersusBusy = false; } catch (_) {}
+        try { window._rankedDeltaApplied = false; } catch (_) {}
+        try { clearMatchClock(); } catch (_) {}
+        // Hard-clear previous match state so it cannot leak into rematch / next replay
+        try {
+          matchLog = [];
+          score = 0;
+          oppScore = 0;
+          pieces = [];
+          oppPieces = [];
+          matchStartTs = Date.now();
+          window._pendingIntroOppDeal = null;
+          _oppPlaceAnimBusy = false;
+          _pendingOppDeal = null;
+          _pendingOppPlaces = [];
+        } catch (_) {}
+        // Re-apply known opponent cosmetics immediately (no wait for first place/hello)
+        try {
+          if (window.mpOppSkinId) applyOppSkin(window.mpOppSkinId);
+          if (window.mpOppBoardId) applyOppBoard(window.mpOppBoardId);
+        } catch (_) {}
+        try { if (mpMode) startAfkWatch(); } catch (_) {}
+        try { dismissPostMatchResult(); } catch (_) {
+          try { document.getElementById('versusResult').classList.remove('visible'); } catch (_) {}
+          try { document.getElementById('reviewBar').classList.remove('visible'); } catch (_) {}
+        }
+        clearDisconnectTimer();
+        mpMatchStarting = false;
+        vsIntroLock = false;
+        currentBot = null;
+        vsModeType = 'online';
+        mpMode = true;
+        // Host re-sends start so clocks sync (+ skinId/boardId in payload)
+        if (mpRole === 'host') {
+          try { resetMpSeq(); } catch (_) {}
+          mpSend(buildStartPayload({}));
+          beginVersusMatchMp(true);
+        }
+        // guest waits for start message
+      } finally {
+        setTimeout(() => { _rematchStartBusy = false; }, 2500);
       }
-      clearDisconnectTimer();
-      mpMatchStarting = false;
-      vsIntroLock = false;
-      currentBot = null;
-      vsModeType = 'online';
-      mpMode = true;
-      // Host re-sends start so clocks sync
-      if (mpRole === 'host') {
-        try { resetMpSeq(); } catch (_) {}
-        mpSend(buildStartPayload({}));
-        beginVersusMatchMp(true);
-      }
-      // guest waits for start message
     }
 
     function showRemotePhrase(text) {
@@ -9010,28 +9455,59 @@
       }, 5000);
     }
 
+    /** Recent challenge keys to suppress duplicate toasts (room+code+nonce window) */
+    const _chRecent = Object.create(null);
     function handleIncomingChallenge(data, conn) {
       if (!data || !data.room) return;
+      if (conn && conn._bpChallengeSuperseded) return;
       const room = String(data.room).toUpperCase();
+      const code = normalizeFriendCode(data.code || '');
+      const nonce = (data.nonce != null) ? String(data.nonce) : '';
+      const dedupeKey = room + '|' + code + (nonce ? '|' + nonce : '');
+      const now = Date.now();
+      // Purge old entries
+      try {
+        for (const k of Object.keys(_chRecent)) {
+          if (now - _chRecent[k] > 30000) delete _chRecent[k];
+        }
+      } catch (_) {}
       if (mpOppConnected && !vsActive) {
-        try { conn.send({ type: 'challenge_decline', reason: 'busy' }); } catch (_) {}
+        try { if (conn && conn.open) conn.send({ type: 'challenge_decline', reason: 'busy' }); } catch (_) {}
         return;
       }
-      // Same room already pending — refresh conn only, no second toast/flash
+      // Same room already pending — prefer newest open conn, supersede old
       if (chPending && String(chPending.room || '').toUpperCase() === room) {
-        chPending.conn = conn || chPending.conn;
+        if (conn && chPending.conn && chPending.conn !== conn) {
+          try { chPending.conn._bpChallengeSuperseded = true; } catch (_) {}
+        }
+        if (conn) chPending.conn = conn;
         if (data.name) chPending.name = (data.name || chPending.name).toString().slice(0, 20);
         if (data.code) chPending.code = data.code;
         if (typeof data.trophies === 'number') chPending.trophies = data.trophies;
+        if (nonce) chPending.nonce = nonce;
         try { renderFriendRequests(); updateFriendsSectionCounts(); } catch (_) {}
         return;
+      }
+      // Duplicate challenge within 30s (retry storms) — silent drop after first toast
+      if (_chRecent[dedupeKey] && now - _chRecent[dedupeKey] < 30000) {
+        // Still refresh conn on pending if same room sneaks through without chPending
+        return;
+      }
+      _chRecent[dedupeKey] = now;
+      if (code) {
+        const roomCodeKey = room + '|' + code;
+        if (_chRecent[roomCodeKey] && now - _chRecent[roomCodeKey] < 8000 && !chPending) {
+          return;
+        }
+        _chRecent[roomCodeKey] = now;
       }
       showChToast({
         conn,
         room,
         name: (data.name || 'Игрок').toString().slice(0, 20),
         code: data.code || '',
-        trophies: typeof data.trophies === 'number' ? data.trophies : null
+        trophies: typeof data.trophies === 'number' ? data.trophies : null,
+        nonce: nonce || null
       });
     }
 
@@ -9049,7 +9525,7 @@
         document.getElementById('reviewBar')?.classList.remove('visible');
       } catch (_) {}
       try {
-        if (req.conn && req.conn.open) {
+        if (req.conn && req.conn.open && !req.conn._bpChallengeSuperseded) {
           req.conn.send({ type: 'challenge_accept', code: myFriendCode, name: myNickname, room: req.room });
         }
       } catch (_) {}
@@ -9091,6 +9567,13 @@
     function acceptChallenge() {
       const req = chPending;
       if (!req || !req.room) return;
+      // Drop challenge if its signaling conn was superseded by a newer dial
+      if (req.conn && req.conn._bpChallengeSuperseded) {
+        chPending = null;
+        hideChToast(true);
+        try { renderFriendRequests(); updateFriendsSectionCounts(); } catch (_) {}
+        return;
+      }
       if (vsActive) {
         openLeaveMatchConfirm(req);
         return;
@@ -9361,7 +9844,8 @@
                 room: code,
                 name: myNickname,
                 code: myFriendCode,
-                trophies: typeof trophies === 'number' ? trophies : 0
+                trophies: typeof trophies === 'number' ? trophies : 0,
+                nonce: Date.now().toString(36) + Math.random().toString(36).slice(2, 8)
               });
               sent = true;
               try { markLobbyInviteWait(friend.code, code); } catch (_) {}
@@ -9532,7 +10016,8 @@
                 room: mpRoomCode,
                 name: myNickname,
                 code: myFriendCode,
-                trophies: typeof trophies === 'number' ? trophies : 0
+                trophies: typeof trophies === 'number' ? trophies : 0,
+                nonce: Date.now().toString(36) + Math.random().toString(36).slice(2, 8)
               });
               sent = true;
               setFriendPresence(code, 'online');
@@ -9646,6 +10131,7 @@
           if (_matchLoad.timer) clearTimeout(_matchLoad.timer);
           if (_matchLoad.hb) clearInterval(_matchLoad.hb);
           if (_matchLoad.retry) clearInterval(_matchLoad.retry);
+          if (_matchLoad._goWaitTimer) clearTimeout(_matchLoad._goWaitTimer);
         }
       } catch (_) {}
       _matchLoad = null;
@@ -9926,16 +10412,71 @@
       }
       if (!_matchLoad.goSent) {
         _matchLoad.goSent = true;
-        try {
-          mpSend({
-            type: 'match_load_go',
-            id: _matchLoad.id,
-            name: myNickname,
-            duration: vsDuration
-          });
-        } catch (_) {}
+        // ONLY host sends match_load_go (authoritative clock). Guest waits for host go.
+        if (mpRole === 'host') {
+          const durSec = (vsDuration === 60 || vsDuration === 120 || vsDuration === 180) ? vsDuration : 120;
+          vsTimeLeft = durSec;
+          // Fresh monotonic + wall budget for this match
+          try { clearMatchClock(); } catch (_) {}
+          commitMatchClockEndTs(Date.now() + durSec * 1000, { force: true, allowExtend: true });
+          _setMonotonicBudget(durSec * 1000, { force: true });
+          try {
+            const clock = hostClockPayload();
+            mpSend({
+              type: 'match_load_go',
+              id: _matchLoad.id,
+              name: myNickname,
+              duration: vsDuration,
+              clockEndTs: clock.clockEndTs || 0,
+              remainingMs: clock.remainingMs || 0,
+              vsTimeLeft: clock.vsTimeLeft || vsTimeLeft,
+              hostNow: clock.hostNow || Date.now(),
+              role: 'host'
+            });
+          } catch (_) {}
+          _finishMatchLoadAndGoLive();
+        } else {
+          // Guest: progressive go_req; local fallback only after host still silent
+          try {
+            if (_matchLoad._goWaitTimer) clearTimeout(_matchLoad._goWaitTimer);
+            const loadId = _matchLoad.id;
+            const nudge = (attempt) => {
+              try {
+                if (!_matchLoad || _matchLoad.finished || _matchLoad.goRecv) return;
+                if (_matchLoad.id !== loadId) return;
+                if (attempt <= 2) {
+                  try {
+                    mpSend({
+                      type: 'match_load_go_req',
+                      id: loadId,
+                      name: myNickname,
+                      duration: vsDuration
+                    });
+                  } catch (_) {}
+                  _matchLoad._goWaitTimer = setTimeout(() => nudge(attempt + 1), attempt === 1 ? 2000 : 2500);
+                } else {
+                  // Last resort after ~4.5s of nudges: local start; time_sync will clamp
+                  if (_matchLoad && !_matchLoad.finished && !_matchLoad.goRecv) {
+                    _matchLoad.goRecv = true;
+                    const durSec = (vsDuration === 60 || vsDuration === 120 || vsDuration === 180) ? vsDuration : 120;
+                    if (!getMatchClockEndTs()) {
+                      commitMatchClockEndTs(Date.now() + durSec * 1000, { force: true });
+                    }
+                    _finishMatchLoadAndGoLive();
+                  }
+                }
+              } catch (_) {}
+            };
+            _matchLoad._goWaitTimer = setTimeout(() => nudge(1), 1500);
+          } catch (_) {}
+        }
+        // Guest: do not finish until host go arrives (onMatchLoadGo → maybeFinish again)
+        return;
       }
-      _finishMatchLoadAndGoLive();
+      // go already sent (host) or received (guest flagged goRecv)
+      if (mpRole === 'host' || _matchLoad.goRecv) {
+        _finishMatchLoadAndGoLive();
+      }
     }
 
     function _finishMatchLoadAndGoLive() {
@@ -9947,7 +10488,6 @@
       }
       // Lock immediately so match_load_go cannot re-enter
       _matchLoad.finished = true;
-      const loadSnap = _matchLoad;
       clearMatchLoadState();
       mpLoading = false;
       // Prevent a second loading sequence from late start / load_begin
@@ -9990,8 +10530,15 @@
             });
           }
         } catch (_) {}
-        window._matchClockEndTs = Date.now() + Math.max(0, vsTimeLeft || vsDuration || 120) * 1000;
-        try { startMatchWallClock(window._matchClockEndTs); } catch (_) {}
+        // Host already committed in maybeFinishMatchLoad; guest should have adopted via match_load_go.
+        // Only create a local end if still missing (offline / host path race).
+        if (!getMatchClockEndTs()) {
+          const durSec = (vsDuration === 60 || vsDuration === 120 || vsDuration === 180) ? vsDuration : 120;
+          commitMatchClockEndTs(Date.now() + durSec * 1000, { force: true });
+        }
+        try { startMatchWallClock(getMatchClockEndTs()); } catch (_) {}
+        // Host periodically re-asserts remaining time so guest cannot drift longer
+        try { startHostTimeSync(); } catch (_) {}
         vsIntroLock = false;
         try { mpMatchStarting = false; } catch (_) {}
       }, 500);
@@ -10140,11 +10687,56 @@
     }
 
     function onMatchLoadGo(data) {
+      // Only host's go carries authoritative clock
+      const fromHost = !!(data && data.role === 'host');
+      if (mpRole !== 'host' && data && fromHost) {
+        if (typeof data.duration === 'number' && (data.duration === 60 || data.duration === 120 || data.duration === 180)) {
+          vsDuration = data.duration;
+        }
+        try { applyRemoteMatchClock(data); } catch (_) {}
+        if (vsActive && getMatchClockEndTs()) {
+          try { startMatchWallClock(getMatchClockEndTs()); } catch (_) {}
+        }
+      }
       if (!_matchLoad || _matchLoad.finished) return;
+      // Ignore go for a different load session
+      if (data && data.id && _matchLoad.id && data.id !== _matchLoad.id) return;
       _matchLoad.goRecv = true;
       _matchLoad.peerBound = true; // go implies peer is ready
       _matchLoad.peerHere = true;
       maybeFinishMatchLoad();
+    }
+
+    let _hostTimeSyncTimer = null;
+    function stopHostTimeSync() {
+      if (_hostTimeSyncTimer) {
+        try { clearInterval(_hostTimeSyncTimer); } catch (_) {}
+        _hostTimeSyncTimer = null;
+      }
+    }
+    function startHostTimeSync() {
+      stopHostTimeSync();
+      if (mpRole !== 'host' || !mpMode) return;
+      const sendSync = () => {
+        try {
+          if (!vsActive || window._matchEnded || mpRole !== 'host' || !mpIsLinked()) {
+            stopHostTimeSync();
+            return;
+          }
+          const p = hostClockPayload();
+          mpSend({
+            type: 'time_sync',
+            clockEndTs: p.clockEndTs,
+            remainingMs: p.remainingMs,
+            vsTimeLeft: p.vsTimeLeft,
+            hostNow: p.hostNow
+          });
+        } catch (_) {}
+      };
+      // Immediate sync so guest adopts host clock even if match_load_go raced
+      sendSync();
+      setTimeout(sendSync, 800);
+      _hostTimeSyncTimer = setInterval(sendSync, 5000);
     }
 
     function onMatchLoadAbort(data) {
@@ -10234,10 +10826,12 @@
 
     function applyOppRemotePlace(data) {
       if (!vsActive || !data.shape) return;
+      // Rejoin in progress — snapshot will supply truth; ignore mid-flight places
+      if (window._mpRejoiningMatch && !window._rejoinStateApplied) return;
       // Queue while a previous fly is on screen — never skip a move
       if (_oppPlaceAnimBusy) {
         if (!_pendingOppPlaces) _pendingOppPlaces = [];
-        _pendingOppPlaces.push(data);
+        if (_pendingOppPlaces.length < 24) _pendingOppPlaces.push(data);
         return;
       }
       // Lock immediately so concurrent messages cannot start a second fly
@@ -10248,6 +10842,10 @@
         if (data.boardId && data.boardId !== window.mpOppBoardId) {
           window.mpOppBoardId = data.boardId;
           if (typeof applyOppBoard === 'function') applyOppBoard(data.boardId);
+        }
+        if (data.skinId && typeof data.skinId === 'string' && data.skinId !== window.mpOppSkinId) {
+          window.mpOppSkinId = data.skinId;
+          if (typeof applyOppSkin === 'function') applyOppSkin(data.skinId);
         }
       } catch (_) {}
       // Normalize shape cells (PeerJS / JSON may alter numbers; keep same key as tray deals)
@@ -10323,16 +10921,33 @@
           if (usedIdx < 0) usedIdx = oppPieces.indexOf(u);
         }
       }
-      if (typeof data.score === 'number') {
-        oppScore = data.score;
+      if (typeof data.score === 'number' && Number.isFinite(data.score)) {
+        // Local view of opp score: only accept forward progress within place budget
+        const placePts = (typeof data.placePts === 'number' && data.placePts >= 0)
+          ? data.placePts
+          : (shape.length * 10);
+        const maxNext = (oppScore || 0) + placePts + 5000;
+        const reported = Math.max(0, data.score | 0);
+        if (reported >= (oppScore || 0) && reported <= maxNext) {
+          oppScore = reported;
+        } else if (reported > maxNext) {
+          // Clamp inflated score claim
+          oppScore = maxNext;
+        }
         try { document.getElementById('oppScore').textContent = oppScore; } catch (_) {}
       }
       try {
+        // Opening deal may lag behind first place — inject into matchLog for replay
+        ensureSideDealLogged('opp', oppPieces, { shape: shape, color: color });
         let logShape = shape.map(p => p.slice());
         if (typeof normalize === 'function') logShape = normalize(logShape.map(p => p.slice()));
         const placePts = (typeof data.placePts === 'number')
           ? data.placePts
           : (shape.length * 10);
+        // Persist skin from place so rematch/replay never loses opponent cosmetics
+        if (data && data.skinId && typeof data.skinId === 'string') {
+          window.mpOppSkinId = data.skinId;
+        }
         matchLog.push({
           type: 'place', side: 'opp', t: Date.now() - matchStartTs,
           shape: logShape,
@@ -12585,6 +13200,7 @@
       }
       e.preventDefault(); e.stopPropagation();
       selectedIdx = idx; dragPiece = pieces[idx]; isDragging = true;
+      try { document.body.classList.add('is-dragging'); } catch (_) {}
       activeDragPointerId = (e && e.pointerId != null) ? e.pointerId : 'mouse';
       SFX.pick();
       const xy0 = eventClientXY(e);
@@ -12645,6 +13261,7 @@
         // Rejoin loading overlay only — solo wait / peer rejoin flag must still allow play
         if (window._rejoinLoading || window._rejoinInputLock || placingLock) {
           isDragging = false;
+          try { clearDraggingClass(); } catch (_) {}
           activeDragPointerId = null;
           if (rafId) { cancelAnimationFrame(rafId); rafId = 0; }
           try {
@@ -12660,6 +13277,7 @@
           return;
         }
         isDragging = false;
+        try { clearDraggingClass(); } catch (_) {}
         activeDragPointerId = null;
         if (rafId) { cancelAnimationFrame(rafId); rafId=0; }
         try {
@@ -12794,13 +13412,20 @@
       _ghostCellKey = '';
     }
     function moveGhost(x, y) {
-      // Compositor path: --gx/--gy drive translate3d (see #ghost CSS)
+      // Single compositor transform (inline). --gx/--gy kept for CSS fallbacks.
+      const scale = ghost.classList.contains('visible') ? 1 : 0.7;
+      // Avoid string churn when position unchanged (mobile GC pressure during drag)
+      if (ghost._mx === x && ghost._my === y && ghost._ms === scale) return;
+      ghost._mx = x; ghost._my = y; ghost._ms = scale;
       ghost.style.setProperty('--gx', x + 'px');
       ghost.style.setProperty('--gy', y + 'px');
-      const scale = ghost.classList.contains('visible') ? 1 : 0.7;
       ghost.style.transform = 'translate3d(' + x + 'px,' + y + 'px,0) translate(-50%,-50%) scale(' + scale + ')';
     }
+    function clearDraggingClass() {
+      try { document.body.classList.remove('is-dragging'); } catch (_) {}
+    }
     function hideGhost() {
+      clearDraggingClass();
       ghost.style.display = 'none';
       ghost.classList.remove('visible', 'cell-glide', 'no-glide');
     }
@@ -13012,6 +13637,9 @@
       const placePts = shape.length * 10;
       score += placePts;
       if (mode==='versus') {
+        try {
+          ensureSideDealLogged('me', pieces, { shape: shape, color: color });
+        } catch (_) {}
         matchLog.push({
           type: 'place',
           side: 'me',
@@ -13025,7 +13653,7 @@
           pieceIdx: (typeof placedIdx === 'number' && placedIdx >= 0) ? placedIdx : -1,
           placePts,
           legendFx: !!isLegendPlace,
-          skinId: isLegendPlace ? (document.body.dataset.skinId || equippedSkinId || null) : null
+          skinId: (document.body.dataset.skinId || equippedSkinId || null)
         });
         document.getElementById('myScore').textContent = score;
         try { if (typeof noteMyAction === 'function') noteMyAction(); } catch (_) {}
@@ -13047,9 +13675,9 @@
             pieceIdx: (typeof placedIdx === 'number' && placedIdx >= 0) ? placedIdx : -1,
             // Opponent must know our field for matching clear FX
             boardId: equippedBoardId || null,
-            // So opponent sees legendary place sparks on their screen
+            // Always send skin + legend flag so replay/rematch cosmetics stay consistent
             legendFx: !!isLegendPlace,
-            skinId: isLegendPlace ? (document.body.dataset.skinId || equippedSkinId || null) : null
+            skinId: (document.body.dataset.skinId || equippedSkinId || null)
           });
         }
         if (aiStuck && score > oppScore) { endVersus(); return true; }
@@ -13190,7 +13818,11 @@
     }
     function spawnLegendSparks(boardWrap, count, skinId, origin) {
       if (!boardWrap || settings.anim === 'off') return;
-      const n = Math.max(6, Math.min(18, count || 10));
+      let n = Math.max(6, Math.min(18, count || 10));
+      try {
+        if (document.body.classList.contains('touch-ui')) n = Math.min(n, 8);
+        if (settings.anim === 'soft') n = Math.min(n, 6);
+      } catch (_) {}
       const palette = legendSparkPalette(skinId);
       boardWrap.style.position = boardWrap.style.position || 'relative';
       for (let i = 0; i < n; i++) {
@@ -13239,7 +13871,13 @@
       if (rarity === 'legendary') { base = 10; mult = 4; distMax = 100; life = 1500; }
       else if (rarity === 'epic') { base = 7; mult = 3; distMax = 78; life = 1300; }
       else { base = 4; mult = 2; distMax = 52; life = 1050; } // rare
-      const n = Math.max(base, Math.min(base + 12, base + (nLines || 1) * mult));
+      let n = Math.max(base, Math.min(base + 12, base + (nLines || 1) * mult));
+      try {
+        if (document.body.classList.contains('touch-ui')) {
+          n = Math.min(n, rarity === 'legendary' ? 10 : 7);
+          life = Math.min(life, 1100);
+        }
+      } catch (_) {}
       boardWrap.style.position = boardWrap.style.position || 'relative';
       const id = skinId || 'default';
       const clsMap = {
@@ -15020,6 +15658,46 @@
         });
       } catch (_) {}
     }
+    /** True if matchLog already has a deal for this side (opening hand recorded). */
+    function sideHasDealInLog(side) {
+      try {
+        const wantOpp = side === 'opp';
+        for (let i = 0; i < matchLog.length; i++) {
+          const m = matchLog[i];
+          if (!m) continue;
+          if (m.type !== 'deal' && m.type !== 'Deal') continue;
+          if ((m.side === 'opp') === wantOpp) return true;
+        }
+      } catch (_) {}
+      return false;
+    }
+    /**
+     * Guarantee an opening deal exists before the first place of a side is logged.
+     * Fixes replay missing opp tray on first moves when deal packet lagged behind place.
+     */
+    function ensureSideDealLogged(side, pieceArr, fallbackPiece) {
+      if (sideHasDealInLog(side)) return;
+      let arr = pieceArr;
+      if (!arr || !arr.length) {
+        if (fallbackPiece && fallbackPiece.shape) {
+          arr = [
+            { shape: fallbackPiece.shape, color: fallbackPiece.color || '#7c5cff', used: false },
+            { shape: [[0, 0]], color: '#7c5cff', used: true },
+            { shape: [[0, 0]], color: '#7c5cff', used: true }
+          ];
+        } else {
+          return;
+        }
+      }
+      // logDeal requires vsActive — temporarily allow if we are mid-place at go race
+      const wasActive = vsActive;
+      try {
+        if (!vsActive) vsActive = true;
+        logDeal(side, arr);
+      } finally {
+        vsActive = wasActive;
+      }
+    }
     let lastMatchResult = null;
 
 
@@ -15051,7 +15729,8 @@
       // Single-flight: ignore concurrent end calls (timer + disconnect + peer end)
       if (window._endVersusBusy) return;
       window._endVersusBusy = true;
-      try { window._matchClockEndTs = 0; } catch (_) {}
+      try { stopHostTimeSync(); } catch (_) {}
+      try { clearMatchClock(); } catch (_) { try { window._matchClockEndTs = 0; } catch (_2) {} }
       try { window._soloRejoinActive = false; } catch (_) {}
       try {
         if (window._soloDialIv) { clearInterval(window._soloDialIv); window._soloDialIv = null; }

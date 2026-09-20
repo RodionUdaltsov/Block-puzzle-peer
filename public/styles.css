@@ -11169,9 +11169,66 @@ body.touch-ui .piece-slot.lifting {
 body.touch-ui .screen.active {
   filter: none !important;
 }
+
+/*
+ * Mobile perf: cells transition only compositor-friendly props.
+ * Animating background/filter/box-shadow every preview hop forces style+paint on 64 cells.
+ */
+body.touch-ui .cell {
+  transition: transform 0.28s cubic-bezier(0.33, 0, 0.2, 1), opacity 0.24s ease !important;
+  contain: layout style paint;
+}
+body.touch-ui .board-wrap .cell:not(.filled):not(.preview-ok):not(.preview-bad) {
+  transition: transform 0.28s cubic-bezier(0.33, 0, 0.2, 1), opacity 0.24s ease !important;
+}
+/* During active drag: zero cell transitions — preview hops must be instant */
+body.is-dragging .cell,
+body.is-dragging .board-wrap .cell {
+  transition: none !important;
+}
+/* Preview paint without background transition thrash */
+body.touch-ui .cell.preview-ok,
+body.touch-ui .cell.preview-bad {
+  transition: none !important;
+}
+/* Pause continuous field ambient animations (pseudo-elements) on touch — static look kept */
+body.touch-ui .board-wrap[class*="board-fx-"]::before,
+body.touch-ui .board-wrap[class*="board-fx-"]::after {
+  animation-play-state: paused !important;
+}
+/* Slightly lighter filled volume on mobile (same structure, fewer blur layers) */
+body.touch-ui .board-wrap .cell.filled {
+  box-shadow:
+    inset 0 1.5px 0 rgba(255,255,255,0.22),
+    inset 0 -1px 2px rgba(0,0,0,0.1),
+    0 0.5px 1px rgba(0,0,0,0.05) !important;
+}
+body.touch-ui body.skin-fx-prism .board-wrap .cell.filled,
+body.touch-ui.skin-fx-prism .board-wrap .cell.filled,
+body.touch-ui .player-panel.opp.skin-fx-prism .board-wrap .cell.filled {
+  box-shadow:
+    inset 0 2px 0 rgba(255,255,255,0.45),
+    inset 0 -1px 2px rgba(0,0,0,0.1),
+    0 0 8px color-mix(in srgb, var(--cell-glow, var(--cell-base)) 22%, transparent) !important;
+}
+/* Ghost on compositor */
+body.touch-ui #ghost {
+  will-change: transform;
+  backface-visibility: hidden;
+  -webkit-backface-visibility: hidden;
+}
+/* Particles: shorter + no blur filters on mobile */
+body.touch-ui .legend-spark,
+body.touch-ui .epic-spark,
+body.touch-ui .skin-particle {
+  filter: none !important;
+  box-shadow: none !important;
+}
 @media (hover: none) and (pointer: coarse) {
-  /* Extra safety if class missing */
   .cell.placing {
     animation-duration: 0.85s;
+  }
+  .cell {
+    transition: transform 0.28s cubic-bezier(0.33, 0, 0.2, 1), opacity 0.24s ease !important;
   }
 }
