@@ -4219,6 +4219,15 @@
         if (resultUp || window._matchEnded) return;
         if (!opts.forceLeave && (!vsActive || !mpMode)) return;
         if (!mpMode && !opts.forceLeave) return;
+        // Empty pre-start / no moves: never create a rejoinable live snapshot.
+        // (Previously only within 6s after go-live — waiting on loaded boards without
+        // touching the screen left a rejoin offer for the leaver into a cancelled match.)
+        try {
+          if (typeof isEmptyMatchNoMoves === 'function' && isEmptyMatchNoMoves()) {
+            try { clearLiveMatch(); } catch (_) {}
+            return;
+          }
+        } catch (_) {}
 
         const nowTs = Date.now();
         // leftAt only when the player actually left (myDcAt set by notifyLeavingMatch)
@@ -4417,6 +4426,16 @@
           localStorage.removeItem(LIVE_MATCH_KEY);
           return null;
         }
+        // Empty 0–0 never-played match is not rejoinable (peer already cancelled as pre-start).
+        // Drop so leaver is not offered «переподключиться» into a free win on disconnected board.
+        try {
+          const empty = (s.score | 0) === 0 && (s.oppScore | 0) === 0
+            && (!Array.isArray(s.moves) || !s.moves.some(e => e && (e.type === 'place' || e.type === 'opp_place')));
+          if (empty) {
+            localStorage.removeItem(LIVE_MATCH_KEY);
+            return null;
+          }
+        } catch (_) {}
         const leftAt = (typeof s.leftAt === 'number' && s.leftAt > 0) ? s.leftAt : s.t;
         const age = now - leftAt;
         const reconnectMs = reconnectWindowMs(s);
@@ -4484,26 +4503,71 @@
         });
         try { conn.close(); } catch (_) {}
         try { peer.destroy(); } catch (_) {}
-        // Only clear when peer explicitly ends the match (not on timeout)
+        // Explicit end from peer
         if (result && result.stillLive === false && !result._timeout) {
           clearLiveMatch();
           return false;
         }
+        // Empty pre-start / 0-0 never-played match: timeout or no reply → drop rejoin
+        // (peer already went to lobby after abort; keeping toast lets leaver farm a free win)
+        try {
+          const emptySnap = snap && (snap.score | 0) === 0 && (snap.oppScore | 0) === 0
+            && (!Array.isArray(snap.moves) || !snap.moves.some(e => e && (e.type === 'place' || e.type === 'opp_place')));
+          if (emptySnap && (!result || result.stillLive !== true)) {
+            clearLiveMatch();
+            return false;
+          }
+        } catch (_) {}
         return true;
       } catch (_) {
         try { if (conn) conn.close(); } catch (_) {}
         try { if (peer) peer.destroy(); } catch (_) {}
-        // Unreachable: keep toast — match may still be live
+        // Unreachable: if snapshot is empty 0-0 (left before real play), drop rejoin
+        try {
+          if (snap && (snap.score | 0) === 0 && (snap.oppScore | 0) === 0
+            && (!Array.isArray(snap.moves) || !snap.moves.some(e => e && (e.type === 'place' || e.type === 'opp_place')))) {
+            clearLiveMatch();
+            return false;
+          }
+        } catch (_) {}
+        // Otherwise keep toast — match may still be live
         return true;
       }
     }
+    /** True when no one has placed a piece and scores are still 0-0. */
+    function isEmptyMatchNoMoves() {
+      try {
+        const hasPlace = Array.isArray(matchLog) && matchLog.some(e => e && (e.type === 'place' || e.type === 'opp_place'));
+        if (hasPlace) return false;
+        if ((score | 0) !== 0 || (oppScore | 0) !== 0) return false;
+        // Boards still pristine — no cell occupied on either side
+        try {
+          const myFilled = Array.isArray(grid) && grid.some(row => Array.isArray(row) && row.some(c => c != null));
+          const oppFilled = Array.isArray(oppGrid) && oppGrid.some(row => Array.isArray(row) && row.some(c => c != null));
+          if (myFilled || oppFilled) return false;
+        } catch (_) {}
+        return true;
+      } catch (_) {
+        return (score | 0) === 0 && (oppScore | 0) === 0;
+      }
+    }
+    /** Align with abortPreMatch / handleOpponentDisconnect: loading or empty (no places) = pre-start. */
+    function isPreStartOrEmptyMatchLeave() {
+      try {
+        if (!vsActive && (
+          (typeof isMatchLoadActive === 'function' && isMatchLoadActive())
+          || !!mpLoading || !!vsIntroLock || !!mpMatchStarting
+        )) return true;
+        // Went live but nobody placed: always cancel as pre-start (no time window).
+        // Leaver must not keep a rejoin snapshot; stayer must not freeze on DC wait.
+        if (mpMode && isEmptyMatchNoMoves()) return true;
+      } catch (_) {}
+      return false;
+    }
     function notifyLeavingMatch() {
       if (!mpMode) return;
-      // Pre-live leave (loading / "Старт!" animation): tell peer to cancel and do not leave broken state
-      const preLive = !vsActive && (
-        (typeof isMatchLoadActive === 'function' && isMatchLoadActive())
-        || !!mpLoading || !!vsIntroLock || !!mpMatchStarting
-      );
+      // Pre-live / empty just-started leave: cancel for peer, never persist rejoin snapshot
+      const preLive = isPreStartOrEmptyMatchLeave();
       if (preLive) {
         try {
           mpSend({ type: 'match_load_abort', reason: 'peer_left_before_start' });
@@ -4514,7 +4578,8 @@
           const bound = (_matchLoad && _matchLoad.meBound && _matchLoad.peerBound)
             || mode === 'versus'
             || !!vsIntroLock
-            || !!mpMatchStarting;
+            || !!mpMatchStarting
+            || !!vsActive;
           if (bound && !window._matchEnded) {
             // Soft local loss record without full live fight UI
             window._matchEnded = true;
@@ -4551,6 +4616,9 @@
         try { clearMatchLoadState(); } catch (_) {}
         try { hideMatchLoading(); } catch (_) {}
         try { vsIntroLock = false; mpMatchStarting = false; mpLoading = false; } catch (_) {}
+        // Critical: never offer "переподключиться" into a match the peer already cancelled
+        try { clearLiveMatch(); } catch (_) {}
+        try { myDcAt = 0; oppDcAt = 0; bothAwayMode = false; } catch (_) {}
         return;
       }
       // Allow leave stamp even if vsActive just flipped — still need rejoin snapshot
@@ -4833,6 +4901,7 @@
       showScreen('versus');
       try { closeRoomLobby(); } catch (_) {}
       document.body.classList.remove('replay-ui');
+      document.body.classList.remove('replay-playing');
       try {
         document.getElementById('versusResult').classList.remove('visible');
         document.getElementById('myScore').textContent = String(score);
@@ -5137,6 +5206,7 @@
         showScreen('versus');
         try { closeRoomLobby(); } catch (_) {}
         document.body.classList.remove('replay-ui');
+        document.body.classList.remove('replay-playing');
         const fb = document.getElementById('btnForfeit');
         if (fb) fb.style.display = '';
         try {
@@ -7016,6 +7086,15 @@
     /** Resolve when disconnect wait ends. Supports dual-away score/timer rules. */
     function resolveDisconnectWin() {
       if (!vsActive || !mpMode) return;
+      // Safety: empty never-played match must never become a DC win / freeze outcome
+      try {
+        if (typeof isEmptyMatchNoMoves === 'function' && isEmptyMatchNoMoves()) {
+          try { clearDisconnectTimer(); } catch (_) {}
+          try { vsActive = false; } catch (_) {}
+          try { abortPreMatchMissingPeer('Соперник отключился до начала матча'); } catch (_) {}
+          return;
+        }
+      } catch (_) {}
       const wasAfk = dcWasAfk;
       const soloBack = !!window._soloRejoinActive;
       const bothAway = !soloBack && (bothAwayMode || (myDcAt > 0 && oppDcAt > 0));
@@ -7125,23 +7204,32 @@
     }
 
     function handleOpponentDisconnect() {
-      if (window._matchEnded || !vsActive || !mpMode) return;
-      // Race: peer closed during/right after "Старт!" — no real fight yet → cancel, not AFK win on empty board
+      if (window._matchEnded || !mpMode) return;
+      // No placements yet (0–0, empty boards): always cancel as pre-start — not DC win / freeze / rejoin.
+      // Covers "match found, fields loaded, neither player made a move" regardless of time since go-live.
       try {
-        const wentLive = (typeof window._matchWentLiveAt === 'number' && window._matchWentLiveAt > 0)
-          ? window._matchWentLiveAt
-          : (matchStartTs || 0);
-        const age = Date.now() - (wentLive || 0);
-        let hasPlace = false;
-        try {
-          hasPlace = Array.isArray(matchLog) && matchLog.some(e => e && (e.type === 'place' || e.type === 'opp_place'));
-        } catch (_) {}
-        if (age >= 0 && age < 3500 && !hasPlace && (score|0) === 0 && (oppScore|0) === 0) {
+        const stillLoading = !!(typeof isMatchLoadActive === 'function' && isMatchLoadActive())
+          || !!mpLoading || !!vsIntroLock || !!mpMatchStarting;
+        const empty = (typeof isEmptyMatchNoMoves === 'function' && isEmptyMatchNoMoves());
+        // Live empty board OR still in load/intro → cancel, never freeze DC timer
+        if (stillLoading || (empty && (vsActive || stillLoading))) {
+          try { oppDisconnected = false; } catch (_) {}
+          try { clearDisconnectTimer(); } catch (_) {}
+          try { hideBoardDisconnectOverlay(); } catch (_) {}
           try { vsActive = false; } catch (_) {}
-          try { abortPreMatchMissingPeer('Соперник отключился перед стартом'); } catch (_) {}
+          try { abortPreMatchMissingPeer('Соперник отключился до начала матча'); } catch (_) {}
+          return;
+        }
+        // Empty board even if vsActive was cleared by a race
+        if (empty) {
+          try { oppDisconnected = false; } catch (_) {}
+          try { clearDisconnectTimer(); } catch (_) {}
+          try { hideBoardDisconnectOverlay(); } catch (_) {}
+          try { abortPreMatchMissingPeer('Соперник отключился до начала матча'); } catch (_) {}
           return;
         }
       } catch (_) {}
+      if (!vsActive) return;
       // Already counting down disconnect — keep deadline (no reset / no extend)
       if (oppDisconnected && dcDeadlineTs) {
         oppDisconnected = true;
@@ -7188,6 +7276,10 @@
       hideDisconnectBanner(); // bottom banner free for AFK self-warn; DC uses center
       const left = Math.ceil(waitMs / 1000);
       showBoardDisconnectOverlay(left);
+      // Remaining player must keep playing and keep wall-clock ticking
+      try { placingLock = false; } catch (_) {}
+      try { ensurePlayableIfLive(); } catch (_) {}
+      try { ensureMatchClockRunning(); } catch (_) {}
       try { ensureLiveMatchAccept(); } catch (_) {}
       try { persistLiveMatch(); } catch (_) {}
 
@@ -8108,7 +8200,7 @@
         } else if (mpMode && !vsActive && !postMatchOnlineEligible
           && (isMatchLoadActive() || !!vsIntroLock || !!mpLoading || !!mmFound)) {
           // Real pre-start handshake only — NOT residual mode==="versus" after result screen
-          try { abortPreMatchMissingPeer('Соперник отключился до старта'); } catch (_) {}
+          try { abortPreMatchMissingPeer('Соперник отключился до начала матча'); } catch (_) {}
         } else if (postMatchOnlineEligible && !vsActive) {
           // Soft disconnect — do not destroy peer; opponent may return
           try {
@@ -9710,6 +9802,7 @@
       hideRematchOffer();
       hideRematchWait();
       document.body.classList.remove('replay-ui');
+      document.body.classList.remove('replay-playing');
       const fbLive = document.getElementById('btnForfeit');
       if (fbLive) fbLive.style.display = '';
 
@@ -9961,7 +10054,7 @@
       if (!_matchLoad || _matchLoad.finished) return;
       if (!_matchLoad.meBound || !_matchLoad.peerBound) return;
       if (!mpConn || !mpConn.open) {
-        abortPreMatchMissingPeer('Соперник отключился перед стартом');
+        abortPreMatchMissingPeer('Соперник отключился до начала матча');
         return;
       }
       // Lock immediately so match_load_go cannot re-enter
@@ -9976,7 +10069,7 @@
       setTimeout(() => {
         hideMatchLoading();
         if (!mpConn || !mpConn.open) {
-          abortPreMatchMissingPeer('Соперник отключился перед стартом');
+          abortPreMatchMissingPeer('Соперник отключился до начала матча');
           return;
         }
         window._matchEnded = false;
@@ -10016,7 +10109,7 @@
         if (!mpConn || !mpConn.open) {
           try {
             vsActive = false;
-            abortPreMatchMissingPeer('Соперник отключился перед стартом');
+            abortPreMatchMissingPeer('Соперник отключился до начала матча');
           } catch (_) {}
           return;
         }
@@ -10043,18 +10136,15 @@
           return;
         }
       } catch (_) {}
-      // Only cancel if fight has not become a real live match yet
-      // (vsActive may be true for a few hundred ms after "Старт!" — still treat as pre-start)
+      // Only cancel if fight has not become a real live match yet.
+      // Empty board (no places, 0–0) is always pre-start — even long after "Старт!".
       try {
-        const wentLive = (typeof window._matchWentLiveAt === 'number' && window._matchWentLiveAt > 0)
-          ? window._matchWentLiveAt
-          : (matchStartTs || 0);
-        const age = wentLive ? (Date.now() - wentLive) : 99999;
         let hasPlace = false;
         try {
           hasPlace = Array.isArray(matchLog) && matchLog.some(e => e && (e.type === 'place' || e.type === 'opp_place'));
         } catch (_) {}
-        const stillPre = !vsActive || mpLoading || (age < 3500 && !hasPlace && (score|0) === 0 && (oppScore|0) === 0);
+        const empty = !hasPlace && (score | 0) === 0 && (oppScore | 0) === 0;
+        const stillPre = !vsActive || mpLoading || !!vsIntroLock || !!mpMatchStarting || empty;
         if (!stillPre) return;
       } catch (_) {
         if (vsActive && !mpLoading) return;
@@ -10080,6 +10170,10 @@
       try { hideBoardDisconnectOverlay(); } catch (_) {}
       try { hideDisconnectBanner(); } catch (_) {}
       try { hideMatchRejoinPanel(); } catch (_) {}
+      // Peer may still have a rejoin snapshot from a race — we cannot clear theirs,
+      // but clear our own so we never rejoin into a cancelled empty match.
+      try { clearLiveMatch(); } catch (_) {}
+      try { myDcAt = 0; oppDcAt = 0; bothAwayMode = false; } catch (_) {}
 
       const ranked = !!mpFromMatchmaking;
       const room = mpRoomCode;
@@ -10107,38 +10201,44 @@
       } catch (_) {}
 
       if (ranked) {
-        // Only auto-requeue if THIS player was actively in ranked queue/handshake —
-        // never yank someone sitting on the result screen into search because the
-        // other side clicked «Ещё матч» / tore down the post-match link.
-        let wasActivelySearching = false;
+        // Auto-requeue for ranked when peer left before any move (or during load).
+        // Do not yank someone already on the post-match result screen into search.
+        let onResultScreen = false;
+        try {
+          const vr = document.getElementById('versusResult');
+          onResultScreen = !!(vr && vr.classList.contains('visible'));
+        } catch (_) {}
+        let wasInRankedFlow = true; // ranked flag already true — prefer requeue over menu
         try {
           const matchScreen = document.getElementById('screenMatch');
-          wasActivelySearching = !!(mmFound || mmActive
+          const versusScreen = document.getElementById('screenVersus');
+          wasInRankedFlow = !!(mmFound || mmActive
             || (matchScreen && matchScreen.classList.contains('active'))
+            || (versusScreen && versusScreen.classList.contains('active'))
             || isMatchLoadActive()
-            || mpLoading);
+            || mpLoading
+            || mpMatchStarting
+            || ranked);
         } catch (_) {}
         try { destroyMp(); } catch (_) {}
         mmFound = false;
         mmActive = false;
-        if (wasActivelySearching) {
+        if (!onResultScreen && wasInRankedFlow) {
           try {
             window._preMatchAborting = false;
             startOnlineMatchmaking();
-            mmSetStatus('Соперник не подключился', 'Ищем снова…');
+            mmSetStatus('Соперник отключился до начала матча', 'Ищем снова…');
           } catch (_) {
             window._preMatchAborting = false;
             try {
               showScreen('duration');
-              mmSetStatus('Соперник не подключился', 'Попробуй поиск снова');
+              mmSetStatus('Соперник отключился до начала матча', 'Попробуй поиск снова');
             } catch (_2) {}
           }
         } else {
           window._preMatchAborting = false;
           try {
-            // Stay on result / menu — player can press «Ещё матч» themselves
-            if (document.getElementById('versusResult')
-              && document.getElementById('versusResult').classList.contains('visible')) {
+            if (onResultScreen) {
               /* keep result UI */
             } else {
               showScreen('menu');
@@ -10231,7 +10331,15 @@
     }
 
     function onMatchLoadAbort(data) {
-      if (vsActive && !mpLoading) return;
+      // After go-live, still honour abort if the match is empty (no places) —
+      // peer left before either side played.
+      try {
+        if (vsActive && !mpLoading) {
+          if (!(typeof isEmptyMatchNoMoves === 'function' && isEmptyMatchNoMoves())) return;
+        }
+      } catch (_) {
+        if (vsActive && !mpLoading) return;
+      }
       try {
         abortPreMatchMissingPeer((data && data.reason) || 'Соперник отменил загрузку');
       } catch (_) {}
@@ -11638,6 +11746,7 @@
           try { stopReplayPlay(); } catch (_) {}
           replayMode = false;
           document.body.classList.remove('replay-ui');
+          document.body.classList.remove('replay-playing');
           try { hideReplayEndCard(); } catch (_) {}
           try {
             if (window._replaySkinBackup) {
@@ -12370,6 +12479,7 @@
         vsActive = false;
         replayMode = false;
         document.body.classList.remove('replay-ui');
+        document.body.classList.remove('replay-playing');
       } catch (_) {}
       showScreen('classic');
       mode = 'classic';
@@ -13911,7 +14021,7 @@
             && (isMatchLoadActive() || !!vsIntroLock || !!mpLoading || !!mmFound)) {
             // Peer left during handshake / intro — cancel, no AFK
             // Do not treat post-match result screen (mode may still be "versus") as pre-start
-            try { abortPreMatchMissingPeer('Соперник отключился до старта'); } catch (_) {}
+            try { abortPreMatchMissingPeer('Соперник отключился до начала матча'); } catch (_) {}
           } else if (postMatchOnlineEligible && !vsActive) {
             try {
               hideRematchWait();
@@ -14474,6 +14584,7 @@
 
       showScreen('versus');
       document.body.classList.remove('replay-ui');
+      document.body.classList.remove('replay-playing');
       const fb = document.getElementById('btnForfeit');
       if (fb) fb.style.display = '';
       grid = Array.from({length:SIZE},()=>Array(SIZE).fill(null));
@@ -15379,6 +15490,7 @@
           document.getElementById('versusResult').classList.remove('visible');
         } catch (_) {}
         try { document.body.classList.remove('replay-ui'); } catch (_) {}
+        document.body.classList.remove('replay-playing');
         try { updateMenuStats(); } catch (_) {}
         return;
       }
@@ -15648,13 +15760,18 @@
       } else {
         replayReturnTo = 'history';
       }
-      try { document.getElementById('versusResult').classList.remove('visible'); } catch (_) {}
+      // Cancel any pending result modal / score-duel chain (fixes race: quick "Смотреть повтор"
+      // after match would open replay and then overlay the result window on top).
+      try { dismissPostMatchResult(); } catch (_) {
+        try { document.getElementById('versusResult').classList.remove('visible'); } catch (_2) {}
+      }
       if (vsTimerId) clearInterval(vsTimerId);
       if (aiInterval) clearInterval(aiInterval);
       if (replayTimer) { clearTimeout(replayTimer); replayTimer = null; }
       vsActive = false;
       replayMode = true;
       document.body.classList.add('replay-ui');
+      document.body.classList.add('replay-playing');
       window._repChainMe = 0;
       window._repChainOpp = 0;
       // Backup current cosmetics; restore when leaving replay
@@ -15885,6 +16002,7 @@
         stopReplayPlay();
         replayMode = false;
         document.body.classList.remove('replay-ui');
+        document.body.classList.remove('replay-playing');
         hideReplayEndCard();
         try {
           const scrub = document.getElementById('replayScrubBar');

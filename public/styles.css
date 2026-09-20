@@ -7758,7 +7758,9 @@
       z-index: 40;
       box-shadow: 0 6px 20px rgba(0,0,0,0.28);
     }
-    body.replay-ui .replay-scrub-bar {
+    /* Scrub bar only when actively in replay playback (not just post-match result UI).
+       body.replay-ui alone is also set after match end for chrome; do not force-show slider then. */
+    body.replay-ui.replay-playing .replay-scrub-bar {
       display: flex !important;
     }
     .replay-scrub-range {
