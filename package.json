@@ -1,0 +1,11 @@
+{
+  "name": "block-puzzle-server",
+  "version": "3.1.0",
+  "description": "Block Puzzle — pure Node + vendor/ws",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "engines": { "node": ">=18" },
+  "dependencies": {}
+}

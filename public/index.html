@@ -1,0 +1,1175 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <!-- Optional: <meta name="bp-ws" content="ws://YOUR_IP:9000/ws" /> -->
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="Block Puzzle" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="theme-color" content="#0f1115" />
+  <meta name="format-detection" content="telephone=no" />
+  <meta name="color-scheme" content="dark" />
+  <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+  <!-- Cross-platform: iOS / Android / desktop browsers -->
+  <meta name="apple-touch-fullscreen" content="yes" />
+  <title>Block Puzzle</title>
+  <!-- Multiplayer: WebSocket MatchClient -->
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+
+  <!-- Boot loader -->
+  <div id="bootLoader" aria-busy="true" aria-label="Загрузка">
+    <div class="boot-bg" aria-hidden="true"></div>
+    <div class="boot-orbs" aria-hidden="true"><i></i><i></i><i></i></div>
+    <div class="boot-stage">
+      <div class="boot-logo">Block Puzzle</div>
+      <div class="boot-tagline">собери · очисти · победи</div>
+      <div class="boot-board" aria-hidden="true">
+        <span></span><span></span><span></span><span></span>
+        <span></span><span></span><span></span><span></span>
+        <span></span><span></span><span></span><span></span>
+        <span></span><span></span><span></span><span></span>
+      </div>
+      <div class="boot-orbit" aria-hidden="true">
+        <div class="boot-orbit-ring"></div>
+        <div class="boot-orbit-ring r2"></div>
+        <div class="boot-orbit-core"></div>
+        <span class="boot-orbit-cube c1"></span>
+        <span class="boot-orbit-cube c2"></span>
+        <span class="boot-orbit-cube c3"></span>
+        <span class="boot-orbit-cube c4"></span>
+      </div>
+      <div class="boot-hint">Загрузка<span class="boot-dots">…</span></div>
+    </div>
+  </div>
+  <script>
+  /* boot-failsafe + unlock UI if game.js fails or overlays stick */
+  (function () {
+    function unlockUI() {
+      try { document.body.classList.remove('rejoin-loading', 'is-offline'); } catch (e) {}
+      ['bootLoader', 'matchIntro', 'matchEndFreeze', 'rejoinLoading', 'botPickOverlay'].forEach(function (id) {
+        var el = document.getElementById(id);
+        if (!el) return;
+        try {
+          el.classList.remove('visible', 'show', 'hide');
+          el.style.display = 'none';
+          el.style.pointerEvents = 'none';
+          el.setAttribute('aria-hidden', 'true');
+        } catch (e) {}
+      });
+      var boot = document.getElementById('bootLoader');
+      if (boot) {
+        try {
+          boot.setAttribute('data-hidden', '1');
+          boot.classList.add('hide');
+          boot.style.display = 'none';
+          boot.style.pointerEvents = 'none';
+          setTimeout(function () { try { boot.remove(); } catch (e) {} }, 400);
+        } catch (e) {}
+      }
+    }
+    window.__hideBootLoader = unlockUI;
+    window.__unlockUI = unlockUI;
+    if (document.readyState === 'complete') setTimeout(unlockUI, 800);
+    else window.addEventListener('load', function () { setTimeout(unlockUI, 600); });
+    setTimeout(unlockUI, 2500);
+    // First tap always clears blockers
+    document.addEventListener('pointerdown', function once() {
+      unlockUI();
+      document.removeEventListener('pointerdown', once, true);
+    }, true);
+  })();
+  </script>
+
+  <!-- Match intro (classic / versus) -->
+  <div id="matchIntro" aria-hidden="true">
+    <div class="mi-ring"></div>
+    <div class="mi-ring r2"></div>
+    <div class="mi-core">
+      <div class="mi-label" id="miLabel">Подготовка</div>
+      <div class="mi-title" id="miTitle">Старт</div>
+      <div class="mi-sub" id="miSub"></div>
+      <div class="mi-blocks" aria-hidden="true">
+        <span></span><span></span><span></span><span></span><span></span>
+      </div>
+    </div>
+  </div>
+
+  <div id="matchEndFreeze" aria-hidden="true">
+    <div class="mef-flash" aria-hidden="true"></div>
+    <div class="mef-core">
+      <div class="mef-label" id="mefLabel">Матч</div>
+      <div class="mef-title" id="mefTitle">Конец</div>
+      <div class="mef-sub" id="mefSub"></div>
+      <div class="mef-scores" id="mefScores" aria-hidden="true">
+        <span class="mef-sc me" id="mefScoreMe">0</span>
+        <span class="mef-colon">:</span>
+        <span class="mef-sc opp" id="mefScoreOpp">0</span>
+      </div>
+      <div class="mef-bars" aria-hidden="true"><span></span><span></span><span></span></div>
+    </div>
+  </div>
+
+  <div class="net-status-pill ok" id="netStatusPill" aria-hidden="true"></div>
+
+<div class="info-toast" id="infoToast" aria-live="polite">
+      <div class="info-toast-label" id="infoToastLabel"></div>
+      <div class="info-toast-text" id="infoToastText"></div>
+    </div>
+
+<div class="ch-toast" id="chToast" aria-live="polite">
+      <div class="ch-toast-shine"></div>
+      <div class="ch-toast-head">
+        <div class="ch-toast-av" id="chToastAv">?</div>
+        <div style="min-width:0;flex:1">
+          <div class="ch-toast-label">⚔️ Вызов на матч</div>
+          <div class="ch-toast-name" id="chToastName">—</div>
+          <div class="ch-toast-meta" id="chToastMeta"></div>
+        </div>
+      </div>
+      <div class="ch-toast-actions">
+        <button class="primary" id="chBtnAccept">Принять</button>
+        <button class="ghost" id="chBtnDecline">Отклонить</button>
+      </div>
+      <div class="fr-toast-hint" id="chToastCountdown">Скроется через 5 с</div>
+    </div>
+
+<div class="rm-toast" id="rmToast" aria-live="polite">
+      <div class="rm-toast-shine"></div>
+      <div class="rm-toast-head">
+        <div class="rm-toast-av" id="rmToastAv">↻</div>
+        <div style="min-width:0;flex:1">
+          <div class="rm-toast-label">Реванш</div>
+          <div class="rm-toast-name" id="rmToastName">—</div>
+          <div class="rm-toast-meta" id="rmToastMeta">Предлагает ещё один матч</div>
+        </div>
+      </div>
+      <div class="rm-toast-actions">
+        <button class="primary" id="rmBtnAccept">Принять</button>
+        <button class="ghost" id="rmBtnDecline">Отклонить</button>
+      </div>
+      <div class="fr-toast-hint" id="rmToastCountdown">Скроется через 15 с</div>
+    </div>
+
+<div class="fr-toast" id="frToast" aria-live="polite">
+      <div class="fr-toast-shine"></div>
+      <button type="button" class="fr-toast-dismiss" id="frToastDismiss" title="Скрыть" aria-label="Скрыть">×</button>
+      <div class="fr-toast-head">
+        <div class="fr-toast-av" id="frToastAv">?</div>
+        <div style="min-width:0;flex:1">
+          <div class="fr-toast-label">Запрос в друзья</div>
+          <div class="fr-toast-name" id="frToastName">—</div>
+          <div class="fr-toast-meta" id="frToastMeta"></div>
+        </div>
+      </div>
+      <div class="fr-toast-actions">
+        <button class="primary" id="frToastAccept">Принять</button>
+        <button class="ghost" id="frToastDecline">Отклонить</button>
+      </div>
+      <div class="fr-toast-hint" id="frToastCountdown">Скроется через 5 с</div>
+    </div>
+
+<div class="rj-toast" id="rjToast" aria-live="polite">
+      <div class="rj-toast-head">
+        <div class="rj-toast-av" id="rjToastAv">?</div>
+        <div style="min-width:0;flex:1">
+          <div class="rj-toast-label">Вход в комнату</div>
+          <div class="rj-toast-name" id="rjToastName">—</div>
+          <div class="rj-toast-meta" id="rjToastMeta"></div>
+        </div>
+      </div>
+      <div class="rj-toast-actions">
+        <button class="primary" id="rjToastAccept">Пустить</button>
+        <button class="ghost" id="rjToastDecline">Отклонить</button>
+      </div>
+      <div class="fr-toast-hint" id="rjToastCountdown">Скроется через 5 с</div>
+    </div>
+  <div class="screen active" id="screenMenu">
+    <div class="home-top">
+      <button type="button" class="home-profile" id="btnHomeProfile" title="Профиль">
+        <div class="home-profile-av" id="homeProfileAv">?</div>
+        <div class="home-profile-meta">
+          <div class="home-profile-name" id="homeProfileName">Гость</div>
+          <div class="home-profile-badge guest">Гость</div>
+        </div>
+        <span class="home-profile-chev" aria-hidden="true">›</span>
+      </button>
+      <div class="home-pills">
+        <span class="offline-chip" id="offlineChip" title="Нет сети — доступны классика и боты">📡 Оффлайн</span>
+        <div class="home-pill silver-star" title="Серебряные звёзды за победы над ботами (1/2/3 мин)">☆ <span id="menuSilverStars">0/0</span></div>
+        <div class="home-pill trophy" title="Трофеи">🏆 <span id="menuTrophies">0</span></div>
+        <div class="home-pill diamond" title="Алмазы">💎 <span id="menuDiamonds">3</span></div>
+      </div>
+    </div>
+    <div class="home-hero">
+      <h1>Играй. Побеждай.</h1>
+      <p>Линии на поле · рекорды · дуэли с друзьями и ботами</p>
+    </div>
+    <div class="home-deco-row" aria-hidden="true">
+      <span class="home-deco-cell"></span>
+      <span class="home-deco-cell"></span>
+      <span class="home-deco-cell"></span>
+      <span class="home-deco-cell"></span>
+      <span class="home-deco-cell"></span>
+    </div>
+    <div class="home-modes">
+      <div class="home-mode" id="cardClassic" role="button" tabindex="0">
+        <div class="home-mode-icon">🎮</div>
+        <div class="home-mode-body">
+          <h3>Классика</h3>
+          <p>Бесконечная игра. Очищай линии и бей свой рекорд.</p>
+          <div class="home-mode-meta gold-star" title="Рекорд классики">★ Рекорд <strong id="menuBest">0</strong></div>
+        </div>
+        <div class="home-mode-arrow">›</div>
+      </div>
+      <div class="home-mode versus" id="cardVersus" role="button" tabindex="0">
+        <div class="home-mode-icon">⚔️</div>
+        <div class="home-mode-body">
+          <h3>Соревнование</h3>
+          <p>Дуэль на время. Трофеи за победу над игроками и ботами.</p>
+        </div>
+        <div class="home-mode-arrow">›</div>
+      </div>
+    </div>
+    <div class="home-nav">
+      <button type="button" class="home-nav-btn" id="btnFriends"><span class="ico">👥</span><span>Друзья</span></button>
+      <button type="button" class="home-nav-btn" id="btnShop"><span class="ico">🛒</span><span>Магазин</span></button>
+      <button type="button" class="home-nav-btn" id="btnInventory"><span class="ico">🎒</span><span>Инвентарь</span></button>
+      <button type="button" class="home-nav-btn" id="btnHistory"><span class="ico">📋</span><span>История</span></button>
+      <button type="button" class="home-nav-btn" id="btnAchievements"><span class="ico">🏅</span><span>Награды</span></button>
+      <button type="button" class="home-nav-btn" id="btnSettings"><span class="ico">⚙️</span><span>Ещё</span></button>
+    </div>
+  </div>
+
+
+  <div class="screen" id="screenProfile">
+    <div class="profile-top">
+      <button type="button" class="ghost screen-back" id="btnProfileBack">← Назад</button>
+      <h1>Профиль</h1>
+      <button type="button" class="primary" id="btnProfileSave" style="min-height:36px;padding:6px 14px;font-size:0.82rem">Сохранить</button>
+    </div>
+    <div class="profile-scroll">
+    <div class="profile-hero">
+      <div class="profile-av-big" id="profileAvBig">?</div>
+      <div class="profile-hero-text">
+        <div class="profile-hero-name" id="profileHeroName">Гость</div>
+        <div class="profile-guest-pill" id="profileGuestPill">👤 Гость</div>
+        <div class="profile-status-preview" id="profileStatusPreview"></div>
+      </div>
+    </div>
+
+    <div class="profile-card">
+      <h3>Аватар</h3>
+      <div class="profile-avatars" id="profileAvatarGrid" role="listbox" aria-label="Выбор аватара"></div>
+      <input type="file" id="profileAvatarFile" accept="image/*" />
+    </div>
+
+    <div class="profile-card">
+      <h3>Имя и статус</h3>
+      <div class="profile-field">
+        <label for="profileNickInput">Никнейм</label>
+        <input id="profileNickInput" maxlength="7" placeholder="Твой ник" autocomplete="nickname" spellcheck="false" />
+        <div class="hint">2–7 символов</div>
+      </div>
+      <div class="profile-field">
+        <label for="profileStatusInput">Статус</label>
+        <input id="profileStatusInput" maxlength="48" placeholder="Необязательно" />
+      </div>
+    </div>
+
+    <div class="profile-card">
+      <h3>Статистика</h3>
+      <div class="profile-stats-row">
+        <div class="profile-stat"><div class="v" id="profStatTrophies">0</div><div class="l">Трофеи</div></div>
+        <div class="profile-stat"><div class="v" id="profStatDiamonds">0</div><div class="l">Алмазы</div></div>
+        <div class="profile-stat"><div class="v" id="profStatBest">0</div><div class="l">Рекорд</div></div>
+        <div class="profile-stat"><div class="v" id="profStatStars">0</div><div class="l">☆</div></div>
+      </div>
+    </div>
+
+    <div class="profile-card">
+      <h3>Код друга</h3>
+      <div class="profile-code-row">
+        <span class="profile-code" id="profileFriendCode">————</span>
+        <button type="button" class="ghost" id="btnProfileCopyCode" style="min-height:36px;padding:6px 12px">Копировать</button>
+      </div>
+    </div>
+
+    <div class="profile-card profile-bind">
+      <h3>Аккаунт</h3>
+      <div style="font-size:0.82rem;font-weight:700;color:var(--text)">Гостевой доступ · данные на устройстве</div>
+      <div class="soon">Привязка к облаку — скоро</div>
+      <button type="button" class="ghost" id="btnProfileBind" disabled style="width:100%;margin-top:8px;opacity:0.5;min-height:38px">Привязать · скоро</button>
+    </div>
+    </div>
+  </div>
+
+  <div class="screen" id="screenSettings">
+    <div class="settings-top screen-chrome" style="max-width:420px">
+      <button type="button" class="ghost screen-back" id="btnSettingsBack">← Готово</button>
+      <h1>Настройки</h1>
+      <button type="button" class="ghost screen-action" id="btnSettingsReset" title="Сбросить">↺</button>
+    </div>
+    <div class="settings-tabs" id="settingsTabs" role="tablist" aria-label="Разделы настроек">
+      <button type="button" class="settings-tab on" data-stab="field" role="tab" aria-selected="true"><span class="tab-ico">📐</span>Поле</button>
+      <button type="button" class="settings-tab" data-stab="look" role="tab" aria-selected="false"><span class="tab-ico">🎨</span>Вид</button>
+      <button type="button" class="settings-tab" data-stab="sound" role="tab" aria-selected="false"><span class="tab-ico">🔊</span>Звук</button>
+      <button type="button" class="settings-tab" data-stab="feel" role="tab" aria-selected="false"><span class="tab-ico">🤖</span>Боты</button>
+      <button type="button" class="settings-tab" data-stab="play" role="tab" aria-selected="false"><span class="tab-ico">🎮</span>Игра</button>
+      <button type="button" class="settings-tab" data-stab="a11y" role="tab" aria-selected="false"><span class="tab-ico">♿</span>Доступ</button>
+    </div>
+    <div class="settings-list">
+      <div class="settings-section active-tab" data-stab="field">
+        <div class="settings-section-title">Размер поля</div>
+        <div class="settings-row">
+          <div class="settings-label">
+            Классика
+            <span class="settings-hint">Масштаб доски в одиночной игре</span>
+          </div>
+          <div class="settings-ctrl">
+            <button type="button" class="set-chip" data-set="classicScale" data-val="0.85">S</button>
+            <button type="button" class="set-chip" data-set="classicScale" data-val="1">M</button>
+            <button type="button" class="set-chip" data-set="classicScale" data-val="1.12">L</button>
+            <button type="button" class="set-chip" data-set="classicScale" data-val="1.18">XL</button>
+          </div>
+          <div class="scale-preview-wrap" id="previewClassicRow"></div>
+        </div>
+        <div class="settings-row">
+          <div class="settings-label">
+            Versus
+            <span class="settings-hint">Масштаб досок в дуэли</span>
+          </div>
+          <div class="settings-ctrl">
+            <button type="button" class="set-chip" data-set="versusScale" data-val="0.85">S</button>
+            <button type="button" class="set-chip" data-set="versusScale" data-val="1">M</button>
+            <button type="button" class="set-chip" data-set="versusScale" data-val="1.12">L</button>
+          </div>
+          <div class="scale-preview-wrap" id="previewVersusRow"></div>
+        </div>
+      </div>
+
+      <div class="settings-section" data-stab="look">
+        <div class="settings-section-title">Внешний вид</div>
+        <div class="settings-row">
+          <div class="settings-label">
+            Тема
+            <span class="settings-hint">Цветовая палитра интерфейса</span>
+          </div>
+          <div class="settings-ctrl">
+            <button type="button" class="set-chip" data-set="theme" data-val="default">Neon</button>
+            <button type="button" class="set-chip" data-set="theme" data-val="ocean">Ocean</button>
+            <button type="button" class="set-chip" data-set="theme" data-val="sunset">Sunset</button>
+            <button type="button" class="set-chip" data-set="theme" data-val="mono">Mono</button>
+          </div>
+        </div>
+        <div class="settings-row">
+          <div class="settings-label">
+            Анимации
+            <span class="settings-hint">Скорость появления и очистки клеток</span>
+          </div>
+          <div class="settings-ctrl">
+            <button type="button" class="set-chip" data-set="anim" data-val="full">Полные</button>
+            <button type="button" class="set-chip" data-set="anim" data-val="soft">Мягкие</button>
+            <button type="button" class="set-chip" data-set="anim" data-val="off">Выкл</button>
+          </div>
+        </div>
+        <div class="settings-row">
+          <div class="settings-label">
+            Всплывающие очки
+            <span class="settings-hint">+очки и комбо над полем</span>
+          </div>
+          <div class="settings-ctrl">
+            <button type="button" class="set-chip" data-set="floats" data-val="1">Вкл</button>
+            <button type="button" class="set-chip" data-set="floats" data-val="0">Выкл</button>
+          </div>
+        </div>
+        <div class="settings-row">
+          <div class="settings-label">
+            Подсветка превью
+            <span class="settings-hint">Показ, куда ляжет фигура</span>
+          </div>
+          <div class="settings-ctrl">
+            <button type="button" class="set-chip" data-set="preview" data-val="1">Вкл</button>
+            <button type="button" class="set-chip" data-set="preview" data-val="0">Выкл</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="settings-section" data-stab="sound">
+        <div class="settings-section-title">Звук</div>
+        <div class="settings-row">
+          <div class="settings-label">
+            Звуки игры
+            <span class="settings-hint">Постановка, очистка, UI</span>
+          </div>
+          <div class="settings-ctrl">
+            <button type="button" class="set-chip" data-set="sfx" data-val="1">Вкл</button>
+            <button type="button" class="set-chip" data-set="sfx" data-val="0">Выкл</button>
+          </div>
+        </div>
+        <div class="settings-row">
+          <div class="settings-label">
+            Музыка
+            <span class="settings-hint">Фоновая мелодия в меню и бою</span>
+          </div>
+          <div class="settings-ctrl">
+            <button type="button" class="set-chip" data-set="music" data-val="1">Вкл</button>
+            <button type="button" class="set-chip" data-set="music" data-val="0">Выкл</button>
+          </div>
+        </div>
+        <div class="settings-row">
+          <div class="settings-label" style="flex-direction:row;align-items:center;justify-content:space-between">Громкость музыки <span class="vol-val" id="musicVolLabel">50%</span></div>
+          <input type="range" class="vol-slider" id="musicVolSlider" min="0" max="100" step="1" value="50" />
+        </div>
+        <div class="settings-row">
+          <div class="settings-label" style="flex-direction:row;align-items:center;justify-content:space-between">Громкость реплик <span class="vol-val" id="voiceVolLabel">70%</span></div>
+          <input type="range" class="vol-slider" id="voiceVolSlider" min="0" max="100" step="1" value="70" />
+        </div>
+      </div>
+
+      <div class="settings-section" data-stab="feel">
+        <div class="settings-section-title">Боты и тактильность</div>
+        <div class="settings-row">
+          <div class="settings-label">
+            Реплики (текст)
+            <span class="settings-hint">Подсказки и фразы бота на экране</span>
+          </div>
+          <div class="settings-ctrl">
+            <button type="button" class="set-chip" data-set="speech" data-val="1">Вкл</button>
+            <button type="button" class="set-chip" data-set="speech" data-val="0">Выкл</button>
+          </div>
+        </div>
+        <div class="settings-row">
+          <div class="settings-label">
+            Озвучка реплик
+            <span class="settings-hint">Голосовое озвучивание фраз бота</span>
+          </div>
+          <div class="settings-ctrl">
+            <button type="button" class="set-chip" data-set="voice" data-val="1">Вкл</button>
+            <button type="button" class="set-chip" data-set="voice" data-val="0">Выкл</button>
+          </div>
+        </div>
+        <div class="settings-row">
+          <div class="settings-label">
+            Вибрация
+            <span class="settings-hint">Отклик при постановке фигур</span>
+          </div>
+          <div class="settings-ctrl">
+            <button type="button" class="set-chip" data-set="haptics" data-val="1">Вкл</button>
+            <button type="button" class="set-chip" data-set="haptics" data-val="0">Выкл</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="settings-section" data-stab="play">
+        <div class="settings-section-title">Геймплей</div>
+        <div class="settings-row">
+          <div class="settings-label">
+            Интро матча
+            <span class="settings-hint">Короткий экран «Вперёд!» перед стартом</span>
+          </div>
+          <div class="settings-ctrl">
+            <button type="button" class="set-chip" data-set="matchIntro" data-val="1">Вкл</button>
+            <button type="button" class="set-chip" data-set="matchIntro" data-val="0">Выкл</button>
+          </div>
+        </div>
+        <div class="settings-row">
+          <div class="settings-label">
+            Дуэль счёта
+            <span class="settings-hint">Анимация сравнения очков после боя</span>
+          </div>
+          <div class="settings-ctrl">
+            <button type="button" class="set-chip" data-set="scoreDuel" data-val="1">Вкл</button>
+            <button type="button" class="set-chip" data-set="scoreDuel" data-val="0">Выкл</button>
+          </div>
+        </div>
+        <div class="settings-row">
+          <div class="settings-label">
+            Конфетти
+            <span class="settings-hint">Эффект при победе в дуэли счёта</span>
+          </div>
+          <div class="settings-ctrl">
+            <button type="button" class="set-chip" data-set="confetti" data-val="1">Вкл</button>
+            <button type="button" class="set-chip" data-set="confetti" data-val="0">Выкл</button>
+          </div>
+        </div>
+        <div class="settings-row">
+          <div class="settings-label">
+            Подтверждение сдачи
+            <span class="settings-hint">Спрашивать перед forfeit в versus</span>
+          </div>
+          <div class="settings-ctrl">
+            <button type="button" class="set-chip" data-set="confirmForfeit" data-val="1">Вкл</button>
+            <button type="button" class="set-chip" data-set="confirmForfeit" data-val="0">Выкл</button>
+          </div>
+        </div>
+        <div class="settings-row">
+          <div class="settings-label">
+            Не гасить экран
+            <span class="settings-hint">Держать экран включённым в матче (если поддерживается)</span>
+          </div>
+          <div class="settings-ctrl">
+            <button type="button" class="set-chip" data-set="keepAwake" data-val="1">Вкл</button>
+            <button type="button" class="set-chip" data-set="keepAwake" data-val="0">Выкл</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="settings-section" data-stab="a11y">
+        <div class="settings-section-title">Доступность</div>
+        <div class="settings-row">
+          <div class="settings-label">
+            Крупный текст
+            <span class="settings-hint">Чуть увеличить шрифт интерфейса</span>
+          </div>
+          <div class="settings-ctrl">
+            <button type="button" class="set-chip" data-set="bigText" data-val="0">Обычный</button>
+            <button type="button" class="set-chip" data-set="bigText" data-val="1">Крупный</button>
+          </div>
+        </div>
+        <div class="settings-row">
+          <div class="settings-label">
+            Высокий контраст
+            <span class="settings-hint">Более чёткие границы и текст</span>
+          </div>
+          <div class="settings-ctrl">
+            <button type="button" class="set-chip" data-set="hiContrast" data-val="0">Выкл</button>
+            <button type="button" class="set-chip" data-set="hiContrast" data-val="1">Вкл</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+<div class="screen" id="screenFriends">
+    <div class="screen-chrome friends-screen-top">
+      <button type="button" class="ghost screen-back" id="btnFriendsBack">← Назад</button>
+      <h1>Друзья</h1>
+      <div class="ach-top-spacer" aria-hidden="true"></div>
+    </div>
+
+    <div class="fr-panel">
+      <div class="fr-code-row">
+        <div class="fr-code-meta">
+          <span class="fr-code-label">Твой код</span>
+          <span class="code" id="myFriendCode">————</span>
+        </div>
+        <div class="fr-code-btns">
+          <button type="button" class="ghost" id="btnCopyCode">Копировать</button>
+          <button type="button" class="ghost" id="btnShareCode">Поделиться</button>
+        </div>
+      </div>
+      <div class="friend-add-row">
+        <input id="friendCodeInput" maxlength="6" placeholder="КОД ДРУГА" autocomplete="off" spellcheck="false" />
+        <button class="primary" id="btnAddFriend">Добавить</button>
+      </div>
+      <div class="friend-add-status" id="friendAddStatus"></div>
+    </div>
+
+    <div class="friends-section" id="friendsReqSection">
+      <div class="friends-section-head">
+        <div class="friends-section-title">Заявки</div>
+        <div class="friends-section-count" id="friendsReqCount">0</div>
+      </div>
+      <div class="friends-req-scroll" id="friendsReqScroll">
+        <div class="friend-req-list" id="friendReqList"></div>
+        <div class="friend-req-list" id="friendOutList"></div>
+      </div>
+      <div class="friends-section-empty" id="friendsReqEmpty">Нет активных заявок</div>
+    </div>
+
+    <div class="friends-section" id="friendsListSection">
+      <div class="friends-section-head">
+        <div class="friends-section-title">Друзья</div>
+        <div class="friends-section-count" id="friendsListCount">0</div>
+      </div>
+      <div class="friend-search-row">
+        <input type="search" id="friendSearchInput" placeholder="Поиск по никнейму…" autocomplete="off" spellcheck="false" />
+      </div>
+      <div class="friend-list" id="friendList"></div>
+    </div>
+
+    <div class="friends-actions-bar">
+      <button class="primary" id="btnCreateRoom">Создать комнату</button>
+      <button class="ghost" id="btnJoinRoom" type="button">Войти</button>
+    </div>
+    <div id="mpStatus" class="fr-mp-status"></div>
+  </div>
+
+  <div class="overlay" id="joinRoomModal">
+    <div class="modal lobby-modal">
+      <h2>Войти в комнату</h2>
+      <p style="margin-bottom:10px">Введи код от друга</p>
+      <input id="joinRoomInput" maxlength="8" placeholder="КОД" autocomplete="off"
+        style="width:100%;padding:12px;border-radius:12px;border:1px solid var(--border);background:var(--surface2);color:var(--text);font-size:1.2rem;font-weight:800;letter-spacing:0.15em;text-align:center;text-transform:uppercase;margin-bottom:12px" />
+      <div class="stuck-actions">
+        <button class="primary" id="btnJoinRoomGo" style="width:100%">Войти</button>
+        <button class="ghost" id="btnJoinRoomCancel" style="width:100%">Отмена</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="overlay" id="roomLobby">
+    <div class="modal lobby-modal">
+      <h2 id="lobbyTitle">Комната</h2>
+      <div class="lobby-code-wrap">
+        <div class="lobby-code-label">Код комнаты</div>
+        <div class="lobby-code" id="lobbyCode">————</div>
+      </div>
+      <div class="lobby-players" id="lobbyPlayers">
+        <div class="lobby-slot" id="lobbySlotMe">
+          <div class="lobby-slot-name"><span id="lobbyMeName">Ты</span><span class="lobby-ping" id="lobbyMePing"></span></div>
+          <div class="lobby-slot-state" id="lobbyMeState">…</div>
+        </div>
+        <div class="lobby-slot empty" id="lobbySlotOpp">
+          <div class="lobby-slot-name"><span id="lobbyOppName">Ожидание…</span><span class="lobby-ping" id="lobbyOppPing"></span></div>
+          <div class="lobby-slot-state" id="lobbyOppState">—</div>
+        </div>
+      </div>
+      <div class="lobby-duration">
+        <div class="lobby-code-label">Время матча</div>
+        <div class="duration-row" style="margin:8px 0 12px">
+          <button type="button" class="dur-btn lobby-dur" data-sec="60">1 мин</button>
+          <button type="button" class="dur-btn lobby-dur selected" data-sec="120">2 мин</button>
+          <button type="button" class="dur-btn lobby-dur" data-sec="180">3 мин</button>
+        </div>
+      </div>
+      <div class="stuck-actions">
+        <button class="primary" id="btnLobbyReady" style="width:100%">Готов</button>
+        <button class="ghost" id="btnLobbyInvite" style="width:100%">Пригласить</button>
+        <button class="ghost" id="btnLobbyLeave" style="width:100%">Выйти</button>
+      </div>
+      <p id="lobbyHint" style="font-size:0.78rem;color:var(--text-dim);margin-top:10px;line-height:1.35">Оба игрока должны нажать «Готов»</p>
+    </div>
+  </div>
+
+  <div class="overlay" id="lobbyInviteModal">
+    <div class="modal lobby-modal">
+      <h2>Пригласить друга</h2>
+      <p style="margin-bottom:4px;font-size:0.85rem;color:var(--text-dim)">Выбери друга из списка</p>
+      <div class="lobby-invite-search">
+        <input type="search" id="lobbyInviteSearch" placeholder="Поиск по никнейму…" autocomplete="off" spellcheck="false" />
+      </div>
+      <div class="lobby-invite-list" id="lobbyInviteList"></div>
+      <div class="stuck-actions">
+        <button class="ghost" id="btnLobbyInviteClose" style="width:100%">Закрыть</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="screen" id="screenHistory">
+    <div class="screen-chrome hist-top">
+      <button type="button" class="ghost screen-back" id="btnHistoryBack">← Назад</button>
+      <h1>История</h1>
+      <button type="button" class="ghost screen-action" id="btnHistoryClear" title="Очистить">🗑</button>
+    </div>
+    <p class="screen-hint">Прошлые матчи</p>
+    <div class="history-list screen-scroll" id="historyList"></div>
+  </div>
+
+  <div class="screen" id="screenCompType">
+    <div class="comp-hero">
+      <div class="comp-hero-top">
+        <button type="button" class="ghost comp-back" id="btnBackFromComp">← Назад</button>
+        <div class="comp-badge">PvP</div>
+      </div>
+      <h1>Соревнование</h1>
+      <p>Выбери арену: рейтинговый матч или тренировка с ботами</p>
+    </div>
+    <div class="comp-cards">
+      <div class="comp-card ranked" id="cardOnline" role="button" tabindex="0">
+        <div class="comp-card-glow"></div>
+        <div class="comp-card-top">
+          <div class="comp-card-icon">🏆</div>
+          <div class="comp-card-chip">Рейтинг</div>
+        </div>
+        <h3>Рейтинговый режим</h3>
+        <p>Подбор соперника по уровню. Победа приносит трофеи.</p>
+        <div class="comp-card-stat">
+          <span class="comp-stat-label">Рекорд очков</span>
+          <span class="comp-stat-value" id="menuRankedBest">0</span>
+        </div>
+      </div>
+      <div class="comp-card bots" id="cardBots" role="button" tabindex="0">
+        <div class="comp-card-glow"></div>
+        <div class="comp-card-top">
+          <div class="comp-card-icon">🤖</div>
+          <div class="comp-card-chip alt">Тренировка</div>
+        </div>
+        <h3>Боты</h3>
+        <p>110 соперников со стилем и характером. Коллекционируй ☆ звёзды.</p>
+        <div class="comp-card-stat muted">
+          <span class="comp-stat-label">Серебряные звёзды</span>
+          <span class="comp-stat-value" id="compSilverHint">☆</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="screen" id="screenDifficulty">
+    <div class="screen-chrome diff-top">
+      <button type="button" class="ghost screen-back" id="btnBackDiff">← Назад</button>
+      <h1>Боты</h1>
+      <div class="ach-top-spacer" aria-hidden="true"></div>
+    </div>
+    <p class="screen-hint">★ победа на 1 / 2 / 3 мин · выбери соперника</p>
+    <div class="bot-random-row">
+      <button type="button" id="btnRandomBot">🎲 Случайный</button>
+    </div>
+    <div class="bot-list screen-scroll" id="botList"></div>
+    <div class="screen-footer-bar">
+      <button class="primary" id="btnDiffNext" style="width:100%;max-width:440px">Далее · время матча</button>
+    </div>
+  </div>
+
+  <div class="bot-pick-overlay" id="botPickOverlay" aria-hidden="true">
+    <div class="bot-pick-card">
+      <div class="bot-pick-label" id="botPickLabel">Выбор соперника…</div>
+      <div class="bot-pick-avatar spin" id="botPickAvatar"></div>
+      <div class="bot-pick-name" id="botPickName">—</div>
+      <div class="bot-pick-meta" id="botPickMeta"></div>
+      <div class="bot-pick-stars" id="botPickStars"></div>
+    </div>
+  </div>
+
+  <div class="screen" id="screenAchievements">
+    <div class="screen-chrome ach-top">
+      <button type="button" class="ghost screen-back" id="btnAchBack">← Назад</button>
+      <h1>Награды</h1>
+      <button type="button" class="ach-claim-all-btn" id="btnClaimAllAch" style="display:none" title="Собрать все награды">
+        <span class="ach-claim-all-ico">✦</span>
+        <span class="ach-claim-all-meta" id="achClaimAllMeta"></span>
+      </button>
+      <div class="ach-top-spacer" id="achTopSpacer" aria-hidden="true"></div>
+    </div>
+    <p class="screen-hint">Выполняй задания — получай алмазы 💎</p>
+    <div class="ach-list screen-scroll" id="achList"></div>
+  </div>
+
+  <div class="screen" id="screenDuration">
+    <div class="dur-hero">
+      <button type="button" class="ghost comp-back" id="btnBackMenu">← Назад</button>
+      <h1>Время матча</h1>
+      <p>Кто наберёт больше очков до конца таймера — победит</p>
+    </div>
+    <div class="dur-grid">
+      <button type="button" class="dur-card" data-sec="60">
+        <span class="dur-card-time">1</span>
+        <span class="dur-card-unit">минута</span>
+        <span class="dur-card-hint">Быстрый бой</span>
+      </button>
+      <button type="button" class="dur-card selected" data-sec="120">
+        <span class="dur-card-time">2</span>
+        <span class="dur-card-unit">минуты</span>
+        <span class="dur-card-hint">Стандарт</span>
+      </button>
+      <button type="button" class="dur-card" data-sec="180">
+        <span class="dur-card-time">3</span>
+        <span class="dur-card-unit">минуты</span>
+        <span class="dur-card-hint">Долгая дуэль</span>
+      </button>
+    </div>
+    <button type="button" class="primary dur-start-btn" id="btnStartMatch">Найти соперника</button>
+  </div>
+
+  <div class="screen" id="screenMatch">
+    <div class="mm-box" id="mmBox">
+      <div class="mm-arena" aria-hidden="true">
+        <div class="mm-radar"></div>
+        <div class="mm-ring"></div>
+        <div class="mm-ring r2"></div>
+        <div class="mm-ring r3"></div>
+        <div class="mm-orbit">
+          <span class="mm-block b1"></span>
+          <span class="mm-block b2"></span>
+          <span class="mm-block b4"></span>
+        </div>
+        <div class="mm-orbit rev">
+          <span class="mm-block b3"></span>
+          <span class="mm-block b5"></span>
+        </div>
+        <div class="mm-core">⚔️</div>
+      </div>
+      <div class="mm-status-main" id="mmStatus">Ищем соперника...</div>
+      <div class="mm-dots" id="mmDots" aria-hidden="true"><span></span><span></span><span></span></div>
+      <div class="mm-name" id="mmName">—</div>
+      <div class="mm-hint-card" id="mmHint">
+        Поиск игроков с рейтингом ±100 от вашего
+      </div>
+      <div class="controls" style="margin-top:20px">
+        <button class="ghost" id="btnCancelSearch">Отмена</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="screen" id="screenShop">
+    <div class="screen-chrome shop-top">
+      <button type="button" class="ghost screen-back" id="btnShopBack">← Назад</button>
+      <h1>Магазин</h1>
+      <div class="shop-balance">💎 <span id="shopDiamonds">0</span></div>
+    </div>
+    <p class="screen-hint">Покупай уникальное оформление за алмазы!</p>
+    <div class="shop-grid screen-scroll" id="shopGrid"></div>
+  </div>
+
+  <div class="screen" id="screenInventory">
+    <div class="screen-chrome inv-top">
+      <button type="button" class="ghost screen-back" id="btnInvBack">← Назад</button>
+      <h1>Инвентарь</h1>
+      <div class="inv-count-pill" id="invCountPill">0</div>
+    </div>
+    <p class="screen-hint">Выбери оформление и надень одним тапом</p>
+    <div class="inv-grid screen-scroll" id="invGrid"></div>
+  </div>
+
+  <div class="screen" id="screenClassic">
+    <div class="header">
+      <div class="logo">Block Puzzle <span>Classic</span></div>
+      <div class="stats">
+        <div class="diamonds"><span>💎</span><span id="diamonds">3</span></div>
+        <div class="stat"><div class="stat-label">Счёт</div><div class="stat-value" id="score">0</div></div>
+        <div class="stat"><div class="stat-label">Рекорд</div><div class="stat-value" id="best">0</div></div>
+      </div>
+    </div>
+    <div class="classic-mode">
+      <div class="board-wrap">
+        <div class="board" id="board"></div>
+        <div class="combo-banner" id="comboBanner"></div>
+      </div>
+    </div>
+    <div class="pieces-area" id="piecesArea"></div>
+    <div class="controls">
+      <button class="primary" id="btnNew">Новая игра</button>
+      <button class="diamond-btn" id="btnRelief">💎 Очистить</button>
+      <button class="ghost" id="btnClassicMenu">Меню</button>
+    </div>
+    <div class="footer">Алмазы за ×4+ линий сразу (за один ход). Застрял — очисти поле за 💎.</div>
+  </div>
+
+  <div class="screen" id="screenVersus">
+    <div class="header">
+      <div class="logo">Block Puzzle <span>Versus</span></div>
+      <div class="stats">
+        <div class="timer" id="timer">2:00</div>
+        <div class="trophies"><span>🏆</span><span id="trophiesLive">0</span></div>
+        <button type="button" class="flag-btn" id="btnForfeit" title="Сдаться" aria-label="Сдаться">🏳️</button>
+      </div>
+    </div>
+    <div class="versus-layout">
+      <div class="player-panel opp">
+        <div class="bot-speech" id="botSpeech"><span class="bot-speech-name"></span><span class="bot-speech-text"></span></div>
+        <div class="board-wrap">
+          <div class="player-label"><span class="name" id="oppName">Соперник</span><span class="score-live" id="oppScore">0</span></div>
+          <div class="board" id="boardOpp"></div>
+          <div class="combo-banner" id="comboBannerOpp"></div>
+        </div>
+        <div class="opp-pieces-label">Фигуры соперника</div>
+        <div class="pieces-area opp-pieces" id="piecesAreaOpp"></div>
+      </div>
+      <div class="player-panel">
+        <div class="board-wrap">
+          <div class="player-label">
+            <span class="name vs-me-name" id="myNameLabel">
+              <span class="vs-me-av">?</span>
+              <span class="vs-me-nick">Ты</span>
+            </span>
+            <span class="score-live" id="myScore">0</span>
+          </div>
+          <div class="board" id="boardMe"></div>
+          <div class="combo-banner" id="comboBannerMe"></div>
+          <div class="flag-break" id="flagBreak" aria-hidden="true">🏳️</div>
+        </div>
+      </div>
+    </div>
+    <div id="stuckWait" class="status-banner status-danger" style="display:none">
+      Нет ходов — ожидай соперника...
+    </div>
+    <div id="oppStuckWait" class="status-banner status-info" style="display:none">
+      Соперник без ходов — доигрывай!
+    </div>
+
+    <div id="disconnectBanner" class="status-banner status-danger" style="display:none">
+      📡 Отсоединение…
+    </div>
+    <div class="opp-pieces-label" style="margin-top:6px">Твои фигуры</div>
+    <div class="pieces-area" id="piecesAreaVs"></div>
+    <div class="controls" id="vsLiveControls" style="display:none"></div>
+    <!-- Replay: full-width scrubber under the boards -->
+    <div id="replayScrubBar" class="replay-scrub-bar" style="display:none" aria-hidden="true">
+      <input type="range" class="replay-scrub-range" id="replayProgress" min="0" max="100" value="0" step="1" title="Перемотка" />
+      <div class="replay-scrub-meta">
+        <span id="replayProgressLabel">0/0</span>
+        <span id="replayScrubHint">перемотка</span>
+      </div>
+    </div>
+    <!-- Replay end summary (inline, not modal) -->
+    <div id="replayEndCard" class="replay-end-card" style="display:none" aria-hidden="true">
+      <button type="button" class="replay-end-close" id="btnReplayEndClose" title="Закрыть">✕</button>
+      <div class="replay-end-title" id="replayEndTitle">Победа!</div>
+      <div class="replay-end-scores">
+        <div class="replay-end-side">
+          <span class="replay-end-who">Ты</span>
+          <span class="replay-end-pts" id="replayEndMy">0</span>
+        </div>
+        <div class="replay-end-sep">:</div>
+        <div class="replay-end-side">
+          <span class="replay-end-who" id="replayEndOppLabel">Соперник</span>
+          <span class="replay-end-pts" id="replayEndOpp">0</span>
+        </div>
+      </div>
+      <div class="replay-end-meta" id="replayEndMeta"></div>
+    </div>
+    <div class="footer" id="vsFooter">Алмазы отключены. Успей набрать больше очков!</div>
+  </div>
+
+  <div id="ghost"></div>
+  <div id="aiGhost"></div>
+
+  <div class="overlay" id="skinPreviewModal" aria-hidden="true">
+    <div class="modal" id="skinPrevModalInner">
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:4px">
+        <h2 id="skinPrevTitle" style="margin:0;font-size:1.1rem;font-weight:800">—</h2>
+        <button type="button" class="ghost" id="skinPrevClose" style="min-height:32px;padding:6px 10px;font-size:0.85rem">✕</button>
+      </div>
+      <p class="skin-prev-meta" id="skinPrevMeta"></p>
+      <div class="skin-prev-board-wrap" id="skinPrevWrap">
+        <div class="skin-prev-board" id="skinPrevBoard"></div>
+        <div class="skin-prev-combo" id="skinPrevCombo"></div>
+      </div>
+      <div class="skin-prev-actions">
+        <button type="button" class="primary" id="skinPrevAction">Надеть</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="overlay" id="gameOver">
+    <div class="modal">
+      <h2>Игра окончена</h2>
+      <p id="gameOverMsg">Места больше нет</p>
+      <div class="big-score" id="finalScore">0</div>
+      <button class="primary" id="btnRestart" style="width:100%;margin-bottom:8px">Играть снова</button>
+      <button class="ghost" id="btnOverMenu" style="width:100%">В меню</button>
+    </div>
+  </div>
+  <div class="overlay" id="stuckOffer">
+    <div class="modal">
+      <h2>Нет ходов</h2>
+      <p>Можно очистить часть поля за 1 алмаз</p>
+      <div class="stuck-actions">
+        <button class="diamond-btn" id="btnUseDiamond" style="width:100%">💎 Очистить (−1)</button>
+        <button id="btnGiveUp" style="width:100%">Сдаться</button>
+      </div>
+    </div>
+  </div>
+    <div class="overlay" id="leaveMatchConfirm">
+    <div class="modal">
+      <h2>Покинуть матч?</h2>
+      <p id="leaveMatchConfirmMsg">Сейчас идёт матч. Если принять приглашение, матч будет засчитан как поражение.</p>
+      <div class="stuck-actions">
+        <button class="primary" id="btnLeaveMatchYes">Да, принять и проиграть</button>
+        <button class="ghost" id="btnLeaveMatchNo">Нет, продолжить матч</button>
+      </div>
+    </div>
+  </div>
+
+<div class="overlay" id="forfeitConfirm">
+    <div class="modal">
+      <h2>Сдаться?</h2>
+      <p>Матч будет проигран.</p>
+      <div class="stuck-actions">
+        <button class="primary" id="btnForfeitYes" style="width:100%">Да, сдаюсь</button>
+        <button class="ghost" id="btnForfeitNo" style="width:100%">Отмена</button>
+      </div>
+    </div>
+  </div>
+  <div class="overlay" id="rematchOffer">
+    <div class="modal">
+      <h2>Реванш?</h2>
+      <p id="rematchOfferText">Соперник предлагает ещё матч</p>
+      <div class="stuck-actions">
+        <button class="primary" id="btnRematchAccept" style="width:100%">Принять</button>
+        <button class="ghost" id="btnRematchDecline" style="width:100%">Отказаться</button>
+      </div>
+    </div>
+  </div>
+  <div class="overlay" id="rematchWait">
+    <div class="modal">
+      <h2>Реванш</h2>
+      <p>Ожидаем ответ соперника…</p>
+      <div class="stuck-actions">
+        <button class="ghost" id="btnRematchCancel" style="width:100%">Отмена</button>
+      </div>
+    </div>
+  </div>
+  <!-- Achievement claim ceremony -->
+  <div class="ach-claim-overlay" id="achClaimOverlay" aria-hidden="true">
+    <div class="ach-claim-card">
+      <div class="ach-claim-particles" id="achClaimParticles"></div>
+      <div class="ach-claim-badge" id="achClaimBadge">✓</div>
+      <div class="ach-claim-label" id="achClaimLabel">Достижение получено</div>
+      <div class="ach-claim-count-badge" id="achClaimCount" style="display:none"></div>
+      <div class="ach-claim-title" id="achClaimTitle">—</div>
+      <div class="ach-claim-desc" id="achClaimDesc"></div>
+      <div class="ach-claim-list" id="achClaimList" style="display:none"></div>
+      <div class="ach-claim-reward" id="achClaimReward">+0 💎</div>
+      <div class="ach-claim-hint">Нажми, чтобы закрыть</div>
+    </div>
+  </div>
+
+  <!-- Post-match score comparison -->
+  <div class="score-duel-overlay" id="scoreDuelOverlay" aria-hidden="true">
+    <div class="score-duel-row">
+      <div class="score-duel-side me" id="duelSideMe">
+        <div class="score-duel-av me-av" id="duelAvMe">
+          <span class="score-duel-crown">👑</span>
+          <span id="duelAvMeInner">Ты</span>
+        </div>
+        <div class="score-duel-name" id="duelNameMe">Ты</div>
+        <div class="score-duel-score" id="duelScoreMe">0</div>
+      </div>
+      <div class="score-duel-vs">VS</div>
+      <div class="score-duel-side opp" id="duelSideOpp">
+        <div class="score-duel-av" id="duelAvOpp">
+          <span class="score-duel-crown">👑</span>
+          <span id="duelAvOppInner">?</span>
+        </div>
+        <div class="score-duel-name" id="duelNameOpp">Соперник</div>
+        <div class="score-duel-score" id="duelScoreOpp">0</div>
+      </div>
+    </div>
+    <div class="score-duel-verdict" id="duelVerdict"></div>
+    <div class="score-duel-skip">Нажми, чтобы продолжить</div>
+  </div>
+
+  <div class="overlay" id="versusResult">
+    <div class="modal">
+      <h2 id="vsTitle">Победа!</h2>
+      <div class="vs-result">
+        <div class="side"><div>Ты</div><div class="s" id="vsMyScore">0</div></div>
+        <div class="side"><div id="vsOppLabel">Соперник</div><div class="s" id="vsOppScore">0</div></div>
+      </div>
+      <div class="trophy-delta" id="vsTrophyDelta">+25 🏆</div>
+      <p id="vsTimeLeftInfo" style="font-size:0.82rem;color:var(--text-dim);margin-bottom:14px"></p>
+      <button class="primary" id="btnVsReview" style="width:100%;margin-bottom:8px">Смотреть повтор</button>
+      <button class="primary" id="btnVsRematch" style="width:100%;margin-bottom:8px;display:none">Реванш</button>
+      <button class="ghost" id="btnVsAgain" style="width:100%;margin-bottom:8px">Ещё матч</button>
+      <button class="ghost" id="btnVsMenu" style="width:100%">В меню</button>
+    </div>
+  </div>
+
+  <!-- Outside screens: fixed positioning must not be trapped by screen transforms -->
+  <div class="review-bar" id="reviewBar">
+    <div class="review-title" id="reviewTitle"></div>
+    <div class="review-meta" id="reviewMeta"></div>
+    <div class="controls" style="margin-top:4px">
+      <button type="button" class="primary" data-review-action="result">Результат</button>
+      <button type="button" class="ghost" data-review-action="again">Ещё матч</button>
+      <button type="button" class="ghost" data-review-action="menu">В меню</button>
+    </div>
+  </div>
+
+  <div id="matchRejoinPanel" aria-live="polite">
+    <div class="rj-title">📡 Связь с матчем потеряна</div>
+    <div class="rj-sub" id="matchRejoinSub">Можно вернуться в бой или сдаться</div>
+    <div class="rj-actions">
+      <button type="button" class="rj-rejoin" id="btnMatchRejoin">Переподключиться</button>
+      <button type="button" class="rj-surrender" id="btnMatchSurrender">Сдаться</button>
+    </div>
+  </div>
+  <div id="rejoinLoading" aria-live="assertive" aria-busy="true">
+    <div class="rl-card">
+      <div class="rl-spin" aria-hidden="true"></div>
+      <div class="rl-title">Восстановление матча…</div>
+      <div class="rl-sub" id="rejoinLoadingSub">Синхронизация поля и фигур</div>
+    </div>
+  </div>
+
+  <script src="match-client.js"></script>
+  <script src="game.js"></script>
+  <script>
+  /* menu-delegate: clicks work even if late game.js bindings failed */
+  (function () {
+    function go(fn) {
+      try { if (typeof window.__unlockUI === 'function') window.__unlockUI(); } catch (e) {}
+      try { fn(); } catch (e) { console.warn('menu', e); }
+    }
+    document.addEventListener('click', function (e) {
+      var t = e.target;
+      if (!t || !t.closest) return;
+      var el;
+      if ((el = t.closest('#cardClassic'))) {
+        e.preventDefault();
+        go(function () {
+          if (typeof startClassic === 'function') startClassic(false);
+          else if (typeof showScreen === 'function') showScreen('classic');
+        });
+      } else if ((el = t.closest('#cardVersus'))) {
+        e.preventDefault();
+        go(function () {
+          if (typeof startVersusFlow === 'function') startVersusFlow();
+          else if (typeof showScreen === 'function') showScreen('compType');
+        });
+      } else if ((el = t.closest('#cardOnline'))) {
+        e.preventDefault();
+        go(function () {
+          if (typeof goDurationFromOnline === 'function') goDurationFromOnline();
+          else if (typeof showScreen === 'function') showScreen('duration');
+        });
+      } else if ((el = t.closest('#cardBots'))) {
+        e.preventDefault();
+        go(function () {
+          if (typeof goDifficulty === 'function') goDifficulty();
+          else if (typeof showScreen === 'function') showScreen('difficulty');
+        });
+      } else if ((el = t.closest('#btnStartMatch'))) {
+        e.preventDefault();
+        go(function () {
+          if (typeof startMatchFlow === 'function') startMatchFlow();
+        });
+      } else if ((el = t.closest('#btnBackFromComp, #btnBackDiff, #btnBackMenu, #btnClassicMenu, #btnVsMenu, #btnSettingsBack, #btnShopBack, #btnInvBack, #btnAchBack, #btnHistoryBack'))) {
+        e.preventDefault();
+        go(function () {
+          if (typeof showScreen === 'function') showScreen('menu');
+          if (typeof updateMenuStats === 'function') updateMenuStats();
+        });
+      } else if ((el = t.closest('#btnSettings'))) {
+        e.preventDefault();
+        go(function () {
+          if (typeof showScreen === 'function') showScreen('settings');
+        });
+      } else if ((el = t.closest('#btnShop'))) {
+        e.preventDefault();
+        go(function () {
+          if (typeof showScreen === 'function') showScreen('shop');
+        });
+      } else if ((el = t.closest('#btnInventory'))) {
+        e.preventDefault();
+        go(function () {
+          if (typeof showScreen === 'function') showScreen('inventory');
+        });
+      } else if ((el = t.closest('#btnFriends'))) {
+        e.preventDefault();
+        go(function () {
+          if (typeof showScreen === 'function') showScreen('friends');
+          if (typeof renderFriends === 'function') renderFriends();
+        });
+      } else if ((el = t.closest('#btnHistory'))) {
+        e.preventDefault();
+        go(function () {
+          if (typeof showScreen === 'function') showScreen('history');
+          if (typeof renderHistory === 'function') renderHistory();
+        });
+      } else if ((el = t.closest('#btnAchievements'))) {
+        e.preventDefault();
+        go(function () {
+          if (typeof showScreen === 'function') showScreen('achievements');
+        });
+      }
+    }, true);
+  })();
+  </script>
+</body>
+</html>
