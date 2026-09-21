@@ -2746,10 +2746,12 @@
       profile: document.getElementById('screenProfile'),
     };
 
-    // —— Friend presence (PeerJS): real lookup + friend requests ——
+    // —— Friends: presence + requests via WebSocket MatchClient ——
     function friendPeerId(code) {
-      return 'bpfr4-' + String(code || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+      // Legacy id helper (PeerJS removed). Kept for rare log keys only.
+      return 'bp-friend-' + normalizeFriendCode(code);
     }
+
     let frPeer = null;
     let frPeerReady = false;
     let frIncoming = []; // { code, name, trophies, conn, ts }
@@ -3059,50 +3061,45 @@
       try { showInfoToast(label, String(msg), toastKind); } catch (_) {}
     }
 
-    /** Connect to peer presence and send a one-shot message (accept/decline/sync). */
+    /** Deliver social message via server relay (replaces PeerJS one-shot). */
     function deliverPeerMessage(code, payload, opts) {
       opts = opts || {};
       code = normalizeFriendCode(code);
-      if (!code || typeof Peer === 'undefined') return Promise.resolve(false);
+      if (!code || typeof MatchClient === 'undefined') return Promise.resolve(false);
       const timeoutMs = opts.timeoutMs || 7000;
+      const msgType = (payload && payload.type) ? payload.type : 'message';
+      const body = Object.assign({}, payload || {});
+      delete body.type;
       return new Promise((resolve) => {
         let settled = false;
-        let peer = null;
         const finish = (ok) => {
           if (settled) return;
           settled = true;
           clearTimeout(timer);
-          try { if (peer) peer.destroy(); } catch (_) {}
+          try { MatchClient.off('social_result', onResult); } catch (_) {}
           resolve(!!ok);
         };
+        const onResult = (data) => {
+          if (!data) return;
+          const to = normalizeFriendCode(data.to || '');
+          if (to && to !== code) return;
+          if (data.msgType && data.msgType !== msgType) return;
+          finish(!!data.ok);
+        };
         const timer = setTimeout(() => finish(false), timeoutMs);
-        openGamePeer(null, { attempts: 2, timeoutMs: Math.min(5000, timeoutMs - 500) })
-          .then((p) => {
-            peer = p;
-            if (settled) { try { p.destroy(); } catch (_) {} return; }
-            let conn;
-            try {
-              conn = p.connect(friendPeerId(code), { reliable: true });
-            } catch (_) {
-              finish(false);
-              return;
-            }
-            conn.on('open', () => {
-              try {
-                const body = Object.assign({}, payload, {
-                  code: myFriendCode,
-                  name: myNickname,
-                  trophies: typeof trophies === 'number' ? trophies : 0,
-                  activity: detectMyActivity()
-                });
-                conn.send(body);
-              } catch (_) {}
-              setTimeout(() => finish(true), 120);
-            });
-            conn.on('error', () => finish(false));
-            p.on('error', () => finish(false));
-          })
-          .catch(() => finish(false));
+        try { MatchClient.on('social_result', onResult); } catch (_) {}
+        try {
+          MatchClient.connect();
+          const ok = MatchClient.socialSend(code, msgType, body, {
+            name: myNickname,
+            trophies: typeof trophies === 'number' ? trophies : 0,
+            activity: (typeof detectMyActivity === 'function' ? detectMyActivity() : 'online'),
+            from: myFriendCode
+          });
+          if (!ok) finish(false);
+        } catch (_) {
+          finish(false);
+        }
       });
     }
 
@@ -3140,184 +3137,17 @@
     }
 
     function ensureFriendPresence() {
-      if (typeof Peer === 'undefined') return;
-      if (frPeer && !frPeer.destroyed && frPeerReady) return;
-      if (ensureFriendPresence._busy) return;
-      ensureFriendPresence._busy = true;
-
-      if (frPeer) {
-        try { frPeer.destroy(); } catch (_) {}
-        frPeer = null;
-        frPeerReady = false;
-      }
-
-      openGamePeer(friendPeerId(myFriendCode), { attempts: 4, timeoutMs: 12000 })
-        .then((peer) => {
-          frPeer = peer;
-          frPeerReady = true;
-          ensureFriendPresence._busy = false;
-          try { setNetStatus(true); } catch (_) {}
-          peer.on('connection', (conn) => {
-            conn.on('open', () => {});
-            conn.on('data', (data) => {
-              if (!data || typeof data !== 'object') return;
-              if (data.type === 'friend_req') {
-                handleIncomingFriendReq(data, conn);
-              } else if (data.type === 'friend_req_cancel') {
-                const c = normalizeFriendCode(data.code);
-                if (c) {
-                  frIncoming = frIncoming.filter(r => r.code !== c);
-                  if (frActiveToast && frActiveToast.code === c) dismissFrToast(true);
-                  renderFriendRequests();
-                  updateFriendsSectionCounts();
-                }
-              } else if (data.type === 'friend_remove') {
-                applyRemoteFriendRemove(data);
-                // Ack so sender knows delivery succeeded
-                try {
-                  conn.send({ type: 'friend_remove_ack', code: myFriendCode });
-                } catch (_) {}
-              } else if (data.type === 'challenge') {
-                handleIncomingChallenge(data, conn);
-              } else if (data.type === 'challenge_cancel') {
-                try {
-                  const room = String(data.room || '').toUpperCase();
-                  const match = chPending && (
-                    !room || String(chPending.room || '').toUpperCase() === room ||
-                    (data.code && normalizeFriendCode(chPending.code) === normalizeFriendCode(data.code))
-                  );
-                  if (match) {
-                    chPending = null;
-                    hideChToast(true);
-                    renderFriendRequests();
-                    updateFriendsSectionCounts();
-                  }
-                } catch (_) {}
-              } else if (data.type === 'challenge_decline') {
-                try {
-                  clearLobbyInviteWait(data.code, data.room);
-                  if (data.code) {
-                    const c = normalizeFriendCode(data.code);
-                    if (c && lobbyInviteWait[c]) delete lobbyInviteWait[c];
-                  }
-                } catch (_) {}
-                const who = (data.name || data.code || 'Игрок').toString().slice(0, 20);
-                try {
-                  setMpStatus(who + ' отклонил приглашение в лобби');
-                  showInfoToast('Приглашение отклонено', who + ' не принял вызов в комнату', 'bad');
-                  SFX.bad && SFX.bad();
-                  hapticTap(12);
-                } catch (_) {}
-                try { renderLobbyInviteList(); } catch (_) {}
-              } else if (data.type === 'challenge_accept') {
-                try {
-                  clearLobbyInviteWait(data.code, data.room);
-                  if (data.code) {
-                    const c = normalizeFriendCode(data.code);
-                    if (c && lobbyInviteWait[c]) delete lobbyInviteWait[c];
-                  }
-                } catch (_) {}
-                try {
-                  setMpStatus((data.name || 'Друг') + ' принял приглашение — ждём в лобби');
-                } catch (_) {}
-                try { renderLobbyInviteList(); } catch (_) {}
-              } else if (data.type === 'activity_update') {
-                const fromCode = normalizeFriendCode(data.code);
-                if (fromCode) {
-                  try { setFriendPresence(fromCode, 'online'); } catch (_) {}
-                  if (typeof data.activity === 'string') setFriendActivity(fromCode, data.activity);
-                  if (typeof data.trophies === 'number') {
-                    const f = friends.find(x => x.code === fromCode);
-                    if (f) { f.trophies = data.trophies; try { saveFriends(); } catch (_) {} }
-                  }
-                }
-              } else if (data.type === 'friend_accept') {
-                applyIncomingFriendAccept(data);
-              } else if (data.type === 'friend_decline') {
-                applyIncomingFriendDecline(data);
-              } else if (data.type === 'friend_ping') {
-                const fromCode = normalizeFriendCode(data.code);
-                if (typeof data.activity === 'string' && fromCode) {
-                  setFriendActivity(fromCode, data.activity);
-                }
-                try {
-                  conn.send({
-                    type: 'friend_pong',
-                    code: myFriendCode,
-                    name: myNickname,
-                    trophies: typeof trophies === 'number' ? trophies : 0,
-                    activity: detectMyActivity()
-                  });
-                } catch (_) {}
-                // If we are already friends, tell them so their outgoing pending clears
-                if (fromCode && friends.some(f => f.code === fromCode)) {
-                  try {
-                    conn.send({
-                      type: 'friend_accept',
-                      code: myFriendCode,
-                      name: myNickname,
-                      trophies: typeof trophies === 'number' ? trophies : 0,
-                      already: true,
-                      activity: detectMyActivity()
-                    });
-                  } catch (_) {}
-                }
-                // If they are in our outgoing pending and we somehow both wait — mutual
-                if (fromCode && frOutgoingPending.some(p => p.code === fromCode)) {
-                  // keep waiting for their accept; just refresh UI activity
-                  try { renderFriends(); } catch (_) {}
-                }
-              } else if (data.type === 'friend_pong') {
-                const fromCode = normalizeFriendCode(data.code);
-                if (fromCode) {
-                  try { setFriendPresence(fromCode, 'online'); } catch (_) {}
-                  if (typeof data.activity === 'string') setFriendActivity(fromCode, data.activity);
-                  if (typeof data.trophies === 'number') {
-                    const f = friends.find(x => x.code === fromCode);
-                    if (f) { f.trophies = data.trophies; try { saveFriends(); } catch (_) {} }
-                  }
-                  try { renderFriends(); } catch (_) {}
-                }
-              }
-            });
-            conn.on('close', () => {
-              // Keep pending friend requests even if signaling drops — user can still accept later
-              frIncoming.forEach(r => {
-                if (r.conn === conn) r.conn = null;
-              });
-              renderFriendRequests();
-              // Do not auto-hide toast on brief disconnect
-            });
-            conn.on('error', () => {});
-          });
-          peer.on('error', (err) => {
-            frPeerReady = false;
-            if (err && err.type === 'unavailable-id') {
-              try { peer.destroy(); } catch (_) {}
-              frPeer = null;
-              ensureFriendPresence._busy = false;
-              return;
-            }
-            if (err && (err.type === 'network' || err.type === 'server-error' || err.type === 'socket-error')) {
-              try { peer.destroy(); } catch (_) {}
-              frPeer = null;
-              ensureFriendPresence._busy = false;
-              setTimeout(() => { try { ensureFriendPresence(); } catch (_) {} }, 2500);
-            }
-          });
-          peer.on('disconnected', () => {
-            frPeerReady = false;
-            try { if (peer && !peer.destroyed) peer.reconnect(); } catch (_) {}
-          });
-        })
-        .catch(() => {
-          ensureFriendPresence._busy = false;
-          frPeer = null;
-          frPeerReady = false;
-          try { setNetStatus(false, 'peer'); } catch (_) {}
-          setTimeout(() => { try { ensureFriendPresence(); } catch (_) {} }, 5000);
+      try {
+        if (typeof MatchClient === 'undefined' || !myFriendCode) return;
+        MatchClient.registerPresence({
+          friendCode: myFriendCode,
+          name: myNickname,
+          trophies: trophies | 0,
+          activity: (typeof detectMyActivity === 'function' ? detectMyActivity() : 'online')
         });
+      } catch (_) {}
     }
+
 
     function normalizeFriendCode(raw) {
       return String(raw || '').trim().toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 6);
@@ -3357,12 +3187,18 @@
     }
 
     function handleIncomingFriendReq(data, conn) {
-      const code = normalizeFriendCode(data.code);
+      const code = normalizeFriendCode(data.code || data.from);
       if (!code || code === myFriendCode) {
-        try { conn.send({ type: 'friend_decline', reason: 'invalid' }); } catch (_) {}
         return;
       }
       // Always ack so sender sees «на рассмотрении»
+      try {
+        deliverPeerMessage(code, {
+          type: 'friend_req_ack',
+          code: myFriendCode,
+          name: myNickname
+        });
+      } catch (_) {}
       try {
         if (conn && conn.open) {
           conn.send({
@@ -3753,7 +3589,8 @@
 
     function probeFriendOnline(code) {
       code = normalizeFriendCode(code);
-      if (!code || typeof Peer === 'undefined') {
+      if (!code) return Promise.resolve(false);
+      if (typeof MatchClient === 'undefined') {
         setFriendPresence(code, 'offline');
         return Promise.resolve(false);
       }
@@ -3763,73 +3600,35 @@
         const finish = (ok) => {
           if (settled) return;
           settled = true;
+          try { MatchClient.off('presence_state', onState); } catch (_) {}
           setFriendPresence(code, ok ? 'online' : 'offline');
-          try { peer.destroy(); } catch (_) {}
           resolve(!!ok);
         };
-        let peer = null;
-        const timer = setTimeout(() => finish(false), 5500);
-        openGamePeer(null, { attempts: 2, timeoutMs: 4500 })
-          .then((p) => {
-            peer = p;
-            if (settled) { try { p.destroy(); } catch (_) {} return; }
-            let conn;
-            try {
-              conn = p.connect(friendPeerId(code), { reliable: true });
-            } catch (_) {
-              clearTimeout(timer);
-              finish(false);
-              return;
+        const onState = (data) => {
+          if (!data || !data.friends) return;
+          const info = data.friends[code];
+          if (info === undefined) return;
+          if (info && info.online) {
+            if (info.activity) setFriendActivity(code, info.activity);
+            if (typeof info.trophies === 'number') {
+              const f = friends.find(x => x.code === code);
+              if (f) { f.trophies = info.trophies; try { saveFriends(); } catch (_) {} }
             }
-            conn.on('open', () => {
-              try {
-                conn.send({
-                  type: 'friend_ping',
-                  code: myFriendCode,
-                  name: myNickname,
-                  trophies: typeof trophies === 'number' ? trophies : 0,
-                  activity: detectMyActivity()
-                });
-              } catch (_) {}
-              // Listen briefly for pong (activity) / accept (clear outgoing)
-              const onData = (data) => {
-                if (!data || typeof data !== 'object') return;
-                if (data.type === 'friend_pong') {
-                  if (typeof data.activity === 'string') setFriendActivity(code, data.activity);
-                  if (typeof data.trophies === 'number') {
-                    const f = friends.find(x => x.code === code);
-                    if (f) { f.trophies = data.trophies; try { saveFriends(); } catch (_) {} }
-                  }
-                } else if (data.type === 'friend_accept') {
-                  applyIncomingFriendAccept(data);
-                } else if (data.type === 'friend_decline') {
-                  applyIncomingFriendDecline(data);
-                }
-              };
-              try { conn.on('data', onData); } catch (_) {}
-              // connection open = presence peer is registered → online
-              clearTimeout(timer);
-              // Keep open a bit longer to receive pong/activity
-              setTimeout(() => {
-                finish(true);
-                setTimeout(() => { try { conn.close(); } catch (_) {} }, 80);
-              }, 450);
-            });
-            conn.on('error', () => {
-              clearTimeout(timer);
-              finish(false);
-            });
-            p.on('error', () => {
-              clearTimeout(timer);
-              finish(false);
-            });
-          })
-          .catch(() => {
-            clearTimeout(timer);
+            finish(true);
+          } else {
             finish(false);
-          });
+          }
+        };
+        try { MatchClient.on('presence_state', onState); } catch (_) {}
+        setTimeout(() => finish(false), 5000);
+        try {
+          MatchClient.queryPresence([code]);
+        } catch (_) {
+          finish(false);
+        }
       });
     }
+
 
     async function refreshFriendsPresence() {
       if (friendPresenceBusy) return;
@@ -4029,8 +3828,8 @@
         setFriendAddStatus('Заявка уже отправлена', 'wait');
         return;
       }
-      if (typeof Peer === 'undefined') {
-        setFriendAddStatus('Нужен интернет (PeerJS не загрузился)', 'err');
+      if (typeof MatchClient === 'undefined') {
+        setFriendAddStatus('Сервер недоступен. Обнови страницу.', 'err');
         return;
       }
       if (!checkCrossPlatformReady()) return;
@@ -4039,116 +3838,39 @@
         return;
       }
 
-      // Verify peer exists (online presence) before keeping the request
       frSearchBusy = true;
       setFriendAddStatus('Проверяем код…', 'wait');
       try { SFX.ui(); } catch (_) {}
       try { ensureFriendPresence(); } catch (_) {}
 
-      let finished = false;
-      let delivered = false;
-      const failNotFound = () => {
-        if (finished) return;
-        finished = true;
-        removeOutgoingPending(code);
-        setFriendAddStatus('Игрок с таким кодом не найден или не в сети', 'err');
-        try { if (frOutgoingConn) frOutgoingConn.close(); } catch (_) {}
-        try { if (frOutgoingPeer) frOutgoingPeer.destroy(); } catch (_) {}
-        frOutgoingConn = null;
-        frOutgoingPeer = null;
-        if (frOutgoingTimer) { clearTimeout(frOutgoingTimer); frOutgoingTimer = null; }
-        frSearchBusy = false;
-        try { SFX.bad && SFX.bad(); } catch (_) {}
-      };
-      const doneSoft = () => {
-        // Keep pending after successful delivery; only release peer resources
-        try { if (frOutgoingConn) frOutgoingConn.close(); } catch (_) {}
-        try { if (frOutgoingPeer) frOutgoingPeer.destroy(); } catch (_) {}
-        frOutgoingConn = null;
-        frOutgoingPeer = null;
-        if (frOutgoingTimer) { clearTimeout(frOutgoingTimer); frOutgoingTimer = null; }
-        frSearchBusy = false;
-      };
+      // Register outgoing pending optimistically; remove if offline
+      try {
+        if (!frOutgoingPending.some(p => p.code === code)) {
+          frOutgoingPending.unshift({ code, name: null, ts: Date.now() });
+          saveOutgoingPending();
+          renderOutgoingPending(true);
+        }
+      } catch (_) {}
 
-      // Must open connection within this window or code is considered missing/offline
-      frOutgoingTimer = setTimeout(() => {
-        if (!delivered) failNotFound();
-        else doneSoft();
-      }, 10000);
-
-      openGamePeer(null, { attempts: 3, timeoutMs: 8000 })
-        .then((peer) => {
-          if (finished) {
-            try { peer.destroy(); } catch (_) {}
-            return;
-          }
-          frOutgoingPeer = peer;
-          let conn;
-          try {
-            conn = peer.connect(friendPeerId(code), { reliable: true });
-          } catch (_) {
-            failNotFound();
-            return;
-          }
-          frOutgoingConn = conn;
-          conn.on('open', () => {
-            if (finished) return;
-            delivered = true;
-            // Peer is online — only now register outgoing request
-            if (!frOutgoingPending.some(p => p.code === code)) {
-              addOutgoingPending(code, 'Игрок');
-            }
-            if (input) input.value = '';
-            setFriendAddStatus('Заявка отправлена', 'ok');
-            try {
-              conn.send({
-                type: 'friend_req',
-                code: myFriendCode,
-                name: myNickname,
-                trophies: typeof trophies === 'number' ? trophies : 0
-              });
-            } catch (_) {}
-            // Card is already shown once via addOutgoingPending — no second enter animation
-          });
-          conn.on('data', (data) => {
-            if (finished || !data || typeof data !== 'object') return;
-            if (data.type === 'friend_accept') {
-              finished = true;
-              const theirName = (data.name || ('Игрок ' + code.slice(0, 3))).toString().slice(0, 20);
-              removeOutgoingPending(code);
-              addFriendRecord(code, theirName, { trophies: data.trophies });
-              setFriendAddStatus('✓ ' + theirName + ' принял(а) заявку!', 'ok');
-              renderFriends(true);
-              try { SFX.win && SFX.win(); } catch (_) {}
-              try { hapticTap(16); } catch (_) {}
-              doneSoft();
-            } else if (data.type === 'friend_decline') {
-              finished = true;
-              // animate remove outgoing
-              animateRemoveOutgoing(code, () => {
-                removeOutgoingPending(code);
-                setFriendAddStatus('Заявка отклонена', 'err');
-              });
-              doneSoft();
-            } else if (data.type === 'friend_req_ack' && data.name) {
-              updateOutgoingPendingName(code, data.name);
-            }
-          });
-          conn.on('error', () => {
-            if (!delivered) failNotFound();
-          });
-          conn.on('close', () => {
-            if (!delivered && !finished) failNotFound();
-          });
-          peer.on('error', () => {
-            if (!delivered) failNotFound();
-          });
-        })
-        .catch(() => {
-          failNotFound();
-        });
+      deliverPeerMessage(code, {
+        type: 'friend_req',
+        code: myFriendCode,
+        name: myNickname,
+        trophies: trophies | 0
+      }, { timeoutMs: 8000 }).then((ok) => {
+        frSearchBusy = false;
+        if (!ok) {
+          removeOutgoingPending(code);
+          setFriendAddStatus('Игрок с таким кодом не найден или не в сети', 'err');
+          try { SFX.bad && SFX.bad(); } catch (_) {}
+          return;
+        }
+        setFriendAddStatus('Заявка отправлена — ждём ответа', 'ok');
+        try { renderOutgoingPending(false); } catch (_) {}
+      });
     }
 
+    function animateRemoveOutgoing(code, after) {
     function animateRemoveOutgoing(code, after) {
       const list = document.getElementById('friendOutList');
       if (!list) { if (after) after(); return; }
@@ -4178,18 +3900,39 @@
       });
     })();
 
-    // Start presence when possible
+    // Start presence when possible (WebSocket, no PeerJS)
     setTimeout(() => {
       try { checkCrossPlatformReady(); } catch (_) {}
       try {
-        openGamePeer(null, { attempts: 2, timeoutMs: 10000 }).then((p) => {
+        if (typeof MatchClient !== 'undefined') {
+          MatchClient.connect();
+          ensureFriendPresence();
           setNetStatus(true);
-          try { p.destroy(); } catch (_) {}
-        }).catch(() => setNetStatus(false, 'peer'));
-      } catch (_) {}
+        }
+      } catch (_) { try { setNetStatus(false, 'ws'); } catch (_) {} }
     }, 800);
     document.addEventListener('visibilitychange', () => {
-      if (!document.hidden) {
+      if (document.hidden) {
+        // Opera/Chromium: tab hide often fires before pagehide; send leave while channel is still open
+        try {
+          if (mpMode && !window._matchEnded && (typeof isPreStartOrEmptyMatchLeave === 'function')
+            && isPreStartOrEmptyMatchLeave()) {
+            try {
+              mpSend({ type: 'match_load_abort', reason: 'peer_left_before_start' });
+            } catch (_) {}
+            try {
+              mpSend({
+                type: 'leaving',
+                preStart: true,
+                score: 0,
+                oppScore: 0,
+                vsTimeLeft: vsTimeLeft,
+                leftAt: Date.now()
+              });
+            } catch (_) {}
+          }
+        } catch (_) {}
+      } else {
         try { ensureFriendPresence(); } catch (_) {}
         // Both left → one rejoined already: other must still see rejoin toast on return
         try {
@@ -4368,6 +4111,10 @@
     /** Drop input locks if match is live (recovers from stuck rejoin overlay). */
     function ensurePlayableIfLive() {
       try {
+        if (mpMode || mode === 'versus') document.body.classList.add('quiet-hands');
+        else document.body.classList.remove('quiet-hands');
+      } catch (_) {}
+      try {
         if (!vsActive || window._matchEnded || replayMode) return;
         // Overlay must not stick forever
         if (window._rejoinLoading || window._rejoinInputLock) {
@@ -4439,12 +4186,19 @@
         const leftAt = (typeof s.leftAt === 'number' && s.leftAt > 0) ? s.leftAt : s.t;
         const age = now - leftAt;
         const reconnectMs = reconnectWindowMs(s);
-        // Full reconnect window for both players even if both left
-        if (age > reconnectMs + 3000) {
+        // Prefer wall-clock match end: allow rejoin while match time remains
+        let clockEnd = 0;
+        try {
+          if (typeof s.clockEndTs === 'number' && s.clockEndTs > 0) clockEnd = s.clockEndTs;
+          else if (typeof s.vsTimeLeft === 'number') clockEnd = leftAt + Math.max(0, s.vsTimeLeft) * 1000;
+        } catch (_) {}
+        const matchStillRunning = clockEnd > now + 1500;
+        // Expire only if reconnect window AND match clock are both over
+        if (age > reconnectMs + 5000 && !matchStillRunning) {
           localStorage.removeItem(LIVE_MATCH_KEY);
           return null;
         }
-        // Match clock already ended while away — still return snap so caller can resolve by score
+        // Soft: if age > reconnect but match still running, keep snap for auto-rejoin
         return s;
       } catch (_) { return null; }
     }
@@ -4537,15 +4291,10 @@
     /** True when no one has placed a piece and scores are still 0-0. */
     function isEmptyMatchNoMoves() {
       try {
+        if (window._matchHadAnyPlace) return false;
         const hasPlace = Array.isArray(matchLog) && matchLog.some(e => e && (e.type === 'place' || e.type === 'opp_place'));
         if (hasPlace) return false;
         if ((score | 0) !== 0 || (oppScore | 0) !== 0) return false;
-        // Boards still pristine — no cell occupied on either side
-        try {
-          const myFilled = Array.isArray(grid) && grid.some(row => Array.isArray(row) && row.some(c => c != null));
-          const oppFilled = Array.isArray(oppGrid) && oppGrid.some(row => Array.isArray(row) && row.some(c => c != null));
-          if (myFilled || oppFilled) return false;
-        } catch (_) {}
         return true;
       } catch (_) {
         return (score | 0) === 0 && (oppScore | 0) === 0;
@@ -4565,13 +4314,31 @@
       return false;
     }
     function notifyLeavingMatch() {
+      try { sessionStorage.setItem('bp_rejoin_storm', '1'); } catch (_) {}
+      try { window._thisMatchHadRejoin = true; } catch (_) {}
+
       if (!mpMode) return;
       // Pre-live / empty just-started leave: cancel for peer, never persist rejoin snapshot
       const preLive = isPreStartOrEmptyMatchLeave();
       if (preLive) {
-        try {
-          mpSend({ type: 'match_load_abort', reason: 'peer_left_before_start' });
-        } catch (_) {}
+        // Fire both signals repeatedly — Opera may drop the first packet on tab close
+        const blast = () => {
+          try {
+            mpSend({ type: 'match_load_abort', reason: 'peer_left_before_start' });
+          } catch (_) {}
+          try {
+            mpSend({
+              type: 'leaving',
+              preStart: true,
+              score: 0,
+              oppScore: 0,
+              vsTimeLeft: vsTimeLeft,
+              leftAt: Date.now()
+            });
+          } catch (_) {}
+        };
+        try { blast(); } catch (_) {}
+        try { blast(); } catch (_) {}
         try { if (mpConn && mpConn.open) mpConn.close(); } catch (_) {}
         // After boards were prepared / "Старт!" shown — record local forfeit so history is not empty
         try {
@@ -4629,6 +4396,8 @@
       try {
         if (oppDcAt > 0) bothAwayMode = true;
       } catch (_) {}
+      try { myDcAt = Date.now(); } catch (_) {}
+      try { bothAwayMode = !!(oppDcAt > 0); } catch (_) {}
       try { persistLiveMatch({ forceLeave: true }); } catch (_) {}
       try {
         mpSend({
@@ -4647,74 +4416,51 @@
     window.addEventListener('beforeunload', () => { try { notifyLeavingMatch(); } catch (_) {} });
 
     function showMatchRejoinPanel(snap) {
-      const el = document.getElementById('matchRejoinPanel');
-      if (!el) return;
-      const sub = document.getElementById('matchRejoinSub');
-      if (sub && snap) {
-        const opp = snap.oppName || 'соперником';
-        let leftSec = 0;
-        try {
-          const la = (typeof snap.leftAt === 'number' && snap.leftAt > 0) ? snap.leftAt : snap.t;
-          const rm = (typeof reconnectWindowMs === 'function') ? reconnectWindowMs(snap) : 60000;
-          leftSec = Math.max(0, Math.ceil((la + rm - Date.now()) / 1000));
-        } catch (_) {}
-        sub.textContent = leftSec > 0
-          ? ('Матч с ' + opp + ' · переподключение ещё ' + leftSec + ' сек')
-          : ('Матч с ' + opp + ' · можно вернуться или сдаться');
+      // New system: no rejoin toasts/panels — auto-return into the match
+      try { hideMatchRejoinPanel(); } catch (_) {}
+      if (!snap) {
+        try { snap = readLiveMatch(); } catch (_) { snap = null; }
       }
-      el.classList.add('show');
-      // Refresh countdown every second while panel is visible
+      if (!snap) return;
+      if (window._matchEnded || vsActive || window._mpRejoiningMatch) return;
       try {
-        if (window._rejoinPanelTick) clearInterval(window._rejoinPanelTick);
-        window._rejoinPanelTick = setInterval(() => {
-          try {
-            if (!el.classList.contains('show')) {
-              clearInterval(window._rejoinPanelTick);
-              window._rejoinPanelTick = null;
-              return;
-            }
-            const s = readLiveMatch();
-            if (!s) {
-              clearInterval(window._rejoinPanelTick);
-              window._rejoinPanelTick = null;
-              hideMatchRejoinPanel();
-              return;
-            }
-            let left;
-            if (typeof s.oppDcDeadline === 'number' && s.oppDcDeadline > 0) {
-              left = Math.max(0, Math.ceil((s.oppDcDeadline - Date.now()) / 1000));
-            } else {
-              const la = (typeof s.leftAt === 'number' && s.leftAt > 0) ? s.leftAt : s.t;
-              const rm = (typeof reconnectWindowMs === 'function') ? reconnectWindowMs(s) : 60000;
-              left = Math.max(0, Math.ceil((la + rm - Date.now()) / 1000));
-            }
-            const subEl = document.getElementById('matchRejoinSub');
-            if (subEl) {
-              const opp = s.oppName || 'соперником';
-              subEl.textContent = left > 0
-                ? ('Матч с ' + opp + ' · переподключение ещё ' + left + ' сек')
-                : ('Матч с ' + opp + ' · окно истекло');
-            }
-            if (left <= 0) {
-              clearInterval(window._rejoinPanelTick);
-              window._rejoinPanelTick = null;
-              try {
-                if (!window._matchEnded && !window._mpRejoiningMatch) {
-                  let expired = s;
-                  try {
-                    const r = localStorage.getItem(LIVE_MATCH_KEY);
-                    if (r) expired = JSON.parse(r) || s;
-                  } catch (_) {}
-                  if (typeof resolveBothAwayFromSnap === 'function') {
-                    resolveBothAwayFromSnap(expired, true);
-                  }
-                }
-              } catch (_) {}
-            }
-          } catch (_) {}
-        }, 1000);
+        if (typeof snap.leftAt === 'number') myDcAt = snap.leftAt;
+        if (typeof snap.oppLeftAt === 'number' && snap.oppLeftAt > 0) oppDcAt = snap.oppLeftAt;
+        if (myDcAt && oppDcAt) bothAwayMode = true;
       } catch (_) {}
+      // Keep listening so forfeit packets still arrive
+      try { startRejoinPanelListen(snap); } catch (_) {}
+      // Auto rejoin immediately (and retry a few times if peer is not up yet)
+      try {
+        if (window._autoRejoinTimer) { clearTimeout(window._autoRejoinTimer); window._autoRejoinTimer = null; }
+      } catch (_) {}
+      const tryAuto = (attempt) => {
+        try {
+          if (window._matchEnded || vsActive) return;
+          const s = readLiveMatch();
+          if (!s) return;
+          if (window._mpRejoiningMatch) {
+            window._autoRejoinTimer = setTimeout(() => tryAuto(attempt), 800);
+            return;
+          }
+          attemptMatchRejoin().then(() => {
+            try {
+              if (!vsActive && !window._matchEnded && readLiveMatch() && attempt < 8) {
+                window._autoRejoinTimer = setTimeout(() => tryAuto(attempt + 1), 1200);
+              }
+            } catch (_) {}
+          }).catch(() => {
+            try {
+              if (!vsActive && !window._matchEnded && readLiveMatch() && attempt < 8) {
+                window._autoRejoinTimer = setTimeout(() => tryAuto(attempt + 1), 1200);
+              }
+            } catch (_) {}
+          });
+        } catch (_) {}
+      };
+      tryAuto(0);
     }
+
     function hideMatchRejoinPanel() {
       const el = document.getElementById('matchRejoinPanel');
       if (el) el.classList.remove('show');
@@ -4728,7 +4474,7 @@
       const el = document.getElementById('rejoinLoading');
       if (el) {
         const sub = document.getElementById('rejoinLoadingSub');
-        if (sub) sub.textContent = msg || 'Синхронизация поля и фигур';
+        if (sub) sub.textContent = msg || 'Возврат в матч…';
         el.classList.add('show');
       }
     }
@@ -4740,7 +4486,7 @@
     }
     function finishRejoinLoading() {
       // Brief lock + overlay, then unlock for play
-      showRejoinLoading('Синхронизация завершена…');
+      showRejoinLoading('Возврат в матч…');
       if (window._rejoinUnlockTimer) {
         try { clearTimeout(window._rejoinUnlockTimer); } catch (_) {}
       }
@@ -4764,7 +4510,7 @@
         window._rejoinUnlockTimer = null;
       };
       window._rejoinUnlockTimer = setTimeout(() => {
-        showRejoinLoading('Можно играть…');
+        hideRejoinLoading();
         window._rejoinUnlockTimer = setTimeout(unlockNow, 400);
       }, 350);
       // Hard safety: never leave locks on longer than 2.5s
@@ -4806,27 +4552,35 @@
       try {
         let peer = mpPeer;
         if (!peer || peer.destroyed) {
+          // MUST restore the same PeerJS id from the live snapshot so the other
+          // client can dial us after both reloaded (ranked has no stable room id).
+          let wantId = null;
           if (role === 'host' && snap.room) {
-            peer = await openGamePeer(roomPeerId(snap.room), { attempts: 2, timeoutMs: 8000 });
-          } else {
-            peer = await openGamePeer(undefined, { attempts: 2, timeoutMs: 8000 });
+            wantId = roomPeerId(snap.room);
+          } else if (snap.selfPeerId) {
+            wantId = snap.selfPeerId;
           }
+          peer = await openGamePeer(wantId || undefined, { attempts: 3, timeoutMs: 10000 });
           mpPeer = peer;
         }
         mpMode = true;
         mpRole = role;
         mpRoomCode = snap.room || null;
         mpRemotePeerId = snap.remotePeer || null;
+        mpFromMatchmaking = !!(snap.fromMM || snap.ranked);
+        if (mpFromMatchmaking) mpGameSource = 'ranked';
 
         const wire = (conn) => {
           try {
             const onOpen = () => {
               try {
                 mpConn = conn;
+                noteMpRemotePeer(conn);
                 conn._bpWired = true;
                 conn.on('data', (data) => {
                   try { onMpMessage(data); } catch (_) {}
                 });
+                conn.on('close', () => {});
               } catch (_) {}
             };
             if (conn.open) onOpen();
@@ -4835,7 +4589,7 @@
         };
         peer.on('connection', wire);
 
-        // Guest (and host with remote id): dial so we can receive forfeit packets
+        // Dial opponent's last known id (their restored selfPeerId) so forfeit can flow both ways
         const dialTarget = (role === 'guest' && snap.room)
           ? roomPeerId(snap.room)
           : (snap.remotePeer || null);
@@ -4857,7 +4611,7 @@
             } catch (_) {}
           };
           dial();
-          window._rejoinPanelDialIv = setInterval(dial, 4000);
+          window._rejoinPanelDialIv = setInterval(dial, 2500);
         }
       } catch (e) {
         console.warn('rejoin panel listen', e);
@@ -4976,10 +4730,8 @@
       try { showBoardDisconnectOverlay(waitLeft); } catch (_) {}
       try { showDisconnectBanner(waitLeft, 'dc'); } catch (_) {}
       try { hideRejoinLoading(); } catch (_) {}
-      setMpStatus('Ожидание соперника…');
-      try {
-        showInfoToast('Связь', 'Вы в матче. Ожидание соперника…', 'ok');
-      } catch (_) {}
+      setMpStatus('');
+      try { /* no reconnect toast */ } catch (_) {}
 
       // Peer: host listens; guest retries dial in background
       let peer = existingPeer;
@@ -5064,8 +4816,8 @@
               oppDisconnected = false;
               try { lastOppActionTs = Date.now(); lastMyActionTs = Date.now(); } catch (_) {}
               try { if (typeof startAfkWatch === 'function') startAfkWatch(); } catch (_) {}
-              setMpStatus('Связь восстановлена');
-              try { showInfoToast('Связь', 'Соперник подключился', 'ok'); } catch (_) {}
+              setMpStatus('');
+              try { /* no reconnect toast */ } catch (_) {}
               if (window._soloDialIv) { clearInterval(window._soloDialIv); window._soloDialIv = null; }
             } catch (_) {}
           });
@@ -5081,12 +4833,22 @@
         if (window._soloDialIv) { try { clearInterval(window._soloDialIv); } catch (_) {} window._soloDialIv = null; }
         if (!vsActive || window._matchEnded) return;
         if (mpConn && mpConn.open) return;
-        // Opponent never returned — player who came back wins
+        try {
+          if (window._lastOppPacketAt && (Date.now() - window._lastOppPacketAt) < 10000) {
+            try { softRedialPeer(); } catch (_) {}
+            return;
+          }
+        } catch (_) {}
+        // Dual rejoin: both may hit this timer — resolve fairly, never mutual forceWin
         try {
           window._soloRejoinActive = false;
-          endVersus({ forceWin: true, reason: 'disconnect', silent: true });
+          resolveDisconnectWin();
         } catch (_) {
-          try { resolveDisconnectWin(); } catch (_2) {}
+          try {
+            if (score > oppScore) endVersus({ forceWin: true, reason: 'disconnect', silent: true });
+            else if (score < oppScore) endVersus({ forceLoss: true, reason: 'disconnect', silent: true });
+            else endVersus({ reason: 'disconnect', silent: true });
+          } catch (_2) {}
         }
       }, msLeft);
 
@@ -5116,12 +4878,23 @@
       window._rejoinLoading = false;
       placingLock = false;
       try { hideRejoinLoading(); } catch (_) {}
-      // Force disconnect UI (opponent still offline)
+      try { markRejoinCalm(12000); } catch (_) {}
+      // Soft DC: do not spam both clients with banners during dual rejoin
       try {
         oppDisconnected = true;
-        const left = Math.max(0, Math.ceil((deadline - Date.now()) / 1000));
-        showBoardDisconnectOverlay(left);
-        showDisconnectBanner(left, 'dc');
+        // Only show overlay after calm ends if still offline
+        setTimeout(() => {
+          try {
+            if (!vsActive || window._matchEnded || !oppDisconnected) return;
+            if (mpConn && mpConn.open) {
+              clearDisconnectTimer();
+              return;
+            }
+            if (isRejoinCalm()) return;
+            const left = Math.max(0, Math.ceil(((dcDeadlineTs || deadline) - Date.now()) / 1000));
+            if (left > 0) showBoardDisconnectOverlay(left);
+          } catch (_) {}
+        }, 12000);
       } catch (_) {}
       // Restore trays and force interactive slots
       try {
@@ -5142,6 +4915,358 @@
       try { lastMyActionTs = Date.now(); lastOppActionTs = Date.now(); } catch (_) {}
     }
 
+
+    function packHandForNet(arr) {
+      return (arr || []).map(p => ({
+        shape: (p && p.shape ? p.shape : []).map(c => Array.isArray(c) ? c.slice() : c),
+        color: p && p.color,
+        used: !!(p && p.used)
+      }));
+    }
+    function buildFullMatchSyncPayload(extra) {
+      const base = {
+        type: 'match_rejoin_ok',
+        stillLive: !window._matchEnded && (!!vsActive || !!window._mpRejoiningMatch || !!window._soloRejoinActive),
+        name: myNickname,
+        score: score | 0,
+        oppScore: oppScore | 0,
+        vsTimeLeft: vsTimeLeft | 0,
+        clockEndTs: (typeof window._matchClockEndTs === 'number') ? window._matchClockEndTs : 0,
+        grid: grid,
+        oppGrid: oppGrid,
+        pieces: packHandForNet(pieces),
+        oppPieces: packHandForNet(oppPieces),
+        boardId: equippedBoardId,
+        skinId: equippedSkinId,
+        matchStartTs: matchStartTs || 0,
+        fullSync: true,
+        t: Date.now()
+      };
+      if (extra && typeof extra === 'object') {
+        Object.keys(extra).forEach(k => { base[k] = extra[k]; });
+      }
+      return base;
+    }
+    /** Apply peer state as truth (peer "me" → our opp). Always full replace of boards/hands. */
+    function handSig(arr) {
+      try {
+        return (arr || []).map(p => {
+          if (!p) return '_';
+          const sh = (p.shape || []).map(c => (c && c[0]) + ',' + (c && c[1])).join(';');
+          return (p.used ? '1' : '0') + '#' + sh + '#' + (p.color || '');
+        }).join('/');
+      } catch (_) { return ''; }
+    }
+    function gridSig(g) {
+      try {
+        if (!Array.isArray(g)) return '';
+        let s = '';
+        for (let r = 0; r < g.length; r++) {
+          const row = g[r];
+          if (!Array.isArray(row)) continue;
+          for (let c = 0; c < row.length; c++) s += row[c] ? '1' : '0';
+          s += '|';
+        }
+        return s;
+      } catch (_) { return ''; }
+    }
+    function countUnusedInHand(arr) {
+      try {
+        return (arr || []).filter(p => p && !p.used && p.shape && p.shape.length).length;
+      } catch (_) { return 0; }
+    }
+    function cloneHand(arr) {
+      return (arr || []).map(p => ({
+        shape: (p.shape || []).map(c => Array.isArray(c) ? c.slice() : c),
+        color: p.color,
+        used: !!p.used
+      }));
+    }
+
+    function softRenderGrid(g, boardEl) {
+      if (!boardEl || !g) return;
+      try {
+        // Prefer differential cell update if board already has cells
+        const cells = boardEl.querySelectorAll('.cell');
+        if (cells && cells.length === SIZE * SIZE) {
+          for (let r = 0; r < SIZE; r++) {
+            for (let c = 0; c < SIZE; c++) {
+              const cell = cells[r * SIZE + c];
+              if (!cell) continue;
+              const val = g[r] && g[r][c];
+              const filled = !!val;
+              const was = cell.classList.contains('filled') || cell.classList.contains('has-block');
+              if (filled && !was) {
+                cell.classList.add('filled');
+                try { paintCellColor(cell, val); } catch (_) {}
+              } else if (!filled && was) {
+                cell.classList.remove('filled', 'has-block');
+                try { cell.style.background = ''; cell.style.backgroundColor = ''; } catch (_) {}
+              } else if (filled) {
+                try { paintCellColor(cell, val); } catch (_) {}
+              }
+            }
+          }
+          return;
+        }
+      } catch (_) {}
+      try { renderGrid(g, boardEl); } catch (_) {}
+    }
+    function softRenderPieces(areaEl) {
+      if (!areaEl) return;
+      try {
+        if (!pieces || !pieces.length) {
+          try { recoverHandsFromMatchLog(); } catch (_) {}
+        }
+        if (!pieces || !pieces.length) return;
+        const slots = areaEl.querySelectorAll('.piece-slot');
+        // Same count: update used flags only — no innerHTML wipe (no jump)
+        if (slots.length === pieces.length) {
+          let needsFull = false;
+          for (let i = 0; i < pieces.length; i++) {
+            const p = pieces[i];
+            const slot = slots[i];
+            if (!slot) { needsFull = true; break; }
+            const usedDom = slot.classList.contains('used');
+            if (!!p.used !== usedDom) {
+              if (p.used) {
+                slot.classList.add('used');
+                slot.classList.remove('show', 'lifting');
+                try {
+                  slot.style.width = '0';
+                  slot.style.minWidth = '0';
+                  slot.style.opacity = '0';
+                  slot.innerHTML = '';
+                } catch (_) {}
+              } else {
+                needsFull = true;
+                break;
+              }
+            }
+          }
+          if (!needsFull) {
+            // Ensure visible unused slots stay interactive
+            slots.forEach(s => {
+              if (!s.classList.contains('used')) {
+                s.classList.add('show');
+                s.style.opacity = '1';
+                s.style.pointerEvents = '';
+              }
+            });
+            return;
+          }
+        }
+      } catch (_) {}
+      try {
+        // Quiet full rebuild: skip staggered fade-in
+        window._quietPieceRender = true;
+        renderPieces(areaEl);
+        window._quietPieceRender = false;
+      } catch (_) {
+        try { window._quietPieceRender = false; } catch (_2) {}
+      }
+    }
+    function softRenderOppPieces() {
+      try {
+        const area = document.getElementById('piecesAreaOpp');
+        if (!area) { renderOppPieces(); return; }
+        if (!oppPieces || !oppPieces.length) {
+          try { recoverHandsFromMatchLog(); } catch (_) {}
+        }
+        if (!oppPieces || !oppPieces.length) return;
+        const slots = area.querySelectorAll('.piece-slot');
+        if (slots.length === oppPieces.length) {
+          let needsFull = false;
+          for (let i = 0; i < oppPieces.length; i++) {
+            const p = oppPieces[i];
+            const slot = slots[i];
+            if (!slot) { needsFull = true; break; }
+            if (!!p.used !== slot.classList.contains('used')) {
+              needsFull = true;
+              break;
+            }
+          }
+          if (!needsFull) {
+            slots.forEach(s => {
+              if (!s.classList.contains('used')) {
+                s.classList.add('show');
+                s.style.opacity = '1';
+              }
+            });
+            return;
+          }
+        }
+        window._quietPieceRender = true;
+        renderOppPieces();
+        window._quietPieceRender = false;
+      } catch (_) {
+        try { window._quietPieceRender = false; renderOppPieces(); } catch (_2) {}
+      }
+    }
+
+    function applyPeerMatchState(data) {
+      if (!data || data.stillLive === false) return false;
+      // Throttle echo storms
+      try {
+        if (data._echo && window._lastPeerSyncAt && (Date.now() - window._lastPeerSyncAt) < 900) {
+          return false;
+        }
+        if (!data._echo && window._lastPeerSyncAt && (Date.now() - window._lastPeerSyncAt) < 250 && data.fullSync) {
+          // Burst of fullSync from dual rejoin — skip near-duplicate
+          return false;
+        }
+      } catch (_) {}
+      try {
+        let scoresChanged = false;
+        if (typeof data.score === 'number' && (data.score | 0) !== (oppScore | 0)) {
+          oppScore = data.score | 0; scoresChanged = true;
+        }
+        if (typeof data.oppScore === 'number' && (data.oppScore | 0) !== (score | 0)) {
+          score = data.oppScore | 0; scoresChanged = true;
+        }
+        if (typeof data.clockEndTs === 'number' && data.clockEndTs > 0) {
+          const nextLeft = Math.max(0, Math.ceil((data.clockEndTs - Date.now()) / 1000));
+          // Only adopt clock if it does not jump more than 3s (quiet)
+          if (Math.abs(nextLeft - (vsTimeLeft | 0)) >= 1) {
+            window._matchClockEndTs = data.clockEndTs;
+            vsTimeLeft = nextLeft;
+          }
+        } else if (typeof data.vsTimeLeft === 'number') {
+          const nextLeft = Math.max(0, data.vsTimeLeft | 0);
+          if (Math.abs(nextLeft - (vsTimeLeft | 0)) >= 1) vsTimeLeft = nextLeft;
+        }
+        if (scoresChanged) {
+          try {
+            const myEl = document.getElementById('myScore');
+            const oppEl = document.getElementById('oppScore');
+            if (myEl) myEl.textContent = String(score);
+            if (oppEl) oppEl.textContent = String(oppScore);
+          } catch (_) {}
+        }
+        if (typeof data.matchStartTs === 'number' && data.matchStartTs > 0) {
+          matchStartTs = data.matchStartTs;
+        }
+
+        let myBoardChanged = false;
+        let oppBoardChanged = false;
+        if (Array.isArray(data.oppGrid)) {
+          const next = data.oppGrid.map(row => Array.isArray(row) ? row.slice() : row);
+          if (gridSig(next) !== gridSig(grid)) {
+            grid = next;
+            myBoardChanged = true;
+          }
+        }
+        if (Array.isArray(data.grid)) {
+          const next = data.grid.map(row => Array.isArray(row) ? row.slice() : row);
+          if (gridSig(next) !== gridSig(oppGrid)) {
+            oppGrid = next;
+            oppBoardChanged = true;
+          }
+        }
+
+        // MY hand is local-authoritative — network never empties or shrinks it.
+        let myHandChanged = false;
+        let oppHandChanged = false;
+        const localMineUnused = countUnusedInHand(pieces);
+        if (Array.isArray(data.oppPieces)) {
+          // peer's opp = our hand. NEVER wipe a non-empty local hand on rejoin storms.
+          const remoteMe = cloneHand(data.oppPieces);
+          const localU = countUnusedInHand(pieces);
+          const remoteU = countUnusedInHand(remoteMe);
+          if (localU === 0 && remoteU > 0) {
+            pieces = remoteMe;
+            myHandChanged = true;
+          } else if (localU > 0 && remoteU > localU && handSig(remoteMe) !== handSig(pieces)) {
+            // Peer has strictly more unused (we missed a deal) — take remote
+            pieces = remoteMe;
+            myHandChanged = true;
+          }
+          // else keep local
+        }
+        if (Array.isArray(data.pieces)) {
+          // peer's me = our opp hand
+          const remoteOpp = cloneHand(data.pieces);
+          const localOppU = countUnusedInHand(oppPieces);
+          const remoteOppU = countUnusedInHand(remoteOpp);
+          if (localOppU === 0 && remoteOppU > 0) {
+            oppPieces = remoteOpp;
+            oppHandChanged = true;
+          } else if (remoteOppU > 0 && handSig(remoteOpp) !== handSig(oppPieces)) {
+            // Opp board/hand from peer is more authoritative for THEIR hand
+            if (localOppU === 0 || remoteOppU >= localOppU) {
+              oppPieces = remoteOpp;
+              oppHandChanged = true;
+            }
+          }
+        }
+        // Absolute safety: never leave my hand empty if log can restore it
+        try {
+          if (countUnusedInHand(pieces) === 0) {
+            recoverHandsFromMatchLog();
+            if (countUnusedInHand(pieces) > 0) myHandChanged = true;
+          }
+        } catch (_) {}
+        // Final safety: if my hand is empty after sync, rebuild from match log
+        try {
+          if (countUnusedInHand(pieces) === 0 && Array.isArray(matchLog) && matchLog.length) {
+            const before = handSig(pieces);
+            recoverHandsFromMatchLog();
+            if (handSig(pieces) !== before && countUnusedInHand(pieces) > 0) {
+              myHandChanged = true;
+            }
+          }
+        } catch (_) {}
+
+        // Cosmetics only when id changes
+        try {
+          if (data.boardId && data.boardId !== window.mpOppBoardId && typeof applyOppBoard === 'function') {
+            window.mpOppBoardId = data.boardId;
+            applyOppBoard(data.boardId);
+          }
+        } catch (_) {}
+        try {
+          if (data.skinId && data.skinId !== window.mpOppSkinId && typeof applyOppSkin === 'function') {
+            window.mpOppSkinId = data.skinId;
+            applyOppSkin(data.skinId);
+          }
+        } catch (_) {}
+
+        // Quiet DOM: only redraw what actually changed
+        if (myBoardChanged) {
+          try { softRenderGrid(grid, boardMe); } catch (_) {
+            try { renderGrid(grid, boardMe); } catch (_2) {}
+          }
+        }
+        if (oppBoardChanged) {
+          try { softRenderGrid(oppGrid, boardOpp); } catch (_) {
+            try { renderGrid(oppGrid, boardOpp); } catch (_2) {}
+          }
+        }
+        if (myHandChanged) {
+          try {
+            const area = document.getElementById('piecesAreaVs');
+            if (area && typeof softRenderPieces === 'function') softRenderPieces(area);
+            else if (area && typeof renderPieces === 'function') renderPieces(area);
+          } catch (_) {}
+        }
+        if (oppHandChanged) {
+          try {
+            if (typeof softRenderOppPieces === 'function') softRenderOppPieces();
+            else if (typeof renderOppPieces === 'function') renderOppPieces();
+          } catch (_) {}
+        }
+        try { updateTimerDisplay(); } catch (_) {}
+        window._rejoinStateApplied = true;
+        window._lastPeerSyncAt = Date.now();
+        return true;
+      } catch (e) {
+        console.warn('applyPeerMatchState', e);
+        return false;
+      }
+    }
+
+
+
     async function attemptMatchRejoin() {
 
       const snap = readLiveMatch();
@@ -5153,6 +5278,10 @@
       if (btn) { btn.disabled = true; btn.textContent = '…'; }
       window._mpRejoiningMatch = true;
       window._rejoinStateApplied = false;
+      try { window._thisMatchHadRejoin = true; } catch (_) {}
+      try { window._lastRejoinActivityAt = Date.now(); } catch (_) {}
+      try { sessionStorage.setItem('bp_rejoin_storm', '1'); } catch (_) {}
+      try { markRejoinCalm(20000); } catch (_) {}
       placingLock = true;
       try {
         try { closeRoomLobby(); } catch (_) {}
@@ -5186,6 +5315,9 @@
         vsModeType = 'online';
 
         try { restoreSnapState(snap); } catch (_) {}
+        try {
+          if (countUnusedInHand(pieces) === 0) recoverHandsFromMatchLog();
+        } catch (_) {}
         // restoreSnapState may overwrite vsTimeLeft from snap — re-apply wall clock
         try {
           if (window._matchClockEndTs) {
@@ -5395,39 +5527,60 @@
               }
             } catch (_) {}
             try {
-              if (snap) resolveBothAwayFromSnap(snap, true);
-              else {
+              // Early match with no real progress — cancel rather than free win
+              const early = snap && (snap.score | 0) < 50 && (snap.oppScore | 0) < 50
+                && (!Array.isArray(snap.moves) || !snap.moves.some(e => e && (e.type === 'place' || e.type === 'opp_place')));
+              if (early) {
+                try { clearLiveMatch(); } catch (_) {}
+                try { forceCancelPreMoveMatch('Соперник отключился до начала матча'); } catch (_) {}
+              } else if (snap) {
+                resolveBothAwayFromSnap(snap, true);
+              } else {
                 clearLiveMatch();
                 hideMatchRejoinPanel();
                 showScreen('menu');
                 updateMenuStats();
-                showInfoToast('Матч', 'Матч завершён', 'bad');
               }
             } catch (_) {
-              clearLiveMatch();
-              hideMatchRejoinPanel();
+              try { hideMatchRejoinPanel(); } catch (_2) {}
             }
             return;
           }
-          // Opponent offline — enter solo wait: match stays live, clock runs, peer listens
+          // Opponent offline — solo wait; never dump to menu while snap is valid
           try {
             await enterSoloRejoinWait(snap, peer);
           } catch (soloErr) {
             console.warn('solo rejoin wait', soloErr);
-            vsActive = false;
             try { hideRejoinLoading(); } catch (_) {}
-            try { destroyMp(); } catch (_) {}
             try { persistLiveMatch({ forceLeave: true }); } catch (_) {}
+            // Keep snapshot and retry auto-rejoin instead of menu
+            try {
+              if (snap && remainingMatchSecFromSnap(snap) > 0) {
+                vsActive = false;
+                placingLock = false;
+                setTimeout(() => {
+                  try {
+                    if (!vsActive && !window._matchEnded && readLiveMatch()) {
+                      showMatchRejoinPanel(readLiveMatch());
+                    }
+                  } catch (_) {}
+                }, 2000);
+                return;
+              }
+            } catch (_) {}
             try { showScreen('menu'); updateMenuStats(); } catch (_) {}
-            try { showMatchRejoinPanel(snap); } catch (_) {}
           }
           return;
         }
 
         vsActive = true;
-        const peerAlreadySynced = !!window._rejoinStateApplied;
-        if (!window._rejoinStateApplied) window._rejoinStateApplied = true;
-        // Brief lock so a second match_rejoin_ok cannot wipe a piece mid-grab
+        // Apply authoritative peer payload immediately (full board + hands)
+        try {
+          if (livePayload && livePayload.stillLive === true && typeof applyPeerMatchState === 'function') {
+            applyPeerMatchState(livePayload);
+          }
+        } catch (_) {}
+        window._rejoinStateApplied = true;
         placingLock = true;
         try {
           if (typeof boardMe !== 'undefined' && boardMe) {
@@ -5477,7 +5630,7 @@
         try { closeRoomLobby(); } catch (_) {}
         try { ensureLiveMatchAccept(); } catch (_) {}
         persistLiveMatch();
-        setMpStatus('Связь восстановлена');
+        setMpStatus('');
         finishRejoinLoading();
         // Second-pass cosmetics only — do NOT re-render trays (causes triple flicker + lost piece)
         setTimeout(() => {
@@ -5500,23 +5653,25 @@
           soloOk = false;
         }
         if (!soloOk) {
+          // Keep snapshot; auto-rejoin will retry without menu/toast
           vsActive = false;
           placingLock = false;
           try { hideRejoinLoading(); } catch (_) {}
           try { if (mpConn) mpConn.close(); } catch (_) {}
-          try { destroyMp(); } catch (_) {}
           try { persistLiveMatch({ forceLeave: true }); } catch (_) {}
-          try { showScreen('menu'); updateMenuStats(); } catch (_) {}
-          try { showMatchRejoinPanel(snap); } catch (_) {}
-          setMpStatus('Ожидание соперника…');
+          setMpStatus('');
           try {
-            const la = (snap && typeof snap.leftAt === 'number') ? snap.leftAt : (snap && snap.t);
-            const rm = (typeof reconnectWindowMs === 'function' && snap) ? reconnectWindowMs(snap) : 60000;
-            const leftSec = Math.max(1, Math.ceil((la + rm - Date.now()) / 1000));
-            showInfoToast('Связь', 'Соперник не в сети. Окно переподключения: ещё ' + leftSec + ' сек.', 'bad');
-          } catch (_) {
-            try { showInfoToast('Связь', 'Не удалось переподключиться. Попробуй ещё раз.', 'bad'); } catch (_2) {}
-          }
+            // Quiet background retry instead of rejoin toast
+            if (snap && !window._matchEnded) {
+              setTimeout(() => {
+                try {
+                  if (!vsActive && !window._matchEnded && readLiveMatch()) {
+                    showMatchRejoinPanel(readLiveMatch());
+                  }
+                } catch (_) {}
+              }, 1500);
+            }
+          } catch (_) {}
         }
       } finally {
         window._rejoinAwait = null;
@@ -5609,6 +5764,19 @@
         try { matchStartTs = snap.matchStartTs; } catch (_) {}
       }
       try { recoverHandsFromMatchLog(); } catch (_) {}
+      // Guard: never leave empty hand after restore if snap had pieces
+      try {
+        if ((!pieces || !pieces.length || countUnusedInHand(pieces) === 0) && Array.isArray(snap.pieces) && snap.pieces.length) {
+          const unused = snap.pieces.filter(p => p && !p.used);
+          if (unused.length) {
+            pieces = snap.pieces.map(p => ({
+              shape: (p.shape || []).map(c => Array.isArray(c) ? c.slice() : c),
+              color: p.color,
+              used: !!p.used
+            }));
+          }
+        }
+      } catch (_) {}
     }
     /** Apply my + opponent cosmetics after restore / rejoin paint. Safe no-op if IDs missing. */
     function applyMatchCosmetics() {
@@ -5811,27 +5979,34 @@
           if (!snap) return;
           const target = snap.remotePeer || (snap.room ? roomPeerId(snap.room) : null);
           if (!target) return;
-          let peer;
-          if (snap.role === 'host' && snap.room) {
-            peer = await openGamePeer(roomPeerId(snap.room), { attempts: 3, timeoutMs: 5000 });
-          } else {
-            peer = await openGamePeer(undefined, { attempts: 3, timeoutMs: 5000 });
-          }
-          const conn = peer.connect(target, { reliable: true });
-          await new Promise((resolve) => {
-            const t = setTimeout(resolve, 4500);
-            const onOpen = () => {
-              setTimeout(() => {
-                blastForfeit(conn);
+          let peer = mpPeer;
+          try {
+            if (!peer || peer.destroyed) {
+              let wantId = null;
+              if (snap.role === 'host' && snap.room) wantId = roomPeerId(snap.room);
+              else if (snap.selfPeerId) wantId = snap.selfPeerId;
+              peer = await openGamePeer(wantId || undefined, { attempts: 3, timeoutMs: 6000 });
+              mpPeer = peer;
+            }
+          } catch (_) {}
+          if (!peer || peer.destroyed) return;
+          try {
+            const conn = peer.connect(target, { reliable: true });
+            if (!conn) return;
+            await new Promise((resolve) => {
+              const t = setTimeout(resolve, 4500);
+              const onOpen = () => {
+                try {
+                  blastForfeit(conn);
+                } catch (_) {}
                 clearTimeout(t);
                 setTimeout(resolve, 900);
-              }, 80);
-            };
-            if (conn.open) onOpen();
-            else conn.on('open', onOpen);
-            conn.on('error', () => { clearTimeout(t); resolve(); });
-          });
-          try { peer.destroy(); } catch (_) {}
+              };
+              if (conn.open) onOpen();
+              else conn.on('open', onOpen);
+              conn.on('error', () => { clearTimeout(t); resolve(); });
+            });
+          } catch (_) {}
         } catch (_) {}
       })();
 
@@ -5847,7 +6022,7 @@
       } catch (e) {
         console.warn('surrender endVersus', e);
         try {
-          showInfoToast('Матч завершён', 'Поражение', 'bad');
+          /* no match-end toast */
           showScreen('menu');
           updateMenuStats();
         } catch (_) {}
@@ -5924,7 +6099,7 @@
                 } catch (_) {}
                 if (!expired) {
                   try { hideMatchRejoinPanel(); } catch (_) {}
-                  try { showInfoToast('Матч', 'Матч завершён', 'bad'); } catch (_) {}
+                  try { /* no match-end toast */ } catch (_) {}
                   return;
                 }
                 if (typeof resolveBothAwayFromSnap === 'function') {
@@ -5961,7 +6136,7 @@
     }
 
 
-    // ========== P2P Multiplayer (PeerJS) ==========
+    // ========== Online multiplayer (MatchClient / rooms) ==========
     let mpMode = false;
     let mpRole = null; // 'host' | 'guest'
     let mpRoomCode = null;
@@ -6054,6 +6229,9 @@
       const closedRoom = mpRoomCode;
       try { stopLobbyPing(); } catch (_) {}
       try {
+        if (typeof MatchClient !== 'undefined') MatchClient.leavePrivate();
+      } catch (_) {}
+      try {
         if (closedRoom) notifyChallengeCancelled(closedRoom, 'closed');
       } catch (_) {
         try { clearLobbyInviteWait(null, closedRoom); } catch (_) {}
@@ -6084,199 +6262,16 @@
     }
 
     function roomPeerId(code) {
-      return 'bpv3-' + String(code).toUpperCase().replace(/[^A-Z0-9]/g, '');
+      return 'bp-room-' + String(code || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
     }
 
-    /**
-     * СВОЙ Peer-сервер (не PeerJS Cloud).
-     * Для локальных тестов оставь host 127.0.0.1 и secure: false.
-     * Если выставил игру/сервер через Cloudflare Tunnel (HTTPS) — поменяй:
-     *   host: 'xxxx.trycloudflare.com',  port: 443,  secure: true
-     * URL-параметры ?peerHost=... по-прежнему перекрывают эти значения.
-     */
-    const SELF_PEER = {
-      enabled: true,
-      host: 'block-puzzle-peer.onrender.com',
-      port: 443,
-      path: '/peerjs',
-      key: 'peerjs',
-      secure: true
-    };
-
-    function peerBrokerFromUrl() {
-      try {
-        const q = new URLSearchParams(location.search);
-        const host = q.get('peerHost');
-        if (!host) return null;
-        return {
-          host,
-          port: parseInt(q.get('peerPort') || (q.get('peerSecure') === '0' ? '9000' : '443'), 10) || 443,
-          path: q.get('peerPath') || '/',
-          key: q.get('peerKey') || 'peerjs',
-          secure: q.get('peerSecure') !== '0'
-        };
-      } catch (_) {
-        return null;
-      }
+    /** @deprecated PeerJS removed — always rejects */
+    function openGamePeer() {
+      return Promise.reject(new Error('PeerJS removed: use MatchClient'));
     }
 
-    function peerIceServers() {
-      // STUN/TURN только помогают пробить NAT; signaling идёт на SELF_PEER
-      return [
-        { urls: 'stun:stun.cloudflare.com:3478' },
-        { urls: 'stun:stun.nextcloud.com:3478' },
-        { urls: 'stun:stun.stunprotocol.org:3478' },
-        { urls: 'stun:stun.sipgate.net:3478' },
-        { urls: 'stun:stun.l.google.com:19302' },
-        { urls: 'stun:stun1.l.google.com:19302' },
-        {
-          urls: [
-            'turn:openrelay.metered.ca:80',
-            'turn:openrelay.metered.ca:443',
-            'turn:openrelay.metered.ca:443?transport=tcp'
-          ],
-          username: 'openrelayproject',
-          credential: 'openrelayproject'
-        },
-        {
-          urls: [
-            'turn:openrelay.metered.ca:80?transport=tcp',
-            'turns:openrelay.metered.ca:443'
-          ],
-          username: 'openrelayproject',
-          credential: 'openrelayproject'
-        }
-      ];
-    }
 
-    function peerJsOpts(extra) {
-      const opts = {
-        debug: 0,
-        pingInterval: 10000,
-        config: {
-          iceServers: peerIceServers(),
-          sdpSemantics: 'unified-plan',
-          iceTransportPolicy: 'all',
-          iceCandidatePoolSize: 2
-        }
-      };
-      // 1) Свой сервер по умолчанию
-      if (SELF_PEER && SELF_PEER.enabled && SELF_PEER.host) {
-        opts.host = SELF_PEER.host;
-        opts.port = SELF_PEER.port;
-        opts.path = SELF_PEER.path || '/';
-        opts.key = SELF_PEER.key || 'peerjs';
-        opts.secure = !!SELF_PEER.secure;
-      }
-      // 2) Переопределение из URL (?peerHost=...)
-      const custom = peerBrokerFromUrl();
-      if (custom) {
-        opts.host = custom.host;
-        opts.port = custom.port;
-        opts.path = custom.path;
-        opts.key = custom.key;
-        opts.secure = custom.secure;
-      }
-      if (extra && typeof extra === 'object') {
-        const { config: cfg2, ...rest } = extra;
-        Object.assign(opts, rest);
-        if (cfg2) opts.config = Object.assign({}, opts.config, cfg2);
-      }
-      return opts;
-    }
 
-    /** Create Peer. Empty id → random. Never recurse. */
-    function createGamePeer(idOrUndef) {
-      if (typeof Peer === 'undefined') throw new Error('PeerJS missing');
-      const opts = peerJsOpts();
-      if (idOrUndef === undefined || idOrUndef === null || idOrUndef === '') {
-        return new Peer(opts);
-      }
-      return new Peer(String(idOrUndef), opts);
-    }
-
-    let peerOpenSerial = Promise.resolve();
-
-    /**
-     * Serialize peer opens — free cloud rate-limits parallel handshakes
-     * (friends presence + room + MM at once → "network").
-     */
-    function openGamePeer(idOrUndef, options) {
-      const maxAttempts = (options && options.attempts) || 5;
-      const perTryMs = (options && options.timeoutMs) || 12000;
-
-      const run = () => new Promise((resolve, reject) => {
-        let attempt = 0;
-        const tryOnce = () => {
-          attempt++;
-          let peer = null;
-          let settled = false;
-          let timer = null;
-          const cleanup = () => { if (timer) { clearTimeout(timer); timer = null; } };
-
-          const fail = (err) => {
-            if (settled) return;
-            settled = true;
-            cleanup();
-            try { if (peer) peer.destroy(); } catch (_) {}
-            peer = null;
-            const t = (err && err.type) || '';
-            if (attempt >= maxAttempts) {
-              reject(err || new Error('peer-open-failed'));
-              return;
-            }
-            // Longer backoff on network — cloud recovery
-            const wait = (t === 'network' || t === 'server-error' || t === 'socket-error')
-              ? 1200 + attempt * 900 + Math.random() * 500
-              : 400 + attempt * 350;
-            setTimeout(tryOnce, wait);
-          };
-
-          const ok = () => {
-            if (settled) return;
-            settled = true;
-            cleanup();
-            setNetStatus(true);
-            resolve(peer);
-          };
-
-          try {
-            peer = createGamePeer(idOrUndef);
-          } catch (e) {
-            fail(e);
-            return;
-          }
-
-          timer = setTimeout(() => fail({ type: 'timeout', message: 'Peer open timeout' }), perTryMs);
-          peer.on('open', () => ok());
-          peer.on('error', (err) => {
-            const t = (err && err.type) || '';
-            // After our peer is open, peer-unavailable = remote offline (not our network down)
-            if (settled) {
-              if (t === 'peer-unavailable') return;
-              // soft: do not destroy an already-open peer used for outbound connect
-              return;
-            }
-            if (t === 'unavailable-id') {
-              settled = true;
-              cleanup();
-              reject(err);
-              return;
-            }
-            if (t === 'network' || t === 'server-error' || t === 'socket-error' || t === 'socket-closed') {
-              setNetStatus(false, t);
-            }
-            fail(err || { type: 'network' });
-          });
-        };
-        tryOnce();
-      });
-
-      // Queue opens so only one handshake hits the cloud at a time
-      const p = peerOpenSerial.then(run, run);
-      peerOpenSerial = p.catch(() => {});
-      return p;
-    }
 
     let _netOk = null;
     function setNetStatus(ok, detail) {
@@ -6360,8 +6355,8 @@
         );
         return false;
       }
-      if (typeof Peer === 'undefined') {
-        showNetBanner('<strong>PeerJS не загрузился</strong><br/>Проверь интернет и обнови страницу.');
+      if (typeof MatchClient === 'undefined') {
+        showNetBanner('<strong>Клиент матчей не загрузился</strong><br/>Обнови страницу.');
         return false;
       }
       return true;
@@ -6625,31 +6620,10 @@
     }
 
     function tryStartMpMatch() {
-      if (mpMatchStarting || !mpOppConnected || !mpReady || !mpOppReady) return;
-      if (!mpConn || !mpConn.open) return;
-      if (mmActive || mmFound) return;
-      if (mpRole !== 'host') return;
-      if (!mpRoomCode) return;
-      mpMatchStarting = true;
-      vsDuration = mpLobbyDuration;
-      vsModeType = 'online';
-      mpMode = true;
-      mpFromMatchmaking = false;
-      mpGameSource = 'lobby';
-      currentBot = null;
-      oppName = mpOppName || 'Соперник';
-      mpSend({
-        type: 'start',
-        duration: vsDuration,
-        boardId: equippedBoardId,
-        skinId: equippedSkinId,
-        hostName: myNickname,
-        trophies,
-        lobby: true
-      });
-      closeRoomLobby();
-      try { beginVersusMatchMp(true); } catch (_) {}
+      // Server starts the match when both players are ready (private_ready).
+      // Kept as no-op for legacy callers.
     }
+
 
     function wireMpConnection(conn, alreadyOpen) {
       if (!conn) return;
@@ -6738,9 +6712,16 @@
         }
         mpOppConnected = false;
         mpOppReady = false;
+        // No moves yet → hard cancel (covers Opera after boards loaded)
+        try {
+          if (noMovesYet() && !window._matchEnded) {
+            forceCancelPreMoveMatch('Соперник отключился до начала матча');
+            return;
+          }
+        } catch (_) {}
         // During match loading (friendly or ranked) — cancel, do not treat as in-game DC
         if ((isMatchLoadActive() || mpLoading) && !vsActive) {
-          try { abortPreMatchMissingPeer('Соперник отключился при загрузке'); } catch (_) {}
+          try { forceCancelPreMoveMatch('Соперник отключился до начала матча'); } catch (_) {}
           return;
         }
         if (vsActive) setMpStatus('Соперник отключился');
@@ -6806,30 +6787,11 @@
           try { wireMpConnResume(conn); } catch (_) {}
           try { handleOpponentReconnectSignal(); } catch (_) {}
           try {
-            const packPieces = (arr) => (arr || []).map(p => ({
-              shape: (p && p.shape ? p.shape : []).map(c => Array.isArray(c) ? c.slice() : c),
-              color: p && p.color,
-              used: !!(p && p.used)
-            }));
-            const payload = {
-              type: 'match_rejoin_ok',
-              stillLive: true,
-              name: myNickname,
-              score: score,
-              oppScore: oppScore,
-              vsTimeLeft: vsTimeLeft,
-              grid: grid,
-              oppGrid: oppGrid,
-              pieces: packPieces(pieces),
-              oppPieces: packPieces(oppPieces),
-              boardId: equippedBoardId,
-              skinId: equippedSkinId
-            };
+            const payload = buildFullMatchSyncPayload({ fullSync: true });
             try { conn.send(payload); } catch (_) { mpSend(payload); }
-            // Second copy a bit later (rejoiner may attach data handler late)
             setTimeout(() => {
-              try { if (conn.open) conn.send(payload); } catch (_) {}
-            }, 200);
+              try { if (conn.open) conn.send(buildFullMatchSyncPayload({ fullSync: true, _echo: false })); } catch (_) {}
+            }, 500);
           } catch (_) {}
         } catch (_) {}
       };
@@ -6989,6 +6951,9 @@
     let bothAwayMode = false;   // both players currently away from the match
 
     function showDisconnectBanner(sec, kind) {
+      try {
+        if (kind !== 'afk' && kind !== 'afk-me' && isRejoinCalm()) return;
+      } catch (_) {}
       const el = document.getElementById('disconnectBanner');
       if (!el) return;
       el.style.display = 'block';
@@ -7028,6 +6993,11 @@
       return ov;
     }
     function showBoardDisconnectOverlay(sec, which) {
+      try {
+        if (isRejoinCalm()) return;
+        if (sessionStorage.getItem('bp_rejoin_storm') === '1') return;
+        if (bothAwayMode) return;
+      } catch (_) {}
       const side = which || 'opp';
       const ov = ensureBoardDcOverlay(side);
       if (!ov) return;
@@ -7037,10 +7007,10 @@
         if (title) title.textContent = '⏱ АФК — автопоражение';
         if (sub) sub.textContent = sec > 0 ? ('Осталось ' + sec + ' сек') : '…';
       } else {
-        if (title) title.textContent = '📡 Отсоединение…';
+        if (title) title.textContent = 'Соперник не в сети';
         if (sub) {
           sub.textContent = sec > 0
-            ? ('Ожидание ' + sec + ' сек · иначе победа')
+            ? ('Ожидание ' + sec + ' сек')
             : 'Ожидание…';
         }
       }
@@ -7058,6 +7028,12 @@
     }
 
     function clearDisconnectTimer() {
+      try {
+        if (window._dcGraceTimer) {
+          clearTimeout(window._dcGraceTimer);
+          window._dcGraceTimer = null;
+        }
+      } catch (_) {}
       if (mpDisconnectTimer) {
         clearInterval(mpDisconnectTimer);
         mpDisconnectTimer = null;
@@ -7086,45 +7062,153 @@
     /** Resolve when disconnect wait ends. Supports dual-away score/timer rules. */
     function resolveDisconnectWin() {
       if (!vsActive || !mpMode) return;
-      // Safety: empty never-played match must never become a DC win / freeze outcome
       try {
-        if (typeof isEmptyMatchNoMoves === 'function' && isEmptyMatchNoMoves()) {
-          try { clearDisconnectTimer(); } catch (_) {}
-          try { vsActive = false; } catch (_) {}
-          try { abortPreMatchMissingPeer('Соперник отключился до начала матча'); } catch (_) {}
+        if (noMovesYet()) {
+          forceCancelPreMoveMatch('Соперник отключился до начала матча');
           return;
         }
       } catch (_) {}
+      // Never award DC win during rejoin storms / recent traffic
+      try {
+        if (isRejoinCalm()) {
+          try { softRedialPeer(); } catch (_) {}
+          return;
+        }
+        if (mpConn && mpConn.open) {
+          clearDisconnectTimer();
+          hideBoardDisconnectOverlay();
+          oppDisconnected = false;
+          return;
+        }
+        if (window._lastOppPacketAt && (Date.now() - window._lastOppPacketAt) < 12000) {
+          clearDisconnectTimer();
+          hideBoardDisconnectOverlay();
+          oppDisconnected = false;
+          try { softRedialPeer(); } catch (_) {}
+          return;
+        }
+        if (window._mpRejoiningMatch) {
+          return;
+        }
+      } catch (_) {}
+      try {
+        const age = matchStartTs ? (Date.now() - matchStartTs) : 999999;
+        if (age < 20000 && (score | 0) < 100 && (oppScore | 0) < 100) {
+          clearDisconnectTimer();
+          hideBoardDisconnectOverlay();
+          oppDisconnected = false;
+          try { ensureLiveMatchAccept(); } catch (_) {}
+          try { softRedialPeer(); } catch (_) {}
+          return;
+        }
+      } catch (_) {}
+
+      // Detect mutual leave from snapshot (both refreshed / both offline)
+      let snapBothAway = false;
+      let snapMyLeft = myDcAt || 0;
+      let snapOppLeft = oppDcAt || 0;
+      try {
+        const snap = (typeof readLiveMatch === 'function') ? readLiveMatch() : null;
+        if (snap) {
+          if (snap.bothAway) snapBothAway = true;
+          if (typeof snap.leftAt === 'number' && snap.leftAt > 0) snapMyLeft = snap.leftAt;
+          if (typeof snap.oppLeftAt === 'number' && snap.oppLeftAt > 0) snapOppLeft = snap.oppLeftAt;
+          // If I also left recently (page refresh), I must not get a free win
+          if (typeof snap.leftAt === 'number' && snap.leftAt > 0 && (Date.now() - snap.leftAt) < 90000) {
+            snapBothAway = true;
+          }
+        }
+      } catch (_) {}
+      if (myDcAt > 0) snapBothAway = true;
+      if (bothAwayMode) snapBothAway = true;
+
       const wasAfk = dcWasAfk;
-      const soloBack = !!window._soloRejoinActive;
-      const bothAway = !soloBack && (bothAwayMode || (myDcAt > 0 && oppDcAt > 0));
-      const myLeft = myDcAt || 0;
-      const oppLeft = oppDcAt || 0;
       clearDisconnectTimer();
       stopAfkWatch();
       window._soloRejoinActive = false;
       const reason = wasAfk ? 'afk' : 'disconnect';
 
-      // I returned to the match alone and opponent never came back → I win
-      if (soloBack || !bothAway || !myLeft || !oppLeft) {
-        endVersus({ forceWin: true, reason });
+      // Dual rejoin / any rejoin this match → NEVER "Обрыв связи" win
+      let dual = !!(snapBothAway || (snapMyLeft > 0 && snapOppLeft > 0) || snapMyLeft > 0);
+      try {
+        if (window._thisMatchHadRejoin) dual = true;
+        if (window._lastRejoinActivityAt && (Date.now() - window._lastRejoinActivityAt) < 120000) dual = true;
+      } catch (_) {}
+      if (dual) {
+        const left = (vsTimeLeft | 0);
+        if (left > 5) {
+          try { markRejoinCalm(20000); } catch (_) {}
+          try { softRedialPeer(); } catch (_) {}
+          try { ensureLiveMatchAccept(); } catch (_) {}
+          try { persistLiveMatch(); } catch (_) {}
+          try {
+            oppDisconnected = true;
+            // Wait only until match clock ends — then fair score, never DC win
+            const clockEnd = (typeof window._matchClockEndTs === 'number' && window._matchClockEndTs > 0)
+              ? window._matchClockEndTs
+              : (Date.now() + left * 1000);
+            dcDeadlineTs = clockEnd;
+            if (mpDisconnectTimer) { clearInterval(mpDisconnectTimer); mpDisconnectTimer = null; }
+            mpDisconnectTimer = setInterval(() => {
+              try {
+                if (window._matchEnded || !vsActive) {
+                  clearDisconnectTimer();
+                  return;
+                }
+                if (mpConn && mpConn.open) {
+                  clearDisconnectTimer();
+                  hideBoardDisconnectOverlay();
+                  return;
+                }
+                if (window._lastOppPacketAt && (Date.now() - window._lastOppPacketAt) < 8000) {
+                  clearDisconnectTimer();
+                  hideBoardDisconnectOverlay();
+                  return;
+                }
+                if (Date.now() >= dcDeadlineTs || (vsTimeLeft | 0) <= 0) {
+                  clearInterval(mpDisconnectTimer);
+                  mpDisconnectTimer = null;
+                  try {
+                    if (score > oppScore) endVersus({ forceWin: true, reason: 'time', quiet: true });
+                    else if (score < oppScore) endVersus({ forceLoss: true, reason: 'time', quiet: true });
+                    else endVersus({ reason: 'time', quiet: true });
+                  } catch (_) {}
+                }
+              } catch (_) {}
+            }, 1000);
+          } catch (_) {}
+          return;
+        }
+        try {
+          if (score > oppScore) endVersus({ forceWin: true, reason: 'time', quiet: true });
+          else if (score < oppScore) endVersus({ forceLoss: true, reason: 'time', quiet: true });
+          else endVersus({ reason: 'time', quiet: true });
+        } catch (_) {}
         return;
       }
 
-      // Both still offline (snapshot resolve): simultaneous (±2s) → score; else earlier leave loses
-      const SIMUL_MS = 2000;
-      const leftDiff = Math.abs(myLeft - oppLeft);
-      if (leftDiff <= SIMUL_MS) {
-        if (score > oppScore) endVersus({ forceWin: true, reason });
-        else if (score < oppScore) endVersus({ forceLoss: true, reason });
-        else endVersus({ reason }); // draw
-        return;
-      }
-      if (myLeft < oppLeft) {
-        endVersus({ forceLoss: true, reason });
-      } else {
-        endVersus({ forceWin: true, reason });
-      }
+      // Absolute ban: if this client refreshed/rejoined during the match, never
+      // award "Обрыв связи" win — only fair score when clock ends.
+      try {
+        let banned = false;
+        try { if (window._thisMatchHadRejoin) banned = true; } catch (_) {}
+        try {
+          if (sessionStorage.getItem('bp_rejoin_storm') === '1') banned = true;
+        } catch (_) {}
+        try {
+          if (window._lastRejoinActivityAt && (Date.now() - window._lastRejoinActivityAt) < 180000) banned = true;
+        } catch (_) {}
+        if (banned) {
+          try {
+            if (score > oppScore) endVersus({ forceWin: true, reason: 'time', quiet: true });
+            else if (score < oppScore) endVersus({ forceLoss: true, reason: 'time', quiet: true });
+            else endVersus({ reason: 'time', quiet: true });
+          } catch (_) {}
+          return;
+        }
+      } catch (_) {}
+      // True stayer (never rejoined this match): opponent gone long enough
+      endVersus({ forceWin: true, reason });
     }
 
     /** Offline resolve when rejoin window expired (both away / no peer).
@@ -7172,12 +7256,12 @@
         }
       } catch (_) {}
 
-      const reason = 'disconnect';
+      const reason = 'time';
       vsActive = true;
       window._mpRejoiningMatch = false;
       window._soloRejoinActive = false;
       try {
-        // Quiet: history + toast with result, no duel animation / result modal
+        // Quiet: score-based end (both left) — never "Обрыв связи"
         const q = { reason, silent: true, quiet: true };
         const byScore = () => {
           if (myScore > oScore) endVersus({ forceWin: true, ...q });
@@ -7203,42 +7287,448 @@
       return true;
     }
 
+    // —— Pre-start / empty-match peer liveness ——
+    // PeerJS "close" is delayed (esp. Opera); ICE may stay "connected" after remote tab kill.
+    // Rely on: dataChannel.readyState, ping/pong misses, ICE events, and hard close.
+    let _emptyPeerWatchIv = null;
+    let _lastOppPrestartAt = 0;
+    let _emptyPeerWatchStartedAt = 0;
+    let _prestartPingMiss = 0;
+    let _prestartAwaitPongUntil = 0;
+    let _emptyPcListenersBound = null;
+
+    function stopEmptyMatchPeerWatch() {
+      if (_emptyPeerWatchIv) {
+        try { clearInterval(_emptyPeerWatchIv); } catch (_) {}
+        _emptyPeerWatchIv = null;
+      }
+      _prestartPingMiss = 0;
+      _prestartAwaitPongUntil = 0;
+      try {
+        const pc = _emptyPcListenersBound;
+        if (pc && pc._bpEmptyHandlers) {
+          const h = pc._bpEmptyHandlers;
+          try { pc.removeEventListener('iceconnectionstatechange', h.ice); } catch (_) {}
+          try { pc.removeEventListener('connectionstatechange', h.conn); } catch (_) {}
+          try { delete pc._bpEmptyHandlers; } catch (_) {}
+        }
+      } catch (_) {}
+      _emptyPcListenersBound = null;
+    }
+
+    function noMovesYet() {
+      try {
+        if (window._matchHadAnyPlace) return false;
+      } catch (_) {}
+      try {
+        const hasPlace = Array.isArray(matchLog) && matchLog.some(e => e && (e.type === 'place' || e.type === 'opp_place'));
+        if (hasPlace) return false;
+      } catch (_) {}
+      return (score | 0) === 0 && (oppScore | 0) === 0;
+    }
+
+    /** Hard cancel: empty/pre-move disconnect. Bypasses soft guards that fail in Opera. */
+    function forceCancelPreMoveMatch(reason) {
+      // Allow re-entry if previous cancel left UI stuck (Opera)
+      try {
+        if (window._forceCancelPreMoveLock) {
+          const vs = document.getElementById('screenVersus');
+          const stuckVs = !!(vs && vs.classList.contains('active'));
+          const empty = (typeof noMovesYet === 'function') ? noMovesYet() : true;
+          if (!(stuckVs && empty)) return;
+          window._forceCancelPreMoveLock = false;
+        }
+      } catch (_) {
+        window._forceCancelPreMoveLock = false;
+      }
+      window._forceCancelPreMoveLock = true;
+      const msg = reason || 'Соперник отключился до начала матча';
+      try { window._peerLeftForRankedSearch = 0; } catch (_) {}
+      try { window._preMatchAborting = false; } catch (_) {}
+      try { stopEmptyMatchPeerWatch(); } catch (_) {}
+      try { oppDisconnected = false; } catch (_) {}
+      try { clearDisconnectTimer(); } catch (_) {}
+      try { hideBoardDisconnectOverlay(); } catch (_) {}
+      try { hideDisconnectBanner(); } catch (_) {}
+      try { hideMatchLoading(); } catch (_) {}
+      try { clearMatchLoadState(); } catch (_) {}
+      try { stopAfkWatch(); } catch (_) {}
+      try {
+        if (vsTimerId) { clearInterval(vsTimerId); vsTimerId = null; }
+      } catch (_) {}
+      try { vsActive = false; } catch (_) {}
+      try { placingLock = false; } catch (_) {}
+      try { vsIntroLock = false; } catch (_) {}
+      try { mpMatchStarting = false; } catch (_) {}
+      try { mpLoading = false; } catch (_) {}
+      try { window._matchEnded = true; } catch (_) {}
+      try { window._matchHadAnyPlace = false; } catch (_) {}
+      try { sessionStorage.removeItem('bp_rejoin_storm'); } catch (_) {}
+      try { window._thisMatchHadRejoin = false; window._lastRejoinActivityAt = 0; } catch (_) {}
+      try { clearLiveMatch(); } catch (_) {}
+      try { myDcAt = 0; oppDcAt = 0; bothAwayMode = false; } catch (_) {}
+
+      const ranked = !!(mpFromMatchmaking || mpGameSource === 'ranked');
+
+      // Opera: strip versus UI / DC overlays from DOM state even if hide*() no-ops
+      try {
+        document.querySelectorAll('.board-dc-overlay').forEach(el => el.classList.remove('show'));
+        const vs = document.getElementById('screenVersus');
+        if (vs) vs.classList.remove('active');
+        const ml = document.getElementById('matchLoading');
+        if (ml) ml.classList.remove('visible');
+      } catch (_) {}
+
+      try {
+        if (mpConn && mpConn.open) {
+          try { mpSend({ type: 'match_load_abort', reason: 'peer_left_before_start' }); } catch (_) {}
+        }
+      } catch (_) {}
+      try { destroyMp(); } catch (_) {}
+
+      // No cancel toast — go straight to search / lobby
+
+      // Always requeue ranked; friendly → friends
+      try {
+        const vr = document.getElementById('versusResult');
+        const onResult = !!(vr && vr.classList.contains('visible'));
+        if (!onResult && ranked) {
+          window._preMatchAborting = false;
+          window._forceCancelPreMoveLock = false;
+          try {
+            showScreen('match');
+            mmActive = true;
+            mmFound = false;
+            mmSetStatus(msg, 'Ищем снова…');
+          } catch (_) {}
+          try {
+            startOnlineMatchmaking();
+            mmSetStatus(msg, 'Ищем снова…');
+          } catch (_) {
+            try {
+              showScreen('duration');
+              mmSetStatus(msg, 'Попробуй поиск снова');
+            } catch (_2) {}
+          }
+          return;
+        }
+        if (!onResult) {
+          try { showScreen('friends'); } catch (_) {}
+        }
+      } catch (_) {
+        try { showScreen('menu'); } catch (_2) {}
+      }
+      window._preMatchAborting = false;
+      window._forceCancelPreMoveLock = false;
+    }
+
+    function _forceAbortEmptyPeer(reason) {
+      try {
+        forceCancelPreMoveMatch(reason || 'Соперник отключился до начала матча');
+      } catch (_) {
+        try { abortPreMatchMissingPeer(reason || 'Соперник отключился до начала матча'); } catch (_2) {}
+      }
+    }
+
+    function _isEmptyPreStartContext() {
+      try {
+        // Even if flags are half-cleared, empty versus screen must still be watched
+        const loading = !!(typeof isMatchLoadActive === 'function' && isMatchLoadActive())
+          || !!mpLoading || !!vsIntroLock || !!mpMatchStarting;
+        const empty = (typeof noMovesYet === 'function')
+          ? noMovesYet()
+          : (typeof isEmptyMatchNoMoves === 'function' && isEmptyMatchNoMoves());
+        if (loading) return true;
+        if (vsActive && empty) return true;
+        try {
+          const vs = document.getElementById('screenVersus');
+          if (vs && vs.classList.contains('active') && empty) return true;
+        } catch (_) {}
+        if (empty && (mode === 'versus' || !!mpFromMatchmaking)) return true;
+        return false;
+      } catch (_) {
+        return false;
+      }
+    }
+
+    function _peerLinkLooksDead() {
+      try {
+        if (!mpConn) return true;
+        if (!mpConn.open) return true;
+        // PeerJS 1.5.x exposes RTCDataChannel as .dataChannel (Opera often closes this first)
+        const dc = mpConn.dataChannel || mpConn._dc || null;
+        if (dc) {
+          const rs = String(dc.readyState || '');
+          if (rs === 'closed' || rs === 'closing') return true;
+        }
+        const pc = mpConn.peerConnection;
+        if (pc) {
+          const ice = String(pc.iceConnectionState || '');
+          const cs = String(pc.connectionState || '');
+          if (ice === 'failed' || ice === 'closed' || cs === 'failed' || cs === 'closed') return true;
+        }
+      } catch (_) {}
+      return false;
+    }
+
+    function _bindEmptyPcListeners() {
+      try {
+        if (!mpConn) return;
+        // DataChannel close (Opera: often the only early signal)
+        try {
+          const dc = mpConn.dataChannel || mpConn._dc;
+          if (dc && !dc._bpEmptyCloseWatch) {
+            dc._bpEmptyCloseWatch = true;
+            dc.addEventListener('close', () => {
+              try {
+                if (noMovesYet() && !window._matchEnded) {
+                  _forceAbortEmptyPeer('Соперник отключился до начала матча');
+                }
+              } catch (_) {}
+            });
+          }
+        } catch (_) {}
+        if (!mpConn.peerConnection) return;
+        const pc = mpConn.peerConnection;
+        if (pc._bpEmptyHandlers) return;
+        const onBad = () => {
+          try {
+            if (!noMovesYet() && !_isEmptyPreStartContext()) return;
+            const ice = String(pc.iceConnectionState || '');
+            const cs = String(pc.connectionState || '');
+            if (ice === 'failed' || ice === 'closed' || cs === 'failed' || cs === 'closed') {
+              _forceAbortEmptyPeer('Соперник отключился до начала матча');
+              return;
+            }
+            // Opera: "disconnected" can stick — abort empty match quickly
+            if ((ice === 'disconnected' || cs === 'disconnected')) {
+              setTimeout(() => {
+                try {
+                  if (!noMovesYet()) return;
+                  if (_peerLinkLooksDead() || String(pc.iceConnectionState || '') === 'disconnected'
+                    || String(pc.connectionState || '') === 'disconnected') {
+                    _forceAbortEmptyPeer('Соперник отключился до начала матча');
+                  }
+                } catch (_) {}
+              }, 800);
+            }
+          } catch (_) {}
+        };
+        pc._bpEmptyHandlers = { ice: onBad, conn: onBad };
+        try { pc.addEventListener('iceconnectionstatechange', onBad); } catch (_) {}
+        try { pc.addEventListener('connectionstatechange', onBad); } catch (_) {}
+        _emptyPcListenersBound = pc;
+      } catch (_) {}
+    }
+
+    function startEmptyMatchPeerWatch() {
+      stopEmptyMatchPeerWatch();
+      _emptyPeerWatchStartedAt = Date.now();
+      _lastOppPrestartAt = Date.now();
+      _prestartPingMiss = 0;
+      _prestartAwaitPongUntil = 0;
+      try { _bindEmptyPcListeners(); } catch (_) {}
+      _emptyPeerWatchIv = setInterval(() => {
+        try {
+          if (!_isEmptyPreStartContext()) {
+            // Real gameplay with moves — stop
+            try {
+              const empty = (typeof noMovesYet === 'function') ? noMovesYet() : false;
+              if (!empty) stopEmptyMatchPeerWatch();
+            } catch (_) { stopEmptyMatchPeerWatch(); }
+            return;
+          }
+
+          const now = Date.now();
+          const age = now - _emptyPeerWatchStartedAt;
+
+          // Dead link (dataChannel/ICE/open) — Opera often hits this before "close"
+          if (age > 500 && _peerLinkLooksDead()) {
+            _forceAbortEmptyPeer('Соперник отключился до начала матча');
+            return;
+          }
+
+          // Ping/pong: require answer; 2 misses (~2s) → abort (works when ICE stays "connected")
+          if (mpConn && mpConn.open) {
+            if (_prestartAwaitPongUntil && now > _prestartAwaitPongUntil) {
+              _prestartPingMiss++;
+              _prestartAwaitPongUntil = 0;
+              if (_prestartPingMiss >= 2 && age > 1500) {
+                _forceAbortEmptyPeer('Соперник отключился до начала матча');
+                return;
+              }
+            }
+            if (!_prestartAwaitPongUntil) {
+              try {
+                mpSend({ type: 'prestart_ping', t: now, needPong: true });
+                _prestartAwaitPongUntil = now + 1000;
+              } catch (_) {}
+            }
+          } else if (age > 600) {
+            _forceAbortEmptyPeer('Соперник отключился до начала матча');
+            return;
+          }
+
+          // Absolute silence fallback
+          if (age > 3500 && (now - _lastOppPrestartAt) > 3000) {
+            _forceAbortEmptyPeer('Соперник отключился до начала матча');
+          }
+        } catch (_) {}
+      }, 300);
+    }
+
+
+    function markRejoinCalm(ms) {
+      const add = (typeof ms === 'number' && ms > 0) ? ms : 15000;
+      const until = Date.now() + add;
+      try {
+        window._rejoinCalmUntil = Math.max(window._rejoinCalmUntil || 0, until);
+      } catch (_) {
+        window._rejoinCalmUntil = until;
+      }
+      try { window._lastRejoinActivityAt = Date.now(); } catch (_) {}
+      try { window._thisMatchHadRejoin = true; } catch (_) {}
+    }
+    function isRejoinCalm() {
+      try {
+        if (window._mpRejoiningMatch) return true;
+        if (window._rejoinCalmUntil && Date.now() < window._rejoinCalmUntil) return true;
+      } catch (_) {}
+      return false;
+    }
+    function softRedialPeer() {
+      try {
+        if (!mpPeer || mpPeer.destroyed) return;
+        if (mpConn && mpConn.open) return;
+        try { ensureLiveMatchAccept(); } catch (_) {}
+        const targets = [];
+        // Guest dials stable ranked/friendly room host id (survives peer refresh)
+        try {
+          if (mpRoomCode && typeof roomPeerId === 'function' && mpRole !== 'host') {
+            targets.push(roomPeerId(mpRoomCode));
+          }
+        } catch (_) {}
+        if (mpRemotePeerId) targets.push(mpRemotePeerId);
+        const seen = Object.create(null);
+        for (let i = 0; i < targets.length; i++) {
+          const target = targets[i];
+          if (!target || seen[target]) continue;
+          if (mpPeer.id && target === mpPeer.id) continue;
+          seen[target] = 1;
+          try {
+            const c = mpPeer.connect(target, { reliable: true });
+            if (!c) continue;
+            c.on('open', () => {
+              try { acceptLiveMatchReconnect(c); } catch (_) {}
+            });
+          } catch (_) {}
+        }
+      } catch (_) {}
+    }
+    function ensureDualRedialLoop() {
+      try {
+        if (window._dualRedialIv) return;
+        window._dualRedialIv = setInterval(() => {
+          try {
+            if (window._matchEnded || !mpMode) {
+              clearInterval(window._dualRedialIv);
+              window._dualRedialIv = null;
+              return;
+            }
+            if (mpConn && mpConn.open) {
+              clearInterval(window._dualRedialIv);
+              window._dualRedialIv = null;
+              try { clearDisconnectTimer(); } catch (_) {}
+              try { hideBoardDisconnectOverlay(); } catch (_) {}
+              return;
+            }
+            // Keep trying while match clock still runs
+            if ((vsTimeLeft | 0) <= 0 && !vsActive) {
+              clearInterval(window._dualRedialIv);
+              window._dualRedialIv = null;
+              return;
+            }
+            softRedialPeer();
+          } catch (_) {}
+        }, 2500);
+      } catch (_) {}
+    }
+
     function handleOpponentDisconnect() {
-      if (window._matchEnded || !mpMode) return;
-      // No placements yet (0–0, empty boards): always cancel as pre-start — not DC win / freeze / rejoin.
-      // Covers "match found, fields loaded, neither player made a move" regardless of time since go-live.
+      if (!mpMode) return;
+      // HARD RULE: no move placed yet → never freeze on DC overlay (Opera-critical)
       try {
         const stillLoading = !!(typeof isMatchLoadActive === 'function' && isMatchLoadActive())
           || !!mpLoading || !!vsIntroLock || !!mpMatchStarting;
-        const empty = (typeof isEmptyMatchNoMoves === 'function' && isEmptyMatchNoMoves());
-        // Live empty board OR still in load/intro → cancel, never freeze DC timer
-        if (stillLoading || (empty && (vsActive || stillLoading))) {
-          try { oppDisconnected = false; } catch (_) {}
-          try { clearDisconnectTimer(); } catch (_) {}
-          try { hideBoardDisconnectOverlay(); } catch (_) {}
-          try { vsActive = false; } catch (_) {}
-          try { abortPreMatchMissingPeer('Соперник отключился до начала матча'); } catch (_) {}
+        if (stillLoading || noMovesYet()) {
+          forceCancelPreMoveMatch('Соперник отключился до начала матча');
           return;
         }
-        // Empty board even if vsActive was cleared by a race
-        if (empty) {
-          try { oppDisconnected = false; } catch (_) {}
-          try { clearDisconnectTimer(); } catch (_) {}
-          try { hideBoardDisconnectOverlay(); } catch (_) {}
-          try { abortPreMatchMissingPeer('Соперник отключился до начала матча'); } catch (_) {}
+      } catch (_) {
+        try {
+          if (noMovesYet()) {
+            forceCancelPreMoveMatch('Соперник отключился до начала матча');
+            return;
+          }
+        } catch (_2) {}
+      }
+      if (window._matchEnded || !vsActive) return;
+
+      // During mutual rejoin storms — never show DC UI; keep dialing room id
+      try {
+        if (sessionStorage.getItem('bp_rejoin_storm') === '1') {
+          markRejoinCalm(30000);
+        }
+      } catch (_) {}
+      if (isRejoinCalm() || bothAwayMode || (typeof myDcAt === 'number' && myDcAt > 0)) {
+        try { markRejoinCalm(20000); } catch (_) {}
+        try { softRedialPeer(); } catch (_) {}
+        try { ensureDualRedialLoop(); } catch (_) {}
+        return;
+      }
+      try {
+        if (window._lastOppPacketAt && (Date.now() - window._lastOppPacketAt) < 4000) {
           return;
         }
       } catch (_) {}
-      if (!vsActive) return;
-      // Already counting down disconnect — keep deadline (no reset / no extend)
+      if (mpConn && mpConn.open) return;
       if (oppDisconnected && dcDeadlineTs) {
-        oppDisconnected = true;
-        dcPausedByReconnect = false;
-        const left = Math.max(1, Math.ceil((dcDeadlineTs - Date.now()) / 1000));
-        showBoardDisconnectOverlay(left);
+        // Already in wait — do not refresh overlay every close flap
         return;
       }
       if (oppDisconnected) return;
+      if (window._dcGraceTimer) return;
+      window._dcGraceTimer = setTimeout(() => {
+        window._dcGraceTimer = null;
+        try {
+          if (window._matchEnded || !vsActive || !mpMode) return;
+          if (isRejoinCalm()) { softRedialPeer(); return; }
+          if (mpConn && mpConn.open) return;
+          if (window._lastOppPacketAt && (Date.now() - window._lastOppPacketAt) < 5000) return;
+          if (oppDisconnected) return;
+          beginOpponentDisconnectWait();
+        } catch (_) {}
+      }, 5000);
+      return;
+    }
+
+    function beginOpponentDisconnectWait() {
+      if (window._matchEnded || !vsActive || !mpMode) return;
+      if (oppDisconnected) return;
+      try {
+        if (sessionStorage.getItem('bp_rejoin_storm') === '1') markRejoinCalm(30000);
+      } catch (_) {}
+      if (isRejoinCalm() || bothAwayMode) {
+        try { softRedialPeer(); } catch (_) {}
+        try { ensureDualRedialLoop(); } catch (_) {}
+        return;
+      }
+      try {
+        if (noMovesYet()) {
+          forceCancelPreMoveMatch('Соперник отключился до начала матча');
+          return;
+        }
+      } catch (_) {}
 
       const now = Date.now();
       const oppIdle = now - (lastOppActionTs || now);
@@ -7275,6 +7765,17 @@
       dcDeadlineTs = now + waitMs;
       hideDisconnectBanner(); // bottom banner free for AFK self-warn; DC uses center
       const left = Math.ceil(waitMs / 1000);
+      // Last-chance: if match is still empty, never enter DC wait UI
+      try {
+        if (typeof isEmptyMatchNoMoves === 'function' && isEmptyMatchNoMoves()) {
+          try { oppDisconnected = false; } catch (_) {}
+          try { clearDisconnectTimer(); } catch (_) {}
+          try { hideBoardDisconnectOverlay(); } catch (_) {}
+          try { vsActive = false; } catch (_) {}
+          try { abortPreMatchMissingPeer('Соперник отключился до начала матча'); } catch (_) {}
+          return;
+        }
+      } catch (_) {}
       showBoardDisconnectOverlay(left);
       // Remaining player must keep playing and keep wall-clock ticking
       try { placingLock = false; } catch (_) {}
@@ -7304,6 +7805,13 @@
           clearDisconnectTimer();
           return;
         }
+        // Empty never-played match must not stay frozen on DC overlay
+        try {
+          if (noMovesYet()) {
+            forceCancelPreMoveMatch('Соперник отключился до начала матча');
+            return;
+          }
+        } catch (_) {}
         const leftMs = dcDeadlineTs - Date.now();
         const leftSec = Math.ceil(leftMs / 1000);
         if (leftMs <= 0) {
@@ -7333,6 +7841,8 @@
 
     function noteMyAction() {
       lastMyActionTs = Date.now();
+      try { window._matchHadAnyPlace = true; } catch (_) {}
+      try { stopEmptyMatchPeerWatch(); } catch (_) {}
       if (afkBannerKind === 'me') {
         afkBannerKind = null;
         hideDisconnectBanner();
@@ -7341,6 +7851,8 @@
     }
     function noteOppAction() {
       lastOppActionTs = Date.now();
+      try { window._matchHadAnyPlace = true; } catch (_) {}
+      try { stopEmptyMatchPeerWatch(); } catch (_) {}
       // Real move ends disconnect / AFK wait
       if (oppDisconnected || dcDeadlineTs) {
         clearDisconnectTimer();
@@ -7356,7 +7868,22 @@
       const now = Date.now();
       lastMyActionTs = now;
       lastOppActionTs = now;
+      try { window._lastOppPacketAt = now; } catch (_) {}
       afkBannerKind = null;
+      // Keepalive: prevents mutual false "Отсоединение" when ICE flaps
+      try {
+        if (window._liveKeepaliveIv) { clearInterval(window._liveKeepaliveIv); }
+        window._liveKeepaliveIv = setInterval(() => {
+          try {
+            if (window._matchEnded || !vsActive || !mpMode) return;
+            if (mpConn && mpConn.open) {
+              mpSend({ type: 'keepalive', t: Date.now() });
+            }
+            // Persist often so refresh can auto-rejoin
+            try { persistLiveMatch(); } catch (_) {}
+          } catch (_) {}
+        }, 4000);
+      } catch (_) {}
       afkCheckTimer = setInterval(() => {
         if (window._matchEnded || !vsActive || !mpMode || replayMode) return;
         try { ensurePlayableIfLive(); } catch (_) {}
@@ -7447,9 +7974,35 @@
         afkCheckTimer = null;
       }
       afkBannerKind = null;
+      try {
+        if (window._liveKeepaliveIv) {
+          clearInterval(window._liveKeepaliveIv);
+          window._liveKeepaliveIv = null;
+        }
+      } catch (_) {}
     }
 
     function onMpMessage(data) {
+      // Any packet proves peer is online — clear false "Отсоединение" on both sides
+      try {
+        if (data && typeof data === 'object') {
+          window._lastOppPacketAt = Date.now();
+          try { markRejoinCalm(8000); } catch (_) {}
+          if (oppDisconnected || dcDeadlineTs) {
+            try { clearDisconnectTimer(); } catch (_) {}
+            try { hideBoardDisconnectOverlay(); } catch (_) {}
+            try { hideDisconnectBanner(); } catch (_) {}
+            try { dcPausedByReconnect = false; } catch (_) {}
+            try { lastOppActionTs = Date.now(); } catch (_) {}
+          }
+          try {
+            if (window._dcGraceTimer) {
+              clearTimeout(window._dcGraceTimer);
+              window._dcGraceTimer = null;
+            }
+          } catch (_) {}
+        }
+      } catch (_) {}
       if (!data || !data.type) return;
       switch (data.type) {
         case 'hello':
@@ -7521,7 +8074,9 @@
           break;
         case 'pre_match_ping':
         case 'pre_match_pong':
-          // legacy no-op
+          // legacy heartbeat — treat as prestart liveness
+          try { _lastOppPrestartAt = Date.now(); } catch (_) {}
+          try { mpOppConnected = true; } catch (_) {}
           break;
         case 'start_req':
           // Guest did not receive start — host re-sends if still in ranked handshake / lobby
@@ -7571,11 +8126,20 @@
           }
           break;
         case 'place':
-          if (replayMode || !vsActive) break;
+          if (replayMode) break;
+          // Accept moves during rejoin calm even if vsActive flipped briefly
+          if (!vsActive && !window._mpRejoiningMatch && !isRejoinCalm()) break;
+          if (!vsActive) {
+            try { vsActive = true; } catch (_) {}
+          }
           applyOppRemotePlace(data);
           break;
         case 'deal':
-          if (replayMode || !vsActive) break;
+          if (replayMode) break;
+          if (!vsActive && !window._mpRejoiningMatch && !isRejoinCalm()) break;
+          if (!vsActive) {
+            try { vsActive = true; } catch (_) {}
+          }
           applyOppRemoteDeal(data);
           break;
         case 'stuck':
@@ -7583,6 +8147,10 @@
           break;
         case 'leaving':
           // Peer closed tab / left intentionally
+          if (mpMode && (data && data.preStart)) {
+            forceCancelPreMoveMatch('Соперник отключился до начала матча');
+            break;
+          }
           if (vsActive && mpMode) {
             try {
               if (typeof data.score === 'number') oppScore = data.score;
@@ -7593,12 +8161,47 @@
                 oppDcAt = data.leftAt;
               }
             } catch (_) {}
+            // Empty board leave → cancel, never freeze on DC overlay
+            try {
+              if (noMovesYet()) {
+                forceCancelPreMoveMatch('Соперник отключился до начала матча');
+                break;
+              }
+            } catch (_) {}
             handleOpponentDisconnect();
             try {
               // Stamp known leave times into live snapshot for dual-away rejoin
               if (typeof persistLiveMatch === 'function') persistLiveMatch();
             } catch (_) {}
           }
+          break;
+        case 'keepalive':
+          try { window._lastOppPacketAt = Date.now(); } catch (_) {}
+          try { mpOppConnected = true; } catch (_) {}
+          // optional soft ack
+          try {
+            if (mpConn && mpConn.open && data && data.t) {
+              /* received — onMpMessage already clears DC */
+            }
+          } catch (_) {}
+          break;
+        case 'prestart_ping':
+          try { _lastOppPrestartAt = Date.now(); } catch (_) {}
+          try { mpOppConnected = true; } catch (_) {}
+          try { _prestartPingMiss = 0; } catch (_) {}
+          try { _prestartAwaitPongUntil = 0; } catch (_) {}
+          // Reply so peer can detect silent death (Opera often keeps ICE "connected")
+          try {
+            if (data && data.needPong && mpConn && mpConn.open) {
+              mpSend({ type: 'prestart_pong', t: Date.now() });
+            }
+          } catch (_) {}
+          break;
+        case 'prestart_pong':
+          try { _lastOppPrestartAt = Date.now(); } catch (_) {}
+          try { mpOppConnected = true; } catch (_) {}
+          try { _prestartPingMiss = 0; } catch (_) {}
+          try { _prestartAwaitPongUntil = 0; } catch (_) {}
           break;
         case 'match_rejoin':
           {
@@ -7615,29 +8218,11 @@
                 if (data.name) { mpOppName = data.name; oppName = data.name; }
                 try { handleOpponentReconnectSignal(); } catch (_) {}
                 // Send FULL state so rejoiner sees boards + trays
-                const packPieces = (arr) => (arr || []).map(p => ({
-                  shape: (p.shape || []).map(c => c.slice()),
-                  color: p.color,
-                  used: !!p.used
-                }));
-                const payload = {
-                  type: 'match_rejoin_ok',
-                  stillLive: true,
-                  name: myNickname,
-                  // local = sender; peer maps inverted
-                  score: score,
-                  oppScore: oppScore,
-                  vsTimeLeft: vsTimeLeft,
-                  grid: grid,
-                  oppGrid: oppGrid,
-                  pieces: packPieces(pieces),
-                  oppPieces: packPieces(oppPieces),
-                  boardId: equippedBoardId,
-                  skinId: equippedSkinId
-                };
+                const payload = buildFullMatchSyncPayload({ fullSync: true });
                 mpSend(payload);
-                // Peer may still be wiring handlers — resend
-                setTimeout(() => { try { mpSend(payload); } catch (_) {} }, 200);
+                setTimeout(() => {
+                  try { mpSend(buildFullMatchSyncPayload({ fullSync: true })); } catch (_) {}
+                }, 500);
               } catch (_) {}
             } else {
               try {
@@ -7650,117 +8235,95 @@
         case 'match_rejoin_ok':
           try {
             try { resolveRejoinAwait(data); } catch (_) {}
-            // Probe replies are status-only
             if (data.probe) break;
             if (data.stillLive === false) {
-              clearLiveMatch();
-              hideMatchRejoinPanel();
-              window._mpRejoiningMatch = false;
+              let localAlive = false;
               try {
-                if (vsActive) {
-                  vsActive = false;
-                  try { killAllMatchTimers(); } catch (_) {}
-                  try { showScreen('menu'); updateMenuStats(); } catch (_) {}
+                const snap = (typeof readLiveMatch === 'function') ? readLiveMatch() : null;
+                if (snap) {
+                  const end = (typeof snap.clockEndTs === 'number' && snap.clockEndTs > 0)
+                    ? snap.clockEndTs
+                    : (Date.now() + Math.max(0, snap.vsTimeLeft || 0) * 1000);
+                  localAlive = end > Date.now() + 2000;
+                } else if (vsActive && vsTimeLeft > 2) {
+                  localAlive = true;
                 }
               } catch (_) {}
-              setMpStatus('Матч уже завершён');
-              try { showInfoToast('Матч', 'Матч уже завершён', 'bad'); } catch (_) {}
+              if (localAlive && !window._matchEnded) {
+                // Ignore false "ended" from flaky peer — stay in match / auto-rejoin
+                try { clearDisconnectTimer(); } catch (_) {}
+                break;
+              }
+              try { clearLiveMatch(); } catch (_) {}
+              try { hideMatchRejoinPanel(); } catch (_) {}
+              window._mpRejoiningMatch = false;
+              try {
+                vsActive = false;
+                killAllMatchTimers();
+                showScreen('menu');
+                updateMenuStats();
+              } catch (_) {}
               break;
             }
             mpOppConnected = true;
-            // Invert scores/boards/trays: sender's "me" is our "opp"
-            if (typeof data.score === 'number') oppScore = data.score;
-            if (typeof data.oppScore === 'number') score = data.oppScore;
-            if (typeof data.vsTimeLeft === 'number') {
-              vsTimeLeft = data.vsTimeLeft;
-              try { updateTimerDisplay(); } catch (_) {}
-            }
+            try { markRejoinCalm(25000); } catch (_) {}
             try {
-              document.getElementById('myScore').textContent = score;
-              document.getElementById('oppScore').textContent = oppScore;
+              if (window._dualRedialIv) {
+                clearInterval(window._dualRedialIv);
+                window._dualRedialIv = null;
+              }
             } catch (_) {}
-
-            // Do not wipe boards/trays while the player is dragging, or after we already
-            // applied a full sync and they may have placed a piece.
-            const dragging = !!(typeof isDragging !== 'undefined' && isDragging);
-            const alreadySynced = !!window._rejoinStateApplied;
-            // Apply full boards/trays only once — later packets must not wipe a just-placed piece
-            const allowBoardSync = !dragging && !alreadySynced;
-
-            let handsChanged = false;
-            if (allowBoardSync) {
-              if (Array.isArray(data.oppGrid)) {
-                grid = data.oppGrid.map(row => row.slice());
-                try { renderGrid(grid, boardMe); } catch (_) {}
-              }
-              if (Array.isArray(data.grid)) {
-                oppGrid = data.grid.map(row => row.slice());
-                try { renderGrid(oppGrid, boardOpp); } catch (_) {}
-              }
-              // Prefer richer hand — never let a thinner peer snapshot erase a local piece
-              if (Array.isArray(data.oppPieces) && data.oppPieces.length) {
-                const next = preferHand(pieces, data.oppPieces);
-                if (next !== pieces) { pieces = next; handsChanged = true; }
-              }
-              if (Array.isArray(data.pieces) && data.pieces.length) {
-                const nextOpp = preferHand(oppPieces, data.pieces);
-                if (nextOpp !== oppPieces) { oppPieces = nextOpp; handsChanged = true; }
-              }
-              window._rejoinStateApplied = true;
-            }
-            // Cosmetics always — even if boards were already synced (fixes missing opp skins on rejoin)
-            if (data.boardId && typeof applyOppBoard === 'function') {
-              window.mpOppBoardId = data.boardId;
-              try { applyOppBoard(data.boardId); } catch (_) {}
-            }
-            if (data.skinId && typeof applyOppSkin === 'function') {
-              window.mpOppSkinId = data.skinId;
-              try { applyOppSkin(data.skinId); } catch (_) {}
-            }
-            // Only recover from log if a side is still completely empty
+            try { clearDisconnectTimer(); } catch (_) {}
+            try { hideBoardDisconnectOverlay(); } catch (_) {}
+            try { hideDisconnectBanner(); } catch (_) {}
+            try { oppDisconnected = false; } catch (_) {}
+            // Always full-sync boards/hands from peer (fixes multi-rejoin desync)
+            try { applyPeerMatchState(data); } catch (_) {}
+            try { handleOpponentReconnectSignal(); } catch (_) {}
             try {
-              if ((!pieces || !pieces.length) || (!oppPieces || !oppPieces.length)) {
-                const beforeMe = countUnusedHand(pieces);
-                const beforeOpp = countUnusedHand(oppPieces);
-                recoverHandsFromMatchLog();
-                if (countUnusedHand(pieces) !== beforeMe || countUnusedHand(oppPieces) !== beforeOpp) {
-                  handsChanged = true;
+              if (vsActive || window._mpRejoiningMatch) persistLiveMatch();
+            } catch (_) {}
+            try { ensureMatchClockRunning(); } catch (_) {}
+            try { ensurePlayableIfLive(); } catch (_) {}
+            try { placingLock = false; } catch (_) {}
+            try { window._mpRejoiningMatch = false; } catch (_) {}
+            // Echo our state so both clients converge after mutual rejoins
+            try {
+              if (mpConn && mpConn.open && !data._echo && typeof buildFullMatchSyncPayload === 'function') {
+                if (!window._echoSyncSentAt || (Date.now() - window._echoSyncSentAt) > 2500) {
+                  window._echoSyncSentAt = Date.now();
+                  setTimeout(() => {
+                    try { mpSend(buildFullMatchSyncPayload({ fullSync: true, _echo: true })); } catch (_) {}
+                  }, 300);
                 }
               }
             } catch (_) {}
-
-            handleOpponentReconnectSignal();
-            try {
-              // Full tray redraw only when hands actually changed or first sync
-              if (allowBoardSync || handsChanged) {
-                if (typeof boardMe !== 'undefined' && boardMe) renderGrid(grid, boardMe);
-                if (typeof boardOpp !== 'undefined' && boardOpp) renderGrid(oppGrid, boardOpp);
-                const area = document.getElementById('piecesAreaVs');
-                if (area && typeof renderPieces === 'function') renderPieces(area);
-                if (typeof renderOppPieces === 'function') renderOppPieces();
-                try { applyBoardScales(); } catch (_) {}
-              } else {
-                // Repeat packets: cosmetics only — avoid flickering trays / losing a piece
-                try { applyMatchCosmetics(); } catch (_) {}
-              }
-              if (allowBoardSync || handsChanged) {
-                try { applyMatchCosmetics(); } catch (_) {}
-              }
-            } catch (_) {}
-            if (vsActive || window._mpRejoiningMatch) persistLiveMatch();
-            setMpStatus('Связь восстановлена');
-            try { ensureMatchClockRunning(); } catch (_) {}
-            try { ensurePlayableIfLive(); } catch (_) {}
-          } catch (_) {}
+          } catch (e) {
+            console.warn('match_rejoin_ok', e);
+          }
           break;
         case 'match_over':
           try {
             const why = (data && data.reason) || 'forfeit';
+            const hadRejoin = (() => {
+              try {
+                const el = document.getElementById('matchRejoinPanel');
+                return !!(el && el.classList.contains('show'));
+              } catch (_) { return false; }
+            })();
             hideMatchRejoinPanel();
-            if (!window._matchEnded) {
-              const quiet = (typeof shouldQuietMatchEnd === 'function')
+            try { window._rejoinPanelListening = false; } catch (_) {}
+            try {
+              if (window._rejoinPanelDialIv) {
+                clearInterval(window._rejoinPanelDialIv);
+                window._rejoinPanelDialIv = null;
+              }
+            } catch (_) {}
+            // Opponent surrendered while we were on rejoin toast → always show Победа
+            if (!window._matchEnded || hadRejoin) {
+              const quiet = hadRejoin || ((typeof shouldQuietMatchEnd === 'function')
                 ? shouldQuietMatchEnd()
-                : !vsActive;
+                : !vsActive);
               try {
                 const snap = (typeof readLiveMatch === 'function') ? readLiveMatch() : null;
                 if (snap) {
@@ -7776,9 +8339,15 @@
                 mode = 'versus';
                 vsModeType = 'online';
               }
+              // Allow endVersus even if a stale _matchEnded was set
+              if (hadRejoin) {
+                try { window._matchEnded = false; } catch (_) {}
+                try { window._rankedDeltaApplied = false; } catch (_) {}
+              }
               endVersus({ forceWin: true, reason: why, silent: true, quiet: quiet });
             } else {
               try { clearLiveMatch(); } catch (_) {}
+              try { /* no match-end toast */ } catch (_) {}
             }
           } catch (_) {}
           break;
@@ -7846,10 +8415,16 @@
           break;
         case 'end':
           {
-            // Versus screen → full animation; menu / toast panel → quiet toast only
-            const quiet = (typeof shouldQuietMatchEnd === 'function')
+            const hadRejoin = (() => {
+              try {
+                const el = document.getElementById('matchRejoinPanel');
+                return !!(el && el.classList.contains('show'));
+              } catch (_) { return false; }
+            })();
+            // Versus screen → full animation; menu / rejoin toast → quiet toast only
+            const quiet = hadRejoin || ((typeof shouldQuietMatchEnd === 'function')
               ? shouldQuietMatchEnd()
-              : !vsActive;
+              : !vsActive);
             const applyEnd = () => {
               try {
                 if (typeof data.myScore === 'number') oppScore = Math.max(0, data.myScore);
@@ -7859,7 +8434,12 @@
                 if (myEl) myEl.textContent = score;
                 if (oppEl) oppEl.textContent = oppScore;
               } catch (_) {}
-              if (window._matchEnded) return;
+              if (window._matchEnded && !hadRejoin) return;
+              if (hadRejoin) {
+                try { window._matchEnded = false; } catch (_) {}
+                try { window._rankedDeltaApplied = false; } catch (_) {}
+                try { hideMatchRejoinPanel(); } catch (_) {}
+              }
               const opts = {
                 silent: true,
                 quiet: quiet,
@@ -7872,7 +8452,7 @@
             if (vsActive || isOnVersusScreen()) {
               if (data.youLose || data.youWin) applyEnd();
               else endVersus({ silent: true, quiet: quiet });
-            } else if (!window._matchEnded && (data.youWin || data.youLose)) {
+            } else if ((!window._matchEnded || hadRejoin) && (data.youWin || data.youLose)) {
               // Menu / rejoin panel — toast only, stay where we are
               try {
                 const snap = (typeof readLiveMatch === 'function') ? readLiveMatch() : null;
@@ -7880,7 +8460,6 @@
                   try { restoreSnapState(snap); } catch (_) {}
                 }
               } catch (_) {}
-              // Do NOT force vsActive/screen for quiet menu toast
               if (quiet) {
                 applyEnd();
               } else {
@@ -8173,6 +8752,13 @@
             mpOppConnected = false;
           }
         } catch (_) {}
+        // No moves yet → hard cancel (Opera often only gets close, without data msgs)
+        try {
+          if (mpMode && noMovesYet() && !window._matchEnded) {
+            forceCancelPreMoveMatch('Соперник отключился до начала матча');
+            return;
+          }
+        } catch (_) {}
         // Opponent intentionally left for a fresh ranked queue — never treat as pre-start abort
         let peerChoseSearch = false;
         try {
@@ -8199,10 +8785,8 @@
           } catch (_) {}
         } else if (mpMode && !vsActive && !postMatchOnlineEligible
           && (isMatchLoadActive() || !!vsIntroLock || !!mpLoading || !!mmFound)) {
-          // Real pre-start handshake only — NOT residual mode==="versus" after result screen
-          try { abortPreMatchMissingPeer('Соперник отключился до начала матча'); } catch (_) {}
+          try { forceCancelPreMoveMatch('Соперник отключился до начала матча'); } catch (_) {}
         } else if (postMatchOnlineEligible && !vsActive) {
-          // Soft disconnect — do not destroy peer; opponent may return
           try {
             hideRematchWait();
             rematchPending = false;
@@ -8210,6 +8794,27 @@
           } catch (_) {}
         }
       });
+      // Opera: data channel often dies before PeerJS "close"
+      try {
+        const attachDc = () => {
+          try {
+            const dc = conn.dataChannel || conn._dc;
+            if (!dc || dc._bpEmptyClose) return;
+            dc._bpEmptyClose = true;
+            dc.addEventListener('close', () => {
+              try {
+                if (mpMode && noMovesYet() && !window._matchEnded) {
+                  forceCancelPreMoveMatch('Соперник отключился до начала матча');
+                }
+              } catch (_) {}
+            });
+          } catch (_) {}
+        };
+        attachDc();
+        // dataChannel may appear slightly after open
+        setTimeout(attachDc, 200);
+        setTimeout(attachDc, 800);
+      } catch (_) {}
       try {
         if (conn.open) mpOppConnected = true;
       } catch (_) {}
@@ -8618,8 +9223,8 @@
     }
 
     async function createMpRoom() {
-      if (typeof Peer === 'undefined') {
-        setMpStatus('PeerJS не загрузился. Нужен интернет.');
+      if (typeof MatchClient === 'undefined') {
+        setMpStatus('Сервер матчей недоступен. Обнови страницу.');
         return;
       }
       try { stopMatchmaking(true); } catch (_) {}
@@ -8631,75 +9236,30 @@
       mpFromMatchmaking = false;
       mpGameSource = 'lobby';
       vsModeType = 'online';
-      await delayMs(300);
-      if (myGen !== mpCreateGen) return;
-
-      const tryCreate = async (attempt) => {
-        if (myGen !== mpCreateGen) return;
-        const code = genCode(5);
-        mpRoomCode = code;
-        mpRole = 'host';
-        mpMode = true;
-        mpReady = false;
-        mpOppReady = false;
-        mpOppConnected = false;
-        mpLobbyDuration = 120;
-        mpMatchStarting = false;
-        mpFromMatchmaking = false;
-        mpGameSource = 'lobby';
-        setMpStatus(attempt > 1 ? ('Повтор ' + attempt + '…') : 'Создаю комнату…');
-
-        try {
-          const peer = await openGamePeer(roomPeerId(code), { attempts: 4, timeoutMs: 12000 });
-          if (myGen !== mpCreateGen) {
-            try { peer.destroy(); } catch (_) {}
-            return;
-          }
-          mpPeer = peer;
-          setMpStatus('Комната ' + code + ' · ждут игрока');
-          openRoomLobby();
-          try { SFX.ui(); } catch (_) {}
-          peer.on('connection', (conn) => {
-            if (myGen !== mpCreateGen) {
-              try { conn.close(); } catch (_) {}
-              return;
-            }
-            handleHostIncomingConn(conn);
-          });
-          peer.on('error', (err) => {
-            if (myGen !== mpCreateGen) return;
-            const t = (err && err.type) || '';
-            if (t === 'network' || t === 'server-error' || t === 'socket-error' || t === 'socket-closed') {
-              setMpStatus('Сбой (' + t + ') — повтор…');
-              try { peer.destroy(); } catch (_) {}
-              mpPeer = null;
-              if (attempt < 5) setTimeout(() => tryCreate(attempt + 1), 900);
-            }
-          });
-          peer.on('disconnected', () => {
-            if (!mmGenAlive(gen)) return;
-            try { if (peer && !peer.destroyed) peer.reconnect(); } catch (_) {}
-          });
-        } catch (err) {
-          if (myGen !== mpCreateGen) return;
-          const t = (err && err.type) || '';
-          if (t === 'unavailable-id') {
-            if (attempt < 6) setTimeout(() => tryCreate(attempt + 1), 250);
-            return;
-          }
-          setMpStatus('Сеть: ' + (t || 'ошибка') + ' — повтор…');
-          if (attempt < 5) setTimeout(() => tryCreate(attempt + 1), 800 + attempt * 400);
-          else setMpStatus('Не удалось создать комнату. Обнови страницу.');
-        }
-      };
-      tryCreate(1);
+      mpRole = 'host';
+      mpMode = true;
+      mpReady = false;
+      mpOppReady = false;
+      mpOppConnected = false;
+      mpLobbyDuration = 120;
+      mpMatchStarting = false;
+      setMpStatus('Создаю комнату…');
+      try { bindMatchClientHandlers(); } catch (_) {}
+      try { bindPrivateLobbyHandlers(); } catch (_) {}
+      MatchClient.createPrivate({
+        name: myNickname,
+        trophies: trophies | 0,
+        duration: mpLobbyDuration || 120,
+        friendCode: typeof myFriendCode !== 'undefined' ? myFriendCode : null
+      });
+      // private_lobby handler opens UI when server replies
     }
 
     function joinMpRoom(code, opts) {
       opts = opts || {};
       const fromChallenge = !!opts.fromChallenge;
-      if (typeof Peer === 'undefined') {
-        setMpStatus('PeerJS не загрузился. Нужен интернет.');
+      if (typeof MatchClient === 'undefined') {
+        setMpStatus('Сервер матчей недоступен. Обнови страницу.');
         return;
       }
       code = String(code || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
@@ -8711,7 +9271,6 @@
       destroyMp();
       hideRjToast(false);
       mpPendingJoin = null;
-
       mpRoomCode = code;
       mpRole = 'guest';
       mpMode = true;
@@ -8721,94 +9280,23 @@
       mmActive = false;
       mmFound = false;
       try { stopMatchmaking(true); } catch (_) {}
-      try {
-        document.getElementById('versusResult')?.classList.remove('visible');
-      } catch (_) {}
+      try { document.getElementById('versusResult')?.classList.remove('visible'); } catch (_) {}
       try { showScreen('friends'); } catch (_) {}
       mpReady = false;
       mpOppReady = false;
       mpOppConnected = false;
       mpLobbyDuration = 120;
       mpMatchStarting = false;
-      mpFromMatchmaking = false;
       setMpStatus(fromChallenge ? ('Входим в комнату вызова ' + code + '…') : ('Ищем комнату ' + code + '…'));
-
-      let settled = false;
-      const fail = (msg) => {
-        if (settled || myGen !== mpJoinGen) return;
-        settled = true;
-        failJoinRoom(msg, true);
-      };
-
-      delayMs(250).then(() => openGamePeer(null, { attempts: 4, timeoutMs: 12000 }))
-        .then((peer) => {
-          if (settled || myGen !== mpJoinGen) {
-            try { peer.destroy(); } catch (_) {}
-            return;
-          }
-          mpPeer = peer;
-          setMpStatus('Подключаемся к ' + code + '…');
-          let conn;
-          try {
-            conn = peer.connect(roomPeerId(code), { reliable: true });
-          } catch (e) {
-            fail('Комната «' + code + '» не найдена');
-            return;
-          }
-          mpConn = conn;
-          clearMpJoinTimer();
-          mpJoinTimer = setTimeout(() => {
-            if (!settled && !mpOppConnected) {
-              fail('Комната не найдена или хост оффлайн.');
-            }
-          }, 16000);
-
-          conn.on('open', () => {
-            if (settled || myGen !== mpJoinGen) return;
-            setMpStatus(fromChallenge ? 'Вход по вызову…' : 'Запрос хосту…');
-            try {
-              conn.send({
-                type: 'join_req',
-                name: myNickname,
-                code: myFriendCode,
-                trophies: typeof trophies === 'number' ? trophies : 0,
-                fromChallenge: fromChallenge
-              });
-            } catch (_) {
-              fail('Не удалось отправить запрос');
-            }
-          });
-          conn.on('data', (data) => {
-            if (conn._bpWired) return;
-            if (settled || myGen !== mpJoinGen || !data || typeof data !== 'object') return;
-            if (data.type === 'join_accept') {
-              settled = true;
-              clearMpJoinTimer();
-              if (data.name) mpOppName = data.name;
-              if (typeof data.trophies === 'number') mpOppTrophies = data.trophies;
-              if (typeof data.duration === 'number') mpLobbyDuration = data.duration;
-              setMpStatus(fromChallenge ? 'Вы в лобби ✓' : 'Хост пустил ✓');
-              try {
-                if (fromChallenge && chPending && String(chPending.room).toUpperCase() === String(code).toUpperCase()) {
-                  chPending = null;
-                  hideChToast(false);
-                  renderFriendRequests();
-                  updateFriendsSectionCounts();
-                }
-              } catch (_) {}
-              wireMpConnection(conn, true);
-              try { SFX.ui(); } catch (_) {}
-            } else if (data.type === 'join_decline') {
-              fail(data.reason === 'full' ? 'Комната занята' : 'Хост отклонил вход');
-            }
-          });
-          conn.on('error', () => { if (!settled) fail('Комната не найдена'); });
-          conn.on('close', () => {
-            if (!settled && !mpOppConnected) fail('Комната не найдена или хост вышел');
-          });
-        })
-        .catch(() => fail('Не удалось подключиться к сети. Проверь интернет.'));
+      try { bindMatchClientHandlers(); } catch (_) {}
+      try { bindPrivateLobbyHandlers(); } catch (_) {}
+      MatchClient.joinPrivate(code, {
+        name: myNickname,
+        trophies: trophies | 0,
+        friendCode: typeof myFriendCode !== 'undefined' ? myFriendCode : null
+      });
     }
+
 
     function applyRemoteFriendRemove(data) {
       const code = normalizeFriendCode(
@@ -9127,7 +9615,10 @@
       if (!data || !data.room) return;
       const room = String(data.room).toUpperCase();
       if (mpOppConnected && !vsActive) {
-        try { conn.send({ type: 'challenge_decline', reason: 'busy' }); } catch (_) {}
+        try {
+          const from = normalizeFriendCode(data.code || data.from);
+          if (from) deliverPeerMessage(from, { type: 'challenge_decline', reason: 'busy', room });
+        } catch (_) {}
         return;
       }
       // Same room already pending — refresh conn only, no second toast/flash
@@ -9162,8 +9653,14 @@
         document.getElementById('reviewBar')?.classList.remove('visible');
       } catch (_) {}
       try {
-        if (req.conn && req.conn.open) {
-          req.conn.send({ type: 'challenge_accept', code: myFriendCode, name: myNickname, room: req.room });
+        const to = normalizeFriendCode(req.code);
+        if (to) {
+          deliverPeerMessage(to, {
+            type: 'challenge_accept',
+            code: myFriendCode,
+            name: myNickname,
+            room: req.room
+          });
         }
       } catch (_) {}
       joinMpRoom(req.room, { fromChallenge: true });
@@ -9394,14 +9891,13 @@
 
     async function challengeFriend(friend) {
       if (!friend || !friend.code) return;
-      if (typeof Peer === 'undefined') {
-        alert('Нужен интернет');
+      if (typeof MatchClient === 'undefined') {
+        alert('Сервер матчей недоступен');
         return;
       }
       ensureFriendPresence();
       try { setFriendAddStatus('Создаём комнату для вызова…', 'wait'); } catch (_) {}
 
-      // Drop ranked / post-match / search completely — challenge is always a private lobby
       try { stopMatchmaking(true); } catch (_) {}
       try { closeRoomLobby(); } catch (_) {}
       try {
@@ -9418,12 +9914,6 @@
       vsModeType = 'online';
       mmActive = false;
       mmFound = false;
-      try { showScreen('friends'); } catch (_) {}
-      await delayMs(200);
-      if (myGen !== mpCreateGen) return;
-
-      const code = genCode(5);
-      mpRoomCode = code;
       mpRole = 'host';
       mpMode = true;
       mpReady = false;
@@ -9431,97 +9921,67 @@
       mpOppConnected = false;
       mpLobbyDuration = 120;
       mpMatchStarting = false;
-      mpFromMatchmaking = false;
-      mpGameSource = 'lobby';
       mpExpectedJoinCode = normalizeFriendCode(friend.code);
+      try { showScreen('friends'); } catch (_) {}
+      try { bindPrivateLobbyHandlers(); } catch (_) {}
       setMpStatus('Создаю комнату для вызова…');
 
-      try {
-        const peer = await openGamePeer(roomPeerId(code), { attempts: 4, timeoutMs: 12000 });
-        if (myGen !== mpCreateGen) {
-          try { peer.destroy(); } catch (_) {}
-          return;
-        }
-        mpPeer = peer;
-        setMpStatus('Комната ' + code + ' · зовём друга…');
-        openRoomLobby();
-        peer.on('connection', (conn) => {
-          if (myGen !== mpCreateGen) {
-            try { conn.close(); } catch (_) {}
-            return;
+      // Wait for private_lobby once, then send challenge
+      let handled = false;
+      const onLobby = (data) => {
+        if (handled || myGen !== mpCreateGen) return;
+        if (!data || data.role !== 'host') return;
+        handled = true;
+        try { MatchClient.off('private_lobby', onLobby); } catch (_) {}
+        mpRoomCode = data.code;
+        setMpStatus('Комната ' + data.code + ' · зовём друга…');
+        try { openRoomLobby(); } catch (_) {}
+        markLobbyInviteWait(friend.code, data.code);
+        deliverPeerMessage(friend.code, {
+          type: 'challenge',
+          room: data.code,
+          code: myFriendCode,
+          name: myNickname,
+          trophies: trophies | 0
+        }, { timeoutMs: 10000 }).then((ok) => {
+          if (!ok) {
+            setMpStatus('Друг не в сети');
+            try { setFriendAddStatus('Друг не в сети', 'err'); } catch (_) {}
+            clearLobbyInviteWait(friend.code, data.code);
+          } else {
+            try { setFriendAddStatus('Вызов отправлен', 'ok'); } catch (_) {}
           }
-          handleHostIncomingConn(conn);
         });
-        peer.on('error', (err) => {
-          if (err && (err.type === 'network' || err.type === 'server-error')) {
-            setMpStatus('Сбой сети комнаты');
-          }
-        });
-
-        // Send challenge to friend presence
-        const client = await openGamePeer(null, { attempts: 3, timeoutMs: 10000 });
-        let sent = false;
-        const done = () => {
-          try { client.destroy(); } catch (_) {}
-        };
-        setTimeout(done, 12000);
-        try {
-          const conn = client.connect(friendPeerId(friend.code), { reliable: true });
-          conn.on('open', () => {
-            try {
-              conn.send({
-                type: 'challenge',
-                room: code,
-                name: myNickname,
-                code: myFriendCode,
-                trophies: typeof trophies === 'number' ? trophies : 0
-              });
-              sent = true;
-              try { markLobbyInviteWait(friend.code, code); } catch (_) {}
-              setMpStatus('Комната ' + code + ' · приглашение отправлено');
-              try { setFriendAddStatus('Вызов отправлен — ждём ответа…', 'ok'); } catch (_) {}
-            } catch (_) {}
-            setTimeout(done, 800);
-          });
-          conn.on('data', (data) => {
-            if (!data || typeof data !== 'object') return;
-            if (data.type === 'challenge_decline') {
-              try { clearLobbyInviteWait(friend.code, code); } catch (_) {}
-              const who = (friend && friend.name) || friend.code || 'Друг';
-              setMpStatus(who + ' отклонил вызов. Комната ' + code + ' всё ещё открыта.');
-              try {
-                showInfoToast('Приглашение отклонено', who + ' не принял вызов в комнату', 'bad');
-                SFX.bad && SFX.bad();
-              } catch (_) {}
-              try { renderLobbyInviteList(); } catch (_) {}
-            }
-          });
-          conn.on('error', done);
-          client.on('error', (err) => {
-            if (err && err.type === 'peer-unavailable') {
-              setMpStatus((friend.name || friend.code) + ' не в сети. Комната ' + code + ' создана — можно пригласить другого.');
-              try { setFriendPresence(friend.code, 'offline'); } catch (_) {}
-              try { setFriendAddStatus((friend && friend.name ? friend.name + ' не в сети' : 'Друг не в сети'), 'err'); } catch (_) {}
-              done();
-            }
-          });
-        } catch (_) {
-          done();
+      };
+      try { MatchClient.on('private_lobby', onLobby); } catch (_) {}
+      MatchClient.createPrivate({
+        name: myNickname,
+        trophies: trophies | 0,
+        duration: 120,
+        friendCode: myFriendCode
+      });
+      setTimeout(() => {
+        if (!handled) {
+          try { MatchClient.off('private_lobby', onLobby); } catch (_) {}
+          setMpStatus('Не удалось создать комнату');
         }
-      } catch (e) {
-        setMpStatus('Не удалось создать комнату для вызова');
-        try { setFriendAddStatus('Ошибка создания комнаты', 'err'); } catch (_) {}
-      }
+      }, 12000);
     }
+
 
     
 
     function toggleLobbyReady() {
       if (!mpRoomCode) return;
       mpReady = !mpReady;
-      mpSend({ type: 'ready', ready: mpReady });
-      updateLobbyUI();
+      try {
+        if (typeof MatchClient !== 'undefined') {
+          MatchClient.privateReady(mpReady, mpRoomCode);
+        }
+      } catch (_) {}
+      try { updateLobbyUI && updateLobbyUI(); } catch (_) {}
     }
+
 
     function closeLobbyInviteModal() {
       const m = document.getElementById('lobbyInviteModal');
@@ -9602,97 +10062,37 @@
 
     async function inviteFriendToCurrentLobby(friend, btnEl) {
       if (!friend || !friend.code || !mpRoomCode) return;
-      if (typeof Peer === 'undefined') {
-        setMpStatus('Нужен интернет');
-        return;
-      }
-      const code = normalizeFriendCode(friend.code);
-      if (isLobbyInviteWaiting(code, mpRoomCode)) {
-        if (btnEl) {
-          btnEl.disabled = true;
-          btnEl.textContent = 'Ожидание...';
-          btnEl.classList.add('waiting');
-        }
-        setMpStatus('Уже ждём ответ от ' + (friend.name || code));
+      if (typeof MatchClient === 'undefined') {
+        try { setFriendAddStatus('Сервер недоступен', 'err'); } catch (_) {}
         return;
       }
       if (btnEl) {
         btnEl.disabled = true;
-        btnEl.textContent = '…';
+        btnEl.textContent = 'Ожидание...';
+        btnEl.classList.add('waiting');
       }
-      setMpStatus('Приглашаем ' + (friend.name || code) + '…');
-      try {
-        const client = await openGamePeer(null, { attempts: 3, timeoutMs: 8000 });
-        let sent = false;
-        await new Promise((resolve) => {
-          const finish = () => {
-            try { client.destroy(); } catch (_) {}
-            resolve();
-          };
-          const t = setTimeout(finish, 9000);
-          let conn;
-          try {
-            conn = client.connect(friendPeerId(code), { reliable: true });
-          } catch (_) {
-            clearTimeout(t);
-            finish();
-            return;
-          }
-          conn.on('open', () => {
-            try {
-              conn.send({
-                type: 'challenge',
-                room: mpRoomCode,
-                name: myNickname,
-                code: myFriendCode,
-                trophies: typeof trophies === 'number' ? trophies : 0
-              });
-              sent = true;
-              setFriendPresence(code, 'online');
-            } catch (_) {}
-            clearTimeout(t);
-            setTimeout(finish, 400);
-          });
-          conn.on('data', (data) => {
-            if (!data || typeof data !== 'object') return;
-            if (data.type === 'challenge_decline') {
-              clearLobbyInviteWait(code, mpRoomCode);
-              const who = friend.name || code;
-              setMpStatus(who + ' отклонил приглашение');
-              try {
-                showInfoToast('Приглашение отклонено', who + ' не принял вызов в комнату', 'bad');
-                SFX.bad && SFX.bad();
-              } catch (_) {}
-              try { renderLobbyInviteList(); } catch (_) {}
-            } else if (data.type === 'challenge_accept') {
-              clearLobbyInviteWait(code, mpRoomCode);
-              setMpStatus((friend.name || code) + ' принял — ждём в лобби');
-              try { renderLobbyInviteList(); } catch (_) {}
-            }
-          });
-          conn.on('error', () => { clearTimeout(t); finish(); });
-          client.on('error', () => { clearTimeout(t); finish(); });
-        });
-        if (sent) {
-          markLobbyInviteWait(code, mpRoomCode);
-          setMpStatus('Приглашение отправлено · ' + (friend.name || code));
-          if (btnEl) {
-            btnEl.textContent = 'Ожидание...';
-            btnEl.disabled = true;
-            btnEl.classList.add('waiting');
-          }
-          try { renderLobbyInviteList(); } catch (_) {}
-          // keep modal open so host sees waiting state
-        } else {
-          setFriendPresence(code, 'offline');
-          setMpStatus((friend.name || code) + ' сейчас не в сети');
-          if (btnEl) { btnEl.textContent = 'Офлайн'; btnEl.disabled = false; btnEl.classList.remove('waiting'); }
+      markLobbyInviteWait(friend.code, mpRoomCode);
+      const ok = await deliverPeerMessage(friend.code, {
+        type: 'challenge',
+        room: mpRoomCode,
+        code: myFriendCode,
+        name: myNickname,
+        trophies: trophies | 0
+      }, { timeoutMs: 8000 });
+      if (!ok) {
+        clearLobbyInviteWait(friend.code, mpRoomCode);
+        if (btnEl) {
+          btnEl.disabled = false;
+          btnEl.textContent = 'Пригласить';
+          btnEl.classList.remove('waiting');
         }
-      } catch (_) {
-        setMpStatus('Не удалось отправить приглашение');
-        if (btnEl) { btnEl.textContent = 'Пригласить'; btnEl.disabled = false; btnEl.classList.remove('waiting'); }
+        try { setFriendAddStatus('Друг не в сети', 'err'); } catch (_) {}
+      } else {
+        try { setFriendAddStatus('Приглашение отправлено', 'ok'); } catch (_) {}
+        try { renderLobbyInviteList(); } catch (_) {}
       }
     }
+
 
     function joinRoomFlow() {
       const modal = document.getElementById('joinRoomModal');
@@ -9973,6 +10373,7 @@
       matchLog = [];
       matchStartTs = Date.now();
       replayMode = false;
+      try { window._matchHadAnyPlace = false; } catch (_) {}
 
       grid = Array.from({ length: SIZE }, () => Array(SIZE).fill(null));
       oppGrid = Array.from({ length: SIZE }, () => Array(SIZE).fill(null));
@@ -10013,6 +10414,7 @@
       if (oa) oa.innerHTML = '';
       updateBoardMetrics(boardMe);
       updateTimerDisplay();
+      try { startEmptyMatchPeerWatch(); } catch (_) {}
       // Keep the same loading overlay — no second flash
       showMatchLoading(
         'Загрузка',
@@ -10077,12 +10479,17 @@
         placingLock = false;
         matchStartTs = Date.now();
         try { window._matchWentLiveAt = matchStartTs; } catch (_) {}
+        try { window._peerLeftForRankedSearch = 0; } catch (_) {}
+        try { window._forceCancelPreMoveLock = false; } catch (_) {}
+        try { window._matchHadAnyPlace = false; } catch (_) {}
+        try { window._matchHadAnyPlace = false; } catch (_) {}
         // Snapshot immediately so pagehide/leave during the same tick still records history
         try { persistLiveMatch(); } catch (_) {}
         const piecesEl = document.getElementById('piecesAreaVs');
         if (piecesEl) piecesEl.style.pointerEvents = '';
         try { startAfkWatch(); } catch (_) {}
         try { ensureLiveMatchAccept(); } catch (_) {}
+        try { startEmptyMatchPeerWatch(); } catch (_) {}
         try {
           if (window._pendingIntroOppDeal) {
             const d = window._pendingIntroOppDeal;
@@ -10124,32 +10531,45 @@
      *  Also used right after go-live race when peer closed during "Старт!" (empty board). */
     function abortPreMatchMissingPeer(reason) {
       if (window._preMatchAborting) return;
-      // Never abort-toast when the peer just chose «Ещё матч» ranked search or result is open
+
+      let emptyBoard = false;
+      let stillLoading = false;
+      try {
+        emptyBoard = (typeof noMovesYet === 'function') ? noMovesYet() : (
+          (score | 0) === 0 && (oppScore | 0) === 0
+        );
+      } catch (_) {
+        emptyBoard = (score | 0) === 0 && (oppScore | 0) === 0;
+      }
+      try {
+        stillLoading = !!(typeof isMatchLoadActive === 'function' && isMatchLoadActive())
+          || !!mpLoading || !!vsIntroLock || !!mpMatchStarting;
+      } catch (_) {}
+
+      // _peerLeftForRankedSearch is set at EVERY ranked queue start — must NOT block
+      // cancel while loading or on empty board (this froze Opera after a fast match).
       try {
         if (window._peerLeftForRankedSearch && (Date.now() - window._peerLeftForRankedSearch) < 15000) {
-          return;
+          const vr = document.getElementById('versusResult');
+          const onResult = !!(vr && vr.classList.contains('visible'));
+          if (onResult && !stillLoading && !emptyBoard) return;
         }
       } catch (_) {}
       try {
         const vr = document.getElementById('versusResult');
-        if (vr && vr.classList.contains('visible') && !isMatchLoadActive() && !mpLoading) {
+        if (vr && vr.classList.contains('visible') && !stillLoading && !emptyBoard) {
           return;
         }
       } catch (_) {}
-      // Only cancel if fight has not become a real live match yet.
-      // Empty board (no places, 0–0) is always pre-start — even long after "Старт!".
       try {
-        let hasPlace = false;
-        try {
-          hasPlace = Array.isArray(matchLog) && matchLog.some(e => e && (e.type === 'place' || e.type === 'opp_place'));
-        } catch (_) {}
-        const empty = !hasPlace && (score | 0) === 0 && (oppScore | 0) === 0;
-        const stillPre = !vsActive || mpLoading || !!vsIntroLock || !!mpMatchStarting || empty;
+        const stillPre = !vsActive || stillLoading || emptyBoard;
         if (!stillPre) return;
       } catch (_) {
         if (vsActive && !mpLoading) return;
       }
       window._preMatchAborting = true;
+      try { window._peerLeftForRankedSearch = 0; } catch (_) {}
+      try { stopEmptyMatchPeerWatch(); } catch (_) {}
       try { vsActive = false; } catch (_) {}
       clearMatchLoadState();
       try { hideMatchLoading(); } catch (_) {}
@@ -10185,20 +10605,7 @@
         }
       } catch (_) {}
 
-      try {
-        const t = document.getElementById('infoToast');
-        if (t) {
-          const lab = document.getElementById('infoToastLabel');
-          const tx = document.getElementById('infoToastText');
-          if (lab) lab.textContent = 'Матч отменён';
-          if (tx) tx.textContent = reason || (ranked
-            ? 'Соперник не подключился — новый поиск'
-            : 'Соперник не подключился — возврат в комнату');
-          t.classList.add('visible');
-          clearTimeout(t._hide);
-          t._hide = setTimeout(() => t.classList.remove('visible'), 2800);
-        }
-      } catch (_) {}
+      // No cancel toast
 
       if (ranked) {
         // Auto-requeue for ranked when peer left before any move (or during load).
@@ -10331,18 +10738,13 @@
     }
 
     function onMatchLoadAbort(data) {
-      // After go-live, still honour abort if the match is empty (no places) —
-      // peer left before either side played.
+      // After go-live, still honour abort if nobody placed yet
       try {
-        if (vsActive && !mpLoading) {
-          if (!(typeof isEmptyMatchNoMoves === 'function' && isEmptyMatchNoMoves())) return;
-        }
+        if (vsActive && !mpLoading && !noMovesYet()) return;
       } catch (_) {
         if (vsActive && !mpLoading) return;
       }
-      try {
-        abortPreMatchMissingPeer((data && data.reason) || 'Соперник отменил загрузку');
-      } catch (_) {}
+      forceCancelPreMoveMatch('Соперник отключился до начала матча');
     }
 
     // Legacy stub — bots / non-mp still call body path through beginVersusMatchMp
@@ -11698,11 +12100,12 @@
         }
         slot.appendChild(gridEl);
         area.appendChild(slot);
-        // Soft appear; force show even if timer is throttled in background tabs
-        const delay = 30 + idx * 55;
-        setTimeout(() => slot.classList.add('show'), delay);
-        // Safety: never leave opp tray invisible
-        setTimeout(() => { if (slot && !slot.classList.contains('used')) slot.classList.add('show'); }, delay + 200);
+        // Quiet — no staggered pop-in on network/rejoin updates
+        slot.classList.add('show');
+        slot.style.opacity = '1';
+        slot.style.transform = 'none';
+        slot.style.transition = 'none';
+        try { slot.style.animation = 'none'; } catch (_) {}
       });
     }
     const boardEl = document.getElementById('board');
@@ -12545,6 +12948,12 @@
       saveClassicState();
     }
     function generatePieces(areaEl) {
+      // Ranked room mode: server owns deal RNG — do not invent local hands
+      if (roomMatchMode || window._roomMatchMode) {
+        // Soft request; server replies with authoritative `deal` (or already included in place_ok)
+        try { if (typeof roomSendDeal === 'function') roomSendDeal({}); } catch (_) {}
+        return;
+      }
       pieces = [randomPiece(), randomPiece(), randomPiece()];
       renderPieces(areaEl);
       if (mode === 'versus' && vsActive) {
@@ -12627,7 +13036,13 @@
           gridEl.appendChild(cell);
         }
         slot.appendChild(gridEl); areaEl.appendChild(slot);
-        setTimeout(() => slot.classList.add('show'), 30+idx*55);
+        // Always quiet for online/versus — no pop-in / jump on network hand updates
+        const quiet = true;
+        slot.classList.add('show');
+        slot.style.opacity = '1';
+        slot.style.transform = 'none';
+        slot.style.transition = 'none';
+        try { slot.style.animation = 'none'; } catch (_) {}
         const startHandler = e => startDrag(e, idx, areaEl);
         if (window.PointerEvent) {
           slot.addEventListener('pointerdown', startHandler, { passive: false });
@@ -13216,6 +13631,25 @@
         document.getElementById('myScore').textContent = score;
         try { if (typeof noteMyAction === 'function') noteMyAction(); } catch (_) {}
         try { persistLiveMatch(); } catch (_) {}
+        if (roomMatchMode || window._roomMatchMode) {
+          let netShape = shape.map(p => p.slice());
+          try {
+            if (typeof normalize === 'function') netShape = normalize(netShape.map(p => p.slice()));
+          } catch (_) {}
+          try {
+            roomSendPlace({
+              shape: netShape,
+              color,
+              r: result.baseR,
+              c: result.baseC,
+              score,
+              placePts,
+              pieceIdx: (typeof placedIdx === 'number' && placedIdx >= 0) ? placedIdx : -1,
+              grid: grid,
+              pieces: pieces
+            });
+          } catch (_) {}
+        }
         if (mpMode) {
           let netShape = shape.map(p => p.slice());
           try {
@@ -13805,6 +14239,9 @@
 
     // —— Real online matchmaking (PeerJS queue by trophy bucket ±100) ——
     let mmActive = false;
+    /** Ranked via authoritative server room (WebSocket MatchClient) */
+    let roomMatchMode = false;
+    window._roomMatchMode = false;
     let mmPeer = null;
     let mmFound = false;
     let mmHostMode = false;
@@ -13905,6 +14342,15 @@
       clearTimeout(mmTimeout); mmTimeout = null;
       (mmExpandTimers || []).forEach(clearTimeout);
       mmExpandTimers = [];
+      try {
+        if (window._roomExpandIv) {
+          clearInterval(window._roomExpandIv);
+          window._roomExpandIv = null;
+        }
+      } catch (_) {}
+      try {
+        if (!mmFound && typeof MatchClient !== 'undefined') MatchClient.leaveQueue();
+      } catch (_) {}
       if (!mmFound) {
         try { if (mmPeer) mmPeer.destroy(); } catch (_) {}
         mmPeer = null;
@@ -14417,98 +14863,625 @@
       }
     }
 
+
+    function bindMatchClientHandlers() {
+      if (typeof MatchClient === 'undefined') return;
+      if (window._matchClientBound) return;
+      window._matchClientBound = true;
+      MatchClient.on('match_found', (data) => {
+        try {
+          roomMatchMode = true;
+          window._roomMatchMode = true;
+          mmFound = true;
+          mmActive = false;
+          try { stopMatchmaking(true); } catch (_) {}
+          mpFromMatchmaking = true;
+          mpGameSource = 'ranked';
+          mpMode = true;
+          vsModeType = 'online';
+          mode = 'versus';
+          mpOppName = (data.opp && data.opp.name) || 'Соперник';
+          oppName = mpOppName;
+          if (data.opp && typeof data.opp.trophies === 'number') mpOppTrophies = data.opp.trophies;
+          vsDuration = data.duration || vsDuration || 120;
+          if (typeof data.clockEndTs === 'number') window._matchClockEndTs = data.clockEndTs;
+          vsTimeLeft = typeof data.vsTimeLeft === 'number' ? data.vsTimeLeft : vsDuration;
+          score = 0; oppScore = 0;
+          window._matchEnded = false;
+          window._rankedDeltaApplied = false;
+          // Start versus UI without PeerJS
+          try {
+            if (typeof beginRoomRankedMatch === 'function') beginRoomRankedMatch(data);
+            else {
+              // Fallback: show versus and let existing flow run solo boards until place hooks fire
+              showScreen('versus');
+              vsActive = true;
+              try { startMatchWallClock && startMatchWallClock(); } catch (_) {}
+              try { startAfkWatch && startAfkWatch(); } catch (_) {}
+            }
+          } catch (e) { console.warn('match_found', e); }
+        } catch (e) { console.warn('match_found handler', e); }
+      });
+      MatchClient.on('rejoin_ok', (data) => {
+        try {
+          roomMatchMode = true;
+          window._roomMatchMode = true;
+          mpMode = true;
+          vsModeType = 'online';
+          mode = 'versus';
+          mpFromMatchmaking = true;
+          mpGameSource = 'ranked';
+          window._matchEnded = false;
+          if (data.opp) {
+            mpOppName = data.opp.name || 'Соперник';
+            oppName = mpOppName;
+            oppScore = data.opp.score | 0;
+            if (Array.isArray(data.opp.grid)) oppGrid = data.opp.grid;
+            if (Array.isArray(data.opp.pieces)) oppPieces = data.opp.pieces;
+          }
+          if (data.me) {
+            score = data.me.score | 0;
+            if (Array.isArray(data.me.grid)) grid = data.me.grid;
+            if (Array.isArray(data.me.pieces)) pieces = data.me.pieces;
+          }
+          if (typeof data.clockEndTs === 'number') window._matchClockEndTs = data.clockEndTs;
+          vsTimeLeft = data.vsTimeLeft | 0;
+          vsDuration = data.duration || vsDuration || 120;
+          vsActive = true;
+          try { showScreen('versus'); } catch (_) {}
+          try {
+            if (typeof boardMe !== 'undefined') renderGrid(grid, boardMe);
+            if (typeof boardOpp !== 'undefined') renderGrid(oppGrid, boardOpp);
+            const area = document.getElementById('piecesAreaVs');
+            if (area && typeof renderPieces === 'function') renderPieces(area);
+            if (typeof renderOppPieces === 'function') renderOppPieces();
+          } catch (_) {}
+          try { ensureMatchClockRunning && ensureMatchClockRunning(); } catch (_) {}
+          try { placingLock = false; } catch (_) {}
+          try { hideBoardDisconnectOverlay(); } catch (_) {}
+          try { clearDisconnectTimer && clearDisconnectTimer(); } catch (_) {}
+        } catch (e) { console.warn('rejoin_ok', e); }
+      });
+      MatchClient.on('opp_place', (data) => {
+        try {
+          if (!vsActive && roomMatchMode) vsActive = true;
+          if (typeof applyOppRemotePlace === 'function') {
+            applyOppRemotePlace(data);
+          }
+          if (typeof data.score === 'number') {
+            oppScore = data.score;
+            try { document.getElementById('oppScore').textContent = oppScore; } catch (_) {}
+          }
+          if (Array.isArray(data.grid)) {
+            oppGrid = data.grid;
+            try { renderGrid(oppGrid, boardOpp); } catch (_) {}
+          }
+        } catch (e) { console.warn('opp_place', e); }
+      });
+      MatchClient.on('opp_deal', (data) => {
+        try {
+          if (typeof applyOppRemoteDeal === 'function' && data.pieces) {
+            applyOppRemoteDeal({ pieces: data.pieces });
+          } else if (Array.isArray(data.pieces)) {
+            oppPieces = data.pieces;
+            try { renderOppPieces(); } catch (_) {}
+          }
+        } catch (e) { console.warn('opp_deal', e); }
+      });
+      MatchClient.on('place_ok', (data) => {
+        try {
+          if (!roomMatchMode) return;
+          if (typeof data.score === 'number') {
+            score = data.score | 0;
+            try { document.getElementById('myScore').textContent = score; } catch (_) {}
+          }
+          if (Array.isArray(data.grid)) {
+            grid = data.grid;
+            try { renderGrid(grid, boardMe); } catch (_) {}
+          }
+          if (Array.isArray(data.pieces)) {
+            pieces = data.pieces.map(p => ({
+              shape: (p.shape || []).map(c => c.slice()),
+              color: p.color,
+              used: !!p.used
+            }));
+            try {
+              const area = document.getElementById('piecesAreaVs');
+              if (area && typeof renderPieces === 'function') renderPieces(area);
+            } catch (_) {}
+          }
+          if (Array.isArray(data.deal) && data.deal.length) {
+            pieces = data.deal.map(p => ({
+              shape: (p.shape || []).map(c => c.slice()),
+              color: p.color,
+              used: !!p.used
+            }));
+            try {
+              const area = document.getElementById('piecesAreaVs');
+              if (area && typeof renderPieces === 'function') renderPieces(area);
+              if (typeof logDeal === 'function') logDeal('me', pieces);
+            } catch (_) {}
+          }
+          if (typeof data.vsTimeLeft === 'number') {
+            vsTimeLeft = data.vsTimeLeft | 0;
+            try { updateTimerDisplay && updateTimerDisplay(); } catch (_) {}
+          }
+          if (typeof data.clockEndTs === 'number') window._matchClockEndTs = data.clockEndTs;
+          placingLock = false;
+        } catch (e) { console.warn('place_ok', e); }
+      });
+      MatchClient.on('place_reject', (data) => {
+        try {
+          if (!roomMatchMode) return;
+          console.warn('place_reject', data && data.reason);
+          if (typeof data.score === 'number') score = data.score | 0;
+          if (Array.isArray(data.grid)) grid = data.grid;
+          if (Array.isArray(data.pieces)) {
+            pieces = data.pieces.map(p => ({
+              shape: (p.shape || []).map(c => c.slice()),
+              color: p.color,
+              used: !!p.used
+            }));
+          }
+          try { document.getElementById('myScore').textContent = score; } catch (_) {}
+          try { renderGrid(grid, boardMe); } catch (_) {}
+          try {
+            const area = document.getElementById('piecesAreaVs');
+            if (area && typeof renderPieces === 'function') renderPieces(area);
+          } catch (_) {}
+          placingLock = false;
+        } catch (e) { console.warn('place_reject', e); }
+      });
+      MatchClient.on('deal', (data) => {
+        try {
+          if (!roomMatchMode) return;
+          if (!Array.isArray(data.pieces)) return;
+          pieces = data.pieces.map(p => ({
+            shape: (p.shape || []).map(c => c.slice()),
+            color: p.color,
+            used: !!p.used
+          }));
+          try {
+            const area = document.getElementById('piecesAreaVs');
+            if (area && typeof renderPieces === 'function') renderPieces(area);
+            if (typeof logDeal === 'function') logDeal('me', pieces);
+          } catch (_) {}
+          placingLock = false;
+        } catch (e) { console.warn('deal', e); }
+      });
+      MatchClient.on('stuck_status', (data) => {
+        try {
+          if (!roomMatchMode) return;
+          const mySeat = MatchClient.seat || 'a';
+          const meStuck = mySeat === 'a' ? !!data.a : !!data.b;
+          const oppStuck = mySeat === 'a' ? !!data.b : !!data.a;
+          if (typeof setPlayerStuck === 'function') setPlayerStuck(meStuck);
+          else playerStuck = meStuck;
+          if (typeof setAiStuck === 'function') setAiStuck(oppStuck);
+          else aiStuck = oppStuck;
+          try {
+            if (meStuck && typeof showPlayerStuckBanner === 'function') showPlayerStuckBanner();
+            if (typeof updateOppStuckBanner === 'function') updateOppStuckBanner();
+            else if (typeof updateStuckBanners === 'function') updateStuckBanners();
+          } catch (_) {}
+        } catch (e) { console.warn('stuck_status', e); }
+      });
+      MatchClient.on('peer_status', (data) => {
+        try {
+          if (!roomMatchMode) return;
+          if (data.online) {
+            try { clearDisconnectTimer && clearDisconnectTimer(); } catch (_) {}
+            try { hideBoardDisconnectOverlay(); } catch (_) {}
+          } else {
+            // Opponent socket down — server still holds match; show soft wait, not P2P DC win
+            try {
+              if (typeof showBoardDisconnectOverlay === 'function') {
+                const left = data.vsTimeLeft | 0;
+                // Only informational; no resolveDisconnectWin from client
+                showBoardDisconnectOverlay(left);
+              }
+            } catch (_) {}
+          }
+        } catch (_) {}
+      });
+      MatchClient.on('clock', (data) => {
+        try {
+          if (typeof data.vsTimeLeft === 'number') {
+            vsTimeLeft = data.vsTimeLeft;
+            try { updateTimerDisplay && updateTimerDisplay(); } catch (_) {}
+          }
+          if (typeof data.clockEndTs === 'number') window._matchClockEndTs = data.clockEndTs;
+        } catch (_) {}
+      });
+      MatchClient.on('match_end', (data) => {
+        try {
+          roomMatchMode = false;
+          window._roomMatchMode = false;
+          if (window._matchEnded) return;
+          const mySeat = MatchClient.seat;
+          const a = (data.a && data.a.score) | 0;
+          const b = (data.b && data.b.score) | 0;
+          const myScore = mySeat === 'a' ? a : b;
+          const oScore = mySeat === 'a' ? b : a;
+          score = myScore;
+          oppScore = oScore;
+          let forceWin = false, forceLoss = false;
+          if (data.winnerSeat && mySeat) {
+            forceWin = data.winnerSeat === mySeat;
+            forceLoss = data.winnerSeat !== mySeat;
+          }
+          const reason = data.reason || 'time';
+          if (typeof endVersus === 'function') {
+            endVersus({
+              forceWin: forceWin || undefined,
+              forceLoss: forceLoss || undefined,
+              reason,
+              quiet: false
+            });
+          }
+        } catch (e) { console.warn('match_end', e); }
+      });
+      MatchClient.on('rejoin_fail', () => {
+        try {
+          roomMatchMode = false;
+          window._roomMatchMode = false;
+        } catch (_) {}
+      });
+    }
+    try { bindMatchClientHandlers(); } catch (_) {}
+    try { bindPrivateLobbyHandlers(); } catch (_) {}
+
+    // Register friend presence over WS (no PeerJS)
+    function registerWsPresence() {
+      try {
+        if (typeof MatchClient === 'undefined') return;
+        if (!myFriendCode) return;
+        MatchClient.registerPresence({
+          friendCode: myFriendCode,
+          name: myNickname,
+          trophies: trophies | 0,
+          activity: 'online'
+        });
+        const codes = (friends || []).map(f => f.code).filter(Boolean);
+        if (codes.length) MatchClient.queryPresence(codes);
+      } catch (_) {}
+    }
+    try {
+      setTimeout(registerWsPresence, 800);
+      setInterval(() => {
+        try {
+          if (typeof MatchClient === 'undefined') return;
+          const codes = (friends || []).map(f => f.code).filter(Boolean);
+          if (codes.length) MatchClient.queryPresence(codes);
+        } catch (_) {}
+      }, 20000);
+    } catch (_) {}
+
+    function roomSendPlace(payload) {
+      try {
+        if (roomMatchMode && typeof MatchClient !== 'undefined') {
+          MatchClient.place(payload);
+        }
+      } catch (_) {}
+    }
+    function roomSendDeal(payload) {
+      try {
+        if (roomMatchMode && typeof MatchClient !== 'undefined') {
+          MatchClient.deal(payload);
+        }
+      } catch (_) {}
+    }
+
+
+    function beginRoomRankedMatch(data) {
+      try {
+        roomMatchMode = true;
+        window._roomMatchMode = true;
+        mpMode = true; // treat as online for scoring UI
+        vsModeType = 'online';
+        mode = 'versus';
+        vsActive = true;
+        mpFromMatchmaking = true;
+        mpGameSource = 'ranked';
+        placingLock = false;
+        window._matchHadAnyPlace = false;
+        try { window._matchEnded = false; } catch (_) {}
+        score = (data && data.me && typeof data.me.score === 'number') ? (data.me.score | 0) : 0;
+        oppScore = (data && data.opp && typeof data.opp.score === 'number') ? (data.opp.score | 0) : 0;
+        grid = (data && data.me && Array.isArray(data.me.grid))
+          ? data.me.grid.map(row => row.slice())
+          : Array.from({ length: SIZE }, () => Array(SIZE).fill(null));
+        oppGrid = (data && data.opp && Array.isArray(data.opp.grid))
+          ? data.opp.grid.map(row => row.slice())
+          : Array.from({ length: SIZE }, () => Array(SIZE).fill(null));
+        // Authoritative opening hands from server
+        if (data && data.me && Array.isArray(data.me.pieces) && data.me.pieces.length) {
+          pieces = data.me.pieces.map(p => ({
+            shape: (p.shape || []).map(c => c.slice()),
+            color: p.color,
+            used: !!p.used
+          }));
+        } else {
+          pieces = [];
+        }
+        if (data && data.opp && Array.isArray(data.opp.pieces) && data.opp.pieces.length) {
+          oppPieces = data.opp.pieces.map(p => ({
+            shape: (p.shape || []).map(c => c.slice()),
+            color: p.color,
+            used: !!p.used
+          }));
+        } else {
+          oppPieces = [];
+        }
+        if (typeof data.clockEndTs === 'number') window._matchClockEndTs = data.clockEndTs;
+        if (typeof data.vsTimeLeft === 'number') vsTimeLeft = data.vsTimeLeft | 0;
+        if (data.duration) vsDuration = data.duration;
+        if (data.opp && data.opp.name) {
+          mpOppName = data.opp.name;
+          oppName = mpOppName;
+        }
+        showScreen('versus');
+        try {
+          if (typeof createBoardDOM === 'function') {
+            if (boardMe) createBoardDOM(boardMe);
+            if (boardOpp) createBoardDOM(boardOpp);
+          }
+          renderGrid(grid, boardMe);
+          renderGrid(oppGrid, boardOpp);
+        } catch (_) {}
+        try {
+          const area = document.getElementById('piecesAreaVs');
+          if (area && typeof renderPieces === 'function') renderPieces(area);
+          if (typeof renderOppPieces === 'function') renderOppPieces();
+        } catch (_) {}
+        try {
+          if (typeof startMatchWallClock === 'function') startMatchWallClock();
+          else if (typeof ensureMatchClockRunning === 'function') ensureMatchClockRunning();
+        } catch (_) {}
+        try { startAfkWatch && startAfkWatch(); } catch (_) {}
+        try { updateTimerDisplay && updateTimerDisplay(); } catch (_) {}
+        try {
+          document.getElementById('myScore').textContent = String(score);
+          document.getElementById('oppScore').textContent = String(oppScore);
+        } catch (_) {}
+        // Soft sync — server ignores client scores and returns snapshot
+        try {
+          if (typeof MatchClient !== 'undefined') {
+            MatchClient.sync({});
+          }
+        } catch (_) {}
+      } catch (e) {
+        console.warn('beginRoomRankedMatch', e);
+      }
+    }
+
+
+    let _privateLobbyHandlersBound = false;
+    function bindPrivateLobbyHandlers() {
+      if (_privateLobbyHandlersBound || typeof MatchClient === 'undefined') return;
+      _privateLobbyHandlersBound = true;
+
+      MatchClient.on('private_lobby', (data) => {
+        try {
+          mpMode = true;
+          mpGameSource = 'lobby';
+          vsModeType = 'online';
+          mpRoomCode = data.code || mpRoomCode;
+          mpRole = data.role || mpRole;
+          mpLobbyDuration = data.duration || mpLobbyDuration || 120;
+          if (data.role === 'host') {
+            mpReady = !!data.hostReady;
+            mpOppReady = !!data.guestReady;
+          } else {
+            mpReady = !!data.guestReady;
+            mpOppReady = !!data.hostReady;
+          }
+          if (data.opp) {
+            mpOppConnected = true;
+            mpOppName = data.opp.name || 'Соперник';
+            oppName = mpOppName;
+            try {
+              const el = document.getElementById('lobbyOppName');
+              if (el) el.textContent = mpOppName;
+            } catch (_) {}
+          } else {
+            mpOppConnected = false;
+            mpOppName = null;
+          }
+          setMpStatus(mpOppConnected
+            ? ('Комната ' + mpRoomCode + ' · соперник в лобби')
+            : ('Комната ' + mpRoomCode + ' · ждут игрока'));
+          try { openRoomLobby(); } catch (_) {}
+          try { updateLobbyUI && updateLobbyUI(); } catch (_) {}
+          // Reflect ready button
+          try {
+            const readyBtn = document.getElementById('btnLobbyReady');
+            if (readyBtn) readyBtn.classList.toggle('ready', !!mpReady);
+          } catch (_) {}
+          try {
+            document.querySelectorAll('.lobby-dur').forEach(btn => {
+              btn.classList.toggle('selected', parseInt(btn.dataset.sec, 10) === mpLobbyDuration);
+            });
+          } catch (_) {}
+        } catch (e) { console.warn('private_lobby', e); }
+      });
+
+      MatchClient.on('private_error', (data) => {
+        try {
+          const reason = (data && data.reason) || 'error';
+          const map = {
+            not_found: 'Комната не найдена',
+            full: 'Комната заполнена',
+            self: 'Нельзя войти в свою комнату',
+            in_match: 'Уже в матче',
+            not_in_lobby: 'Не в лобби'
+          };
+          setMpStatus(map[reason] || ('Ошибка: ' + reason));
+          if (reason === 'not_found' || reason === 'full') {
+            try { failJoinRoom(map[reason] || reason, true); } catch (_) {}
+          }
+        } catch (e) { console.warn('private_error', e); }
+      });
+
+      MatchClient.on('private_closed', (data) => {
+        try {
+          setMpStatus('Хост закрыл комнату');
+          try { closeRoomLobby(); } catch (_) {}
+          mpOppConnected = false;
+          mpMode = false;
+        } catch (_) {}
+      });
+
+      MatchClient.on('private_left', () => {
+        try { closeRoomLobby(); } catch (_) {}
+      });
+
+      MatchClient.on('presence_state', (data) => {
+        try {
+          if (!data || !data.friends) return;
+          for (const code of Object.keys(data.friends)) {
+            const info = data.friends[code];
+            if (info && info.online) {
+              try { setFriendPresence(code, 'online'); } catch (_) {}
+              if (info.activity) try { setFriendActivity(code, info.activity); } catch (_) {}
+              if (typeof info.trophies === 'number') {
+                const f = (friends || []).find(x => x.code === code);
+                if (f) { f.trophies = info.trophies; try { saveFriends(); } catch (_) {} }
+              }
+            } else {
+              try { setFriendPresence(code, 'offline'); } catch (_) {}
+            }
+          }
+          try { renderFriends && renderFriends(); } catch (_) {}
+        } catch (e) { console.warn('presence_state', e); }
+      });
+
+      MatchClient.on('social_msg', (data) => {
+        try {
+          const msg = (data && data.msg) ? data.msg : data;
+          if (!msg || !msg.type) return;
+          switch (msg.type) {
+            case 'friend_req':
+              handleIncomingFriendReq(msg, null);
+              break;
+            case 'friend_req_cancel':
+              try { clearFriendRequestState(normalizeFriendCode(msg.code || msg.from)); } catch (_) {}
+              try { renderFriendRequests(); renderOutgoingPending(); } catch (_) {}
+              break;
+            case 'friend_req_ack':
+              try { updateOutgoingPendingName(normalizeFriendCode(msg.code || msg.from), msg.name); } catch (_) {}
+              break;
+            case 'friend_accept':
+              try { applyIncomingFriendAccept(msg); } catch (_) {}
+              break;
+            case 'friend_decline':
+              try { applyIncomingFriendDecline(msg); } catch (_) {}
+              break;
+            case 'friend_remove':
+              try { applyRemoteFriendRemove(msg); } catch (_) {}
+              break;
+            case 'challenge':
+              try { handleIncomingChallenge(msg, null); } catch (_) {}
+              break;
+            case 'challenge_cancel':
+              try {
+                if (typeof hideChToast === 'function') hideChToast(false);
+                chPending = null;
+              } catch (_) {}
+              break;
+            case 'challenge_decline':
+              try {
+                clearLobbyInviteWait(normalizeFriendCode(msg.code || msg.from), msg.room);
+                setMpStatus('Вызов отклонён');
+              } catch (_) {}
+              break;
+            case 'challenge_accept':
+              try {
+                clearLobbyInviteWait(normalizeFriendCode(msg.code || msg.from), msg.room);
+                setMpStatus('Друг принял вызов');
+              } catch (_) {}
+              break;
+            default:
+              break;
+          }
+        } catch (e) { console.warn('social_msg', e); }
+      });
+
+      // When match_found arrives for private lobby, mark source
+      MatchClient.on('match_found', (data) => {
+        try {
+          if (data && data.source === 'lobby') {
+            mpGameSource = 'lobby';
+            mpFromMatchmaking = false;
+            roomMatchMode = true;
+            window._roomMatchMode = true;
+            try { closeRoomLobby(); } catch (_) {}
+            setMpStatus('Матч начинается…');
+          }
+        } catch (_) {}
+      });
+    }
+    try { bindPrivateLobbyHandlers(); } catch (_) {}
+
+
     function startOnlineMatchmaking() {
       try { document.body.classList.remove('vs-bots'); } catch (_) {}
       if (!checkCrossPlatformReady()) return;
-      if (typeof Peer === 'undefined') {
-        alert('Нужен интернет для поиска игроков.');
+      // Prefer authoritative room server when MatchClient is available
+      if (typeof MatchClient !== 'undefined') {
+        try { bindMatchClientHandlers(); } catch (_) {}
+        const searchGen = ++mmSearchGen;
+        const selectedDuration = (vsDuration === 60 || vsDuration === 120 || vsDuration === 180) ? vsDuration : 120;
+        vsDuration = selectedDuration;
+        vsTimeLeft = selectedDuration;
+        try { window._peerLeftForRankedSearch = Date.now(); } catch (_) {}
+        try { closeRoomLobby(); } catch (_) {}
+        try { destroyMp(); } catch (_) {}
+        try { stopMatchmaking(true); } catch (_) {}
+        mmActive = true;
+        mmFound = false;
+        roomMatchMode = false;
+        window._roomMatchMode = false;
+        mpFromMatchmaking = true;
+        mpGameSource = 'ranked';
+        vsModeType = 'online';
+        postMatchOnlineEligible = false;
+        try { window._matchEnded = false; window._rankedDeltaApplied = false; } catch (_) {}
+        showScreen('match');
+        mmSetStatus('Ищем игроков в очереди…', 'Сервер матчей');
+        let clientId = null;
+        try { clientId = localStorage.getItem('bp_client_id'); } catch (_) {}
+        if (!clientId) {
+          clientId = 'c_' + Math.random().toString(36).slice(2) + Date.now().toString(36);
+          try { localStorage.setItem('bp_client_id', clientId); } catch (_) {}
+        }
+        MatchClient.joinQueue({
+          name: myNickname,
+          trophies: trophies | 0,
+          duration: selectedDuration,
+          expandLevel: 0,
+          clientId
+        });
+        // Expand skill gap over time (same as old P2P bands)
+        let expand = 0;
+        if (window._roomExpandIv) { try { clearInterval(window._roomExpandIv); } catch (_) {} }
+        window._roomExpandIv = setInterval(() => {
+          if (!mmActive || mmFound || searchGen !== mmSearchGen) {
+            clearInterval(window._roomExpandIv);
+            window._roomExpandIv = null;
+            return;
+          }
+          expand = Math.min(3, expand + 1);
+          MatchClient.expandQueue(expand);
+          mmSetStatus('Ищем игроков…', 'Расширяем диапазон трофеев');
+        }, 12000);
         return;
       }
-      // New queue generation: stale PeerJS promises from the previous queue are invalid.
-      const searchGen = ++mmSearchGen;
-      const selectedDuration = (vsDuration === 60 || vsDuration === 120 || vsDuration === 180) ? vsDuration : 120;
-      vsDuration = selectedDuration;
-      vsTimeLeft = selectedDuration;
-      // Tell the old post-match opponent that this player is entering a fresh ranked queue.
-      // This prevents a simultaneous rematch click from racing the old connection teardown.
-      try { window._peerLeftForRankedSearch = Date.now(); } catch (_) {}
-      try {
-        if ((postMatchOnlineEligible || mpMode) && mpConn && mpConn.open) {
-          mpConn.send({ type: 'ranked_search_start' });
-        }
-      } catch (_) {}
-      // Do not instantly re-queue against the same opponent after «Ещё матч»
-      try {
-        const prev = (mpConn && mpConn.peer) || mpRemotePeerId || null;
-        if (prev) mmRememberExcludePeer(prev, 90000);
-      } catch (_) {}
-      // Tear down any previous room / friendly / rematch link so we never re-pair the same foe
-      try { closeRoomLobby(); } catch (_) {}
-      try { destroyMp(); } catch (_) {}
-      stopMatchmaking(true);
-      mmActive = true;
-      mmFound = false;
-      mmHostMode = false;
-      mmTryIndex = 0;
-      mmExpandLevel = 0;
-      try { window._matchEnded = false; window._rankedDeltaApplied = false; window._preMatchAborting = false; } catch (_) {}
-      mpOppTrophies = null;
-      mpOppName = 'Соперник';
-      currentBot = null;
-      postMatchOnlineEligible = false;
-      mpFromMatchmaking = true;
-      mpGameSource = 'ranked';
-      mpRemotePeerId = null;
-      vsModeType = 'online';
-      showScreen('match');
-      mmSetStatus('Ищем игроков в очереди…', '');
-      mmUpdateHint();
-
-      let dots = 0;
-      mmDotsTimer = setInterval(() => {
-        if (mmFound) return;
-        dots = (dots + 1) % 4;
-        const nm = document.getElementById('mmName');
-        if (nm && !mmHostMode) nm.textContent = 'Очередь' + '.'.repeat(dots);
-      }, 400);
-
-      // Widen skill window over time. If still probing (not hosting), re-scan.
-      // If already hosting own band — keep the seat so guests can still connect.
-      mmExpandTimers = [15000, 30000, 50000].map((ms, i) => setTimeout(() => {
-        if (!mmGenAlive(searchGen)) return;
-        mmExpandLevel = i + 1;
-        mmUpdateHint();
-        const durLabel = (vsDuration === 60 ? '1' : vsDuration === 180 ? '3' : '2') + ' мин';
-        mmSetStatus('Расширяем подбор · ' + durLabel, '🏆 ±' + mmMaxGap());
-        if (mmHostMode && mmPeer && !mmPeer.destroyed) {
-          // Stay in queue as host; wider gap only affects who we accept
-          mmSetStatus('В очереди · ' + durLabel, '🏆 ' + trophies + ' ±' + mmMaxGap());
-          return;
-        }
-        mmTryIndex = 0;
-        mmRunSearchStep(searchGen);
-      }, ms));
-
-      mmTimeout = setTimeout(() => {
-        (mmExpandTimers || []).forEach(clearTimeout);
-        mmExpandTimers = [];
-        if (mmFound || !mmActive) return;
-        stopMatchmaking(true);
-        mmSetStatus('Нет игроков вашего уровня', 'Попробуй ещё или комнату с другом');
-      }, 90000);
-
-      // Parallel: claim our seat ASAP, probe OTHER seats after host is likely registered
-      const ownSeat = mmOwnSeatId();
-      setTimeout(() => {
-        if (!mmGenAlive(searchGen)) return;
-        mmBecomeHost(ownSeat, searchGen);
-      }, 60 + Math.random() * 400);
-      setTimeout(() => {
-        if (!mmGenAlive(searchGen)) return;
-        mmTryIndex = 0;
-        mmRunSearchStep(searchGen);
-      }, 900 + Math.random() * 600);
+      // P2P ranked removed — MatchClient required
+      alert('Клиент матчей не загрузился. Обнови страницу.');
+      return;
     }
+
 
     function startMatchFlow() {
       const lobbyEl = document.getElementById('roomLobby');
@@ -15129,6 +16102,17 @@
 
     function evaluateMatchEnd() {
       if (!vsActive || mode !== 'versus') return;
+      // Ranked room: server decides stuck wins/losses — client only updates banners
+      if (roomMatchMode || window._roomMatchMode) {
+        const myPlay = sideHasPlayable(grid, pieces);
+        const oppPlay = sideHasPlayable(oppGrid, oppPieces);
+        if (myPlay === true) setPlayerStuck(false);
+        else if (myPlay === false) setPlayerStuck(true);
+        if (oppPlay === true) setAiStuck(false);
+        else if (oppPlay === false) setAiStuck(true);
+        try { updateStuckBanners && updateStuckBanners(); } catch (_) {}
+        return;
+      }
 
       const myPlay = sideHasPlayable(grid, pieces);
       const oppPlay = sideHasPlayable(oppGrid, oppPieces);
@@ -15478,20 +16462,26 @@
         try { localStorage.setItem('bp_history', JSON.stringify(matchHistory)); } catch (_) {}
       }
 
-      // Quiet end: toast only — never force navigation away from current screen
+      // Quiet end: no toast — clear frozen versus and return to menu
       if (opts.quiet) {
-        try {
-          const resLine = draw ? 'Ничья' : won ? 'Победа' : 'Поражение';
-          const kind = won ? 'ok' : (draw ? undefined : 'bad');
-          showInfoToast('Матч завершён', resLine, kind);
-        } catch (_) {}
         try {
           window._resultDismissed = true;
           document.getElementById('versusResult').classList.remove('visible');
         } catch (_) {}
         try { document.body.classList.remove('replay-ui'); } catch (_) {}
         document.body.classList.remove('replay-playing');
+        try { clearDisconnectTimer(); } catch (_) {}
+        try { hideBoardDisconnectOverlay(); } catch (_) {}
+        try { hideDisconnectBanner(); } catch (_) {}
+        try { placingLock = false; } catch (_) {}
         try { updateMenuStats(); } catch (_) {}
+        try {
+          // Avoid frozen vs screen after dual-disconnect timer
+          const vs = document.getElementById('screenVersus');
+          if (vs && vs.classList.contains('active')) {
+            showScreen('menu');
+          }
+        } catch (_) {}
         return;
       }
 
@@ -18116,7 +19106,12 @@
     document.querySelectorAll('.lobby-dur').forEach(btn => {
       btn.addEventListener('click', () => {
         mpLobbyDuration = parseInt(btn.dataset.sec, 10) || 120;
-        mpSend({ type: 'duration', duration: mpLobbyDuration });
+        try {
+          if (typeof MatchClient !== 'undefined' && mpRoomCode) {
+            MatchClient.privateDuration(mpLobbyDuration, mpRoomCode);
+          }
+        } catch (_) {}
+        try { mpSend({ type: 'duration', duration: mpLobbyDuration }); } catch (_) {}
         // Changing duration resets ready so both re-confirm
         if (mpReady) {
           mpReady = false;
@@ -18203,3 +19198,4 @@
     updateMenuStats();
     try { refreshProfileUI(); } catch (_) {}
     bestEl.textContent = best;
+}

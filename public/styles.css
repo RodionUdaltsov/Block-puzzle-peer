@@ -6548,6 +6548,18 @@
         padding 0.3s ease, border-width 0.3s;
     }
     .piece-slot.show { opacity: 1; transform: scale(1) translateY(0); }
+
+    /* Quiet hand updates (rejoin / multiplayer) — no pop/jump */
+    body.quiet-hands .piece-slot,
+    #screenVersus .piece-slot.show {
+      transition: none !important;
+      animation: none !important;
+    }
+    #screenVersus .piece-slot.show {
+      opacity: 1;
+      transform: none;
+    }
+
     /* While dragging: tray copy must fully disappear (ghost is the only visible piece) */
     .piece-slot.lifting {
       opacity: 0 !important;
@@ -7140,7 +7152,8 @@
       backdrop-filter: blur(10px);
       -webkit-backdrop-filter: blur(10px);
     }
-    #matchRejoinPanel.show { display: flex; }
+    /* Auto-rejoin: panel disabled */
+    #matchRejoinPanel.show { display: none !important; }
     #matchRejoinPanel .rj-title {
       font-weight: 800;
       font-size: 0.88rem;

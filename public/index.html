@@ -14,8 +14,7 @@
   <!-- Cross-platform: iOS / Android / desktop browsers -->
   <meta name="apple-touch-fullscreen" content="yes" />
   <title>Block Puzzle</title>
-  <script src="https://cdn.jsdelivr.net/npm/peerjs@1.5.4/dist/peerjs.min.js"
-    onerror="this.onerror=null;this.src='https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js'"></script>
+  <!-- PeerJS removed: gameplay is fully server-authoritative via WebSocket -->
   <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
@@ -1033,6 +1032,7 @@
     </div>
   </div>
 
+  <script src="match-client.js"></script>
   <script src="game.js"></script>
   <div id="matchRejoinPanel" aria-live="polite">
     <div class="rj-title">📡 Связь с матчем потеряна</div>
