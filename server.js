@@ -12,9 +12,46 @@ const http = require('http');
 const fs = require('fs');
 const crypto = require('crypto');
 const { WebSocketServer } = require('./vendor/ws');
+const { createStore, ROOM_TTL_LIVE, ROOM_TTL_ENDED, TOKEN_TTL } = require('./lib/store');
+
+// Shared authoritative rules (single source with client)
+const R = require('./shared/rules');
+const {
+  SIZE, DEFAULT_COLORS, emptyGrid, cloneGrid, normalizeShape, shapesEqual,
+  randomPiece, dealThree, canPlaceOn, clearLinesOnGrid, bonusFor, chainBonusFor,
+  serializePieces, findAllPlacements, sideHasPlayable,
+  MIN_PLACE_INTERVAL_MS, PLACE_BURST_WINDOW_MS, PLACE_BURST_MAX,
+  DC_LIMIT_MS, AFK_WARN_MS, AFK_LIMIT_MS
+} = R;
 
 const PORT = Number(process.env.PORT) || 9000;
 const PUBLIC = path.join(__dirname, 'public');
+
+/** @type {import('./lib/store').MemoryStore|null} */
+let store = null;
+
+function persistRoom(room) {
+  if (!store || !room) return;
+  try {
+    const ttl = room.status === 'ended' ? ROOM_TTL_ENDED : ROOM_TTL_LIVE;
+    const left = room.status === 'live'
+      ? Math.max(30, Math.ceil((room.clockEndTs - Date.now()) / 1000) + 60)
+      : ROOM_TTL_ENDED;
+    const useTtl = room.status === 'ended' ? ROOM_TTL_ENDED : Math.min(ttl, left);
+    store.saveRoom(room.id, room.toJSON(), useTtl).catch(() => {});
+    for (const token of Object.keys(room.players || {})) {
+      store.bindToken(token, room.id, TOKEN_TTL).catch(() => {});
+    }
+  } catch (_) {}
+}
+
+function forgetRoom(roomId, tokens) {
+  if (!store || !roomId) return;
+  store.deleteRoom(roomId).catch(() => {});
+  if (tokens) {
+    for (const t of tokens) store.unbindToken(t).catch(() => {});
+  }
+}
 
 const MIME = {
   '.html': 'text/html; charset=utf-8',
@@ -56,7 +93,6 @@ const presence = new Map();
 /** friendCode → queued social messages while offline */
 const pendingSocial = new Map();
 
-
 function totalQueued() {
   let n = 0;
   for (const q of queues.values()) n += q.length;
@@ -66,151 +102,6 @@ function totalQueued() {
 function uid(prefix) {
   return prefix + '_' + crypto.randomBytes(8).toString('hex');
 }
-
-function emptyGrid(size) {
-  return Array.from({ length: size }, () => Array(size).fill(null));
-}
-
-// ─── Authoritative puzzle rules (ported from client) ───────────────────────
-const SIZE = 8;
-const DEFAULT_COLORS = ['#00d4aa','#7c5cff','#ff5c7a','#ffb347','#4fc3f7','#ff6bcb','#a8e063','#ff8a65'];
-const SHAPES = [
-  [[0,0]],
-  [[0,0],[0,1]], [[0,0],[1,0]],
-  [[0,0],[0,1],[0,2]], [[0,0],[1,0],[2,0]],
-  [[0,0],[0,1],[1,0]], [[0,0],[0,1],[1,1]],
-  [[0,1],[1,0],[1,1]], [[0,0],[1,0],[1,1]],
-  [[0,0],[1,0],[0,1]],
-  [[0,0],[0,1],[0,2],[0,3]], [[0,0],[1,0],[2,0],[3,0]],
-  [[0,0],[0,1],[1,0],[1,1]],
-  [[0,0],[1,0],[2,0],[2,1]], [[0,1],[1,1],[2,0],[2,1]],
-  [[0,0],[0,1],[0,2],[1,2]], [[0,0],[1,0],[1,1],[1,2]],
-  [[0,0],[0,1],[1,1],[2,1]], [[0,2],[1,0],[1,1],[1,2]],
-  [[0,0],[1,0],[2,0],[1,1]],
-  [[0,1],[1,0],[1,1],[1,2]],
-  [[0,0],[0,1],[0,2],[1,1]],
-  [[1,0],[0,1],[1,1],[2,1]],
-  [[0,0],[0,1],[1,1],[1,2]],
-  [[0,1],[0,2],[1,0],[1,1]],
-  [[0,0],[1,0],[1,1],[2,1]],
-  [[0,1],[1,0],[1,1],[2,0]],
-];
-const SHAPE_WEIGHTS = SHAPES.map(s => {
-  const n = s.length;
-  if (n === 1) return 8;
-  if (n === 2) return 10;
-  if (n === 3) return 9;
-  return 5;
-});
-
-function normalizeShape(shape) {
-  if (!Array.isArray(shape) || !shape.length) return [];
-  const cells = shape.map(p => [p[0] | 0, p[1] | 0]);
-  const minR = Math.min(...cells.map(p => p[0]));
-  const minC = Math.min(...cells.map(p => p[1]));
-  return cells.map(([r, c]) => [r - minR, c - minC]);
-}
-
-function shapeKey(shape) {
-  return normalizeShape(shape).map(([r, c]) => r + ',' + c).sort().join(';');
-}
-
-function shapesEqual(a, b) {
-  return shapeKey(a) === shapeKey(b);
-}
-
-function randomPiece() {
-  const total = SHAPE_WEIGHTS.reduce((a, b) => a + b, 0);
-  let r = Math.random() * total;
-  let idx = 0;
-  for (let i = 0; i < SHAPE_WEIGHTS.length; i++) {
-    r -= SHAPE_WEIGHTS[i];
-    if (r <= 0) { idx = i; break; }
-  }
-  return {
-    shape: normalizeShape(SHAPES[idx]),
-    color: DEFAULT_COLORS[Math.floor(Math.random() * DEFAULT_COLORS.length)],
-    used: false
-  };
-}
-
-function dealThree() {
-  return [randomPiece(), randomPiece(), randomPiece()];
-}
-
-function cloneGrid(g) {
-  return g.map(row => row.slice());
-}
-
-function canPlaceOn(g, shape, baseR, baseC) {
-  for (const [dr, dc] of shape) {
-    const r = baseR + dr;
-    const c = baseC + dc;
-    if (r < 0 || r >= SIZE || c < 0 || c >= SIZE || g[r][c]) return false;
-  }
-  return true;
-}
-
-function clearLinesOnGrid(g) {
-  const rows = [];
-  const cols = [];
-  for (let r = 0; r < SIZE; r++) if (g[r].every(c => !!c)) rows.push(r);
-  for (let c = 0; c < SIZE; c++) if (g.every(row => !!row[c])) cols.push(c);
-  if (!rows.length && !cols.length) return { count: 0, rows: [], cols: [] };
-  rows.forEach(r => { for (let c = 0; c < SIZE; c++) g[r][c] = null; });
-  cols.forEach(c => { for (let r = 0; r < SIZE; r++) g[r][c] = null; });
-  return { count: rows.length + cols.length, rows, cols };
-}
-
-function bonusFor(cleared) {
-  return [0, 100, 300, 600, 1000, 1500, 2200, 3000, 4000][cleared] || 4000;
-}
-
-function chainBonusFor(chain) {
-  if (chain < 2) return 0;
-  return Math.min(800, (chain - 1) * 50);
-}
-
-function serializePieces(pieces) {
-  return (pieces || []).map(p => ({
-    shape: (p.shape || []).map(c => c.slice()),
-    color: p.color,
-    used: !!p.used
-  }));
-}
-
-function findAllPlacements(g, shape) {
-  if (!shape || !shape.length) return [];
-  const maxR = Math.max(...shape.map(s => s[0]));
-  const maxC = Math.max(...shape.map(s => s[1]));
-  const candidates = [];
-  for (let r = 0; r <= SIZE - 1 - maxR; r++) {
-    for (let c = 0; c <= SIZE - 1 - maxC; c++) {
-      if (canPlaceOn(g, shape, r, c)) candidates.push({ r, c });
-    }
-  }
-  return candidates;
-}
-
-/** true = can play, false = stuck (has pieces, none fit), null = tray empty / deal pending */
-function sideHasPlayable(g, pieceArr) {
-  const left = (pieceArr || []).filter(p => p && !p.used && p.shape && p.shape.length);
-  if (!left.length) return null;
-  for (const p of left) {
-    if (findAllPlacements(g, p.shape).length > 0) return true;
-  }
-  return false;
-}
-
-// Anti-spam: minimum ms between accepted places per seat
-const MIN_PLACE_INTERVAL_MS = 120;
-const PLACE_BURST_WINDOW_MS = 1000;
-const PLACE_BURST_MAX = 8;
-
-// Disconnect / AFK (authoritative)
-const DC_LIMIT_MS = 60000;   // max wait after leave (or until match clock ends if less)
-const AFK_WARN_MS = 15000;   // warn after 15s idle
-const AFK_LIMIT_MS = 30000;  // loss after 30s idle total
 
 function queueKey(duration, trophies) {
   const bucket = Math.floor(Math.max(0, trophies) / 50) * 50;
@@ -287,6 +178,149 @@ class MatchRoom {
 
     rooms.set(this.id, this);
     this._clockTimer = setInterval(() => this._tick(), 1000);
+    persistRoom(this);
+  }
+
+  /** Serialize for Redis/file (no sockets). */
+  toJSON() {
+    const players = {};
+    for (const tok of Object.keys(this.players)) {
+      const p = this.players[tok];
+      players[tok] = {
+        token: p.token,
+        seat: p.seat,
+        name: p.name,
+        trophies: p.trophies | 0
+      };
+    }
+    const seatState = (st) => ({
+      score: st.score | 0,
+      grid: cloneGrid(st.grid),
+      pieces: serializePieces(st.pieces),
+      clearChain: st.clearChain | 0,
+      stuck: !!st.stuck,
+      lastPlaceAt: st.lastPlaceAt | 0,
+      placeTimes: (st.placeTimes || []).slice(-20),
+      name: st.name,
+      trophies: st.trophies | 0,
+      online: false, // after restore nobody is connected yet
+      lastSeen: st.lastSeen | 0,
+      lastActionAt: st.lastActionAt | 0,
+      offlineSince: st.offlineSince | 0,
+      dcDeadlineTs: st.dcDeadlineTs | 0,
+      afkWarned: !!st.afkWarned
+    });
+    return {
+      id: this.id,
+      duration: this.duration,
+      size: this.size,
+      createdAt: this.createdAt,
+      clockEndTs: this.clockEndTs,
+      status: this.status,
+      endedReason: this.endedReason,
+      source: this.source || 'ranked',
+      privateCode: this.privateCode || null,
+      rematch: this.rematch ? { a: !!this.rematch.a, b: !!this.rematch.b } : null,
+      seatOf: { a: this.seatOf.a, b: this.seatOf.b },
+      players,
+      state: {
+        a: seatState(this.state.a),
+        b: seatState(this.state.b),
+        moves: (this.state.moves || []).slice(-120)
+      }
+    };
+  }
+
+  /**
+   * Restore a room from persisted JSON (after process restart).
+   * Players start offline; they must rejoin via WebSocket.
+   */
+  static restore(data) {
+    if (!data || !data.id || !data.seatOf || !data.state) return null;
+    const tokA = data.seatOf.a;
+    const tokB = data.seatOf.b;
+    if (!tokA || !tokB) return null;
+    const p1 = {
+      token: tokA,
+      name: (data.state.a && data.state.a.name) || 'Игрок',
+      trophies: (data.state.a && data.state.a.trophies) | 0,
+      ws: null
+    };
+    const p2 = {
+      token: tokB,
+      name: (data.state.b && data.state.b.name) || 'Игрок',
+      trophies: (data.state.b && data.state.b.trophies) | 0,
+      ws: null
+    };
+    // Build without constructor side-effects: manual init
+    const room = Object.create(MatchRoom.prototype);
+    room.id = data.id;
+    room.duration = data.duration || 120;
+    room.size = data.size || 8;
+    room.createdAt = data.createdAt || Date.now();
+    room.clockEndTs = data.clockEndTs || (Date.now() + room.duration * 1000);
+    room.status = data.status === 'ended' ? 'ended' : 'live';
+    room.endedReason = data.endedReason || null;
+    room.source = data.source || 'ranked';
+    room.privateCode = data.privateCode || null;
+    room.rematch = data.rematch || { a: false, b: false };
+    room.players = {
+      [tokA]: { token: tokA, seat: 'a', name: p1.name, trophies: p1.trophies, ws: null, online: false, lastSeen: Date.now() },
+      [tokB]: { token: tokB, seat: 'b', name: p2.name, trophies: p2.trophies, ws: null, online: false, lastSeen: Date.now() }
+    };
+    room.seatOf = { a: tokA, b: tokB };
+    const hydrate = (raw) => {
+      const st = raw || {};
+      return {
+        score: st.score | 0,
+        grid: st.grid && st.grid.length ? cloneGrid(st.grid) : emptyGrid(room.size),
+        pieces: (st.pieces && st.pieces.length) ? st.pieces.map(p => ({
+          shape: (p.shape || []).map(c => c.slice()),
+          color: p.color,
+          used: !!p.used
+        })) : dealThree(),
+        clearChain: st.clearChain | 0,
+        stuck: !!st.stuck,
+        lastPlaceAt: st.lastPlaceAt | 0,
+        placeTimes: Array.isArray(st.placeTimes) ? st.placeTimes.slice() : [],
+        name: st.name || 'Игрок',
+        trophies: st.trophies | 0,
+        online: false,
+        lastSeen: st.lastSeen | 0,
+        lastActionAt: st.lastActionAt || Date.now(),
+        offlineSince: st.offlineSince || Date.now(),
+        dcDeadlineTs: st.dcDeadlineTs | 0,
+        afkWarned: !!st.afkWarned
+      };
+    };
+    room.state = {
+      a: hydrate(data.state.a),
+      b: hydrate(data.state.b),
+      moves: Array.isArray(data.state.moves) ? data.state.moves.slice() : []
+    };
+    // If live but clock already over — end immediately on next tick
+    if (room.status === 'live') {
+      // Mark both offline so DC/AFK rules can finish the match if needed
+      for (const seat of ['a', 'b']) {
+        const st = room.state[seat];
+        if (!st.dcDeadlineTs) {
+          const matchLeft = Math.max(0, room.clockEndTs - Date.now());
+          st.dcDeadlineTs = Date.now() + Math.min(DC_LIMIT_MS, matchLeft || 1000);
+        }
+      }
+      room._clockTimer = setInterval(() => room._tick(), 1000);
+    } else {
+      room._clockTimer = null;
+      // Still keep for rematch window — schedule delete
+      setTimeout(() => {
+        if (rooms.get(room.id) === room) {
+          rooms.delete(room.id);
+          forgetRoom(room.id, [tokA, tokB]);
+        }
+      }, Math.max(1000, ROOM_TTL_ENDED * 1000));
+    }
+    rooms.set(room.id, room);
+    return room;
   }
 
   _makePlayer(info, seat) {
@@ -362,6 +396,7 @@ class MatchRoom {
         });
       }
     } catch (_) {}
+    persistRoom(this);
     return true;
   }
 
@@ -405,6 +440,7 @@ class MatchRoom {
       dcRemaining: Math.max(0, Math.ceil(dcMs / 1000)),
       reason: idle >= AFK_WARN_MS ? 'afk_disconnect' : 'disconnect'
     }, token);
+    persistRoom(this);
   }
 
   timeLeft() {
@@ -637,6 +673,7 @@ class MatchRoom {
       clockEndTs: clockEndTs
     });
 
+    persistRoom(this);
     this.evaluateStuck();
   }
 
@@ -748,10 +785,14 @@ class MatchRoom {
       b: { score: this.state.b.score, name: this.state.b.name }
     };
     this.broadcast(payload);
+    persistRoom(this);
     // Keep room for rejoin + rematch window
+    const id = this.id;
+    const tokens = Object.keys(this.players);
     setTimeout(() => {
-      rooms.delete(this.id);
-    }, 180000);
+      rooms.delete(id);
+      forgetRoom(id, tokens);
+    }, ROOM_TTL_ENDED * 1000);
   }
 
   offerRematch(token) {
@@ -831,6 +872,7 @@ class MatchRoom {
       duration: duration
     };
     rooms.delete(oldId);
+    forgetRoom(oldId, [tokA, tokB]);
     startRoom(p1, p2, { source: this.source || 'ranked', code: this.privateCode || null });
   }
 
@@ -1083,14 +1125,6 @@ function tryStartPrivate(lobby) {
   return true;
 }
 
-
-
-function totalQueued() {
-  let n = 0;
-  for (const q of queues.values()) n += q.length;
-  return n;
-}
-
 const server = http.createServer((req, res) => {
   try {
     res.setHeader('Access-Control-Allow-Origin', '*');
@@ -1113,6 +1147,7 @@ const server = http.createServer((req, res) => {
         privateLobbies: privateLobbies.size,
         presence: presence.size,
         wsClients,
+        store: store ? store.kind : 'none',
         uptime: Math.floor(process.uptime())
       }));
       return;
@@ -1244,7 +1279,60 @@ wss.on('connection', (ws) => {
     if (type === 'rejoin') {
       const matchId = data.matchId ? String(data.matchId) : null;
       const token = data.token ? String(data.token) : (ws._token || null);
-      const room = matchId ? rooms.get(matchId) : null;
+      let room = matchId ? rooms.get(matchId) : null;
+      // Persistence: after restart room may only exist in store
+      if (!room && matchId && store) {
+        // Sync path: schedule async restore then client can retry, or wait briefly
+        store.loadRoom(matchId).then((snap) => {
+          if (!snap) {
+            send(ws, { type: 'rejoin_fail', reason: 'not_found', matchId: matchId });
+            return;
+          }
+          let r = rooms.get(matchId);
+          if (!r) {
+            r = MatchRoom.restore(snap);
+            if (r) console.log('[store] restored room', matchId, 'status=', r.status);
+          }
+          if (!r) {
+            send(ws, { type: 'rejoin_fail', reason: 'not_found', matchId: matchId });
+            return;
+          }
+          if (r.status === 'ended') {
+            send(ws, { type: 'rejoin_fail', reason: 'ended', matchId: matchId });
+            return;
+          }
+          if (!token || !r.getPlayer(token)) {
+            send(ws, { type: 'rejoin_fail', reason: 'bad_token', matchId: matchId });
+            return;
+          }
+          ws._token = token;
+          ws._matchId = r.id;
+          r.attach(token, ws);
+          try {
+            const st = r.state[r.getPlayer(token).seat];
+            if (!st.pieces || !st.pieces.length || st.pieces.every(function (pc) { return pc && pc.used; })) {
+              st.pieces = dealThree();
+            }
+          } catch (_) {}
+          const snap2 = r.snapshotFor(token);
+          if (snap2) {
+            snap2.type = 'rejoin_ok';
+            snap2.matchId = r.id;
+            snap2.token = token;
+            snap2.seat = r.getPlayer(token).seat;
+            snap2.source = r.source || 'ranked';
+            snap2.duration = r.duration;
+            snap2.clockEndTs = r.clockEndTs;
+            snap2.vsTimeLeft = r.timeLeft();
+            if (snap2.me && snap2.me.pieces) snap2.me.pieces = serializePieces(snap2.me.pieces);
+            if (snap2.opp && snap2.opp.pieces) snap2.opp.pieces = serializePieces(snap2.opp.pieces);
+            send(ws, snap2);
+          }
+        }).catch(() => {
+          send(ws, { type: 'rejoin_fail', reason: 'not_found', matchId: matchId });
+        });
+        return;
+      }
       if (!room) {
         send(ws, { type: 'rejoin_fail', reason: 'not_found', matchId: matchId });
         return;
@@ -1420,12 +1508,19 @@ wss.on('connection', (ws) => {
       });
       ws._friendCode = code;
       send(ws, { type: 'presence_ok', friendCode: code });
-      const box = pendingSocial.get(code);
-      if (box && box.length) {
+      const deliverBox = (box) => {
+        if (!box || !box.length) return;
         pendingSocial.delete(code);
+        if (store) store.setSocial(code, []).catch(() => {});
         for (const msg of box) {
           try { send(ws, { type: 'social_msg', msg }); } catch (_) {}
         }
+      };
+      const memBox = pendingSocial.get(code);
+      if (memBox && memBox.length) {
+        deliverBox(memBox);
+      } else if (store) {
+        store.getSocial(code).then((box) => deliverBox(box)).catch(() => {});
       }
       return;
     }
@@ -1489,6 +1584,7 @@ wss.on('connection', (ws) => {
         }
         if (msgType !== 'friend_req_cancel') box.push(out);
         if (box.length > 30) box.splice(0, box.length - 30);
+        if (store) store.setSocial(to, box).catch(() => {});
         send(ws, { type: 'social_result', ok: true, to, msgType, delivered: false, queued: true });
         return;
       }
@@ -1609,9 +1705,66 @@ setInterval(() => {
   });
 }, 25000);
 
-server.listen(PORT, '0.0.0.0', () => {
-  console.log('Block Puzzle on http://0.0.0.0:' + PORT + ' | ws /ws');
+async function boot() {
+  try {
+    store = await createStore();
+  } catch (e) {
+    console.warn('[store] init failed, using memory:', e && e.message);
+    store = await createStore(); // createStore already falls back
+  }
+
+  // Restore active rooms from persistence (rejoin after restart)
+  if (store && store.kind !== 'memory') {
+    try {
+      const ids = await store.listRoomIds();
+      let n = 0;
+      for (const id of ids) {
+        try {
+          const data = await store.loadRoom(id);
+          if (!data) continue;
+          // Skip expired live matches whose clock is long over
+          if (data.status === 'live' && data.clockEndTs && Date.now() - data.clockEndTs > 120000) {
+            await store.deleteRoom(id);
+            continue;
+          }
+          if (rooms.has(id)) continue;
+          const room = MatchRoom.restore(data);
+          if (room) n++;
+        } catch (err) {
+          console.warn('[store] restore failed', id, err && err.message);
+        }
+      }
+      if (n) console.log('[store] restored', n, 'room(s)');
+    } catch (e) {
+      console.warn('[store] list/restore error:', e && e.message);
+    }
+  }
+
+  server.listen(PORT, '0.0.0.0', () => {
+    console.log('Block Puzzle on http://0.0.0.0:' + PORT + ' | ws /ws | store=' + (store && store.kind));
+  });
+}
+
+boot().catch((e) => {
+  console.error('boot failed', e);
+  process.exit(1);
 });
 
-process.on('SIGTERM', () => process.exit(0));
-process.on('SIGINT', () => process.exit(0));
+function shutdown() {
+  try {
+    // Flush live rooms one last time
+    if (store) {
+      for (const room of rooms.values()) {
+        try { persistRoom(room); } catch (_) {}
+      }
+      setTimeout(() => {
+        try { store.close(); } catch (_) {}
+        process.exit(0);
+      }, 200);
+      return;
+    }
+  } catch (_) {}
+  process.exit(0);
+}
+process.on('SIGTERM', shutdown);
+process.on('SIGINT', shutdown);

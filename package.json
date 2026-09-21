@@ -1,11 +1,15 @@
 {
   "name": "block-puzzle-server",
-  "version": "3.1.0",
-  "description": "Block Puzzle — pure Node + vendor/ws",
+  "version": "3.5.1",
+  "description": "Block Puzzle \u2014 modular client + server + persistence",
   "main": "server.js",
   "scripts": {
-    "start": "node server.js"
+    "start": "node server.js",
+    "start:file": "BP_STORE=file node server.js",
+    "start:redis": "BP_STORE=redis node server.js"
   },
-  "engines": { "node": ">=18" },
+  "engines": {
+    "node": ">=18"
+  },
   "dependencies": {}
 }

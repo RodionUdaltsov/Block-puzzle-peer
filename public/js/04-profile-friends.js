@@ -1,0 +1,2108 @@
+/**
+ * Block Puzzle — 04-profile-friends.js
+ * Guest profile, avatars, friends presence/social via MatchClient
+ * Lines ~2456-4983 from legacy game.js monolith (refactored).
+ * Shares global scope with other public/js/*.js modules (no bundler).
+ */
+'use strict';
+
+// —— Profile (guest) ——
+const AVATAR_PRESETS = [
+  { id: 'init', kind: 'initials', bg: 'linear-gradient(135deg,#00d4aa,#7c5cff)' },
+  { id: 'init2', kind: 'initials', bg: 'linear-gradient(135deg,#ff9f43,#ff5c7a)' },
+  { id: 'init3', kind: 'initials', bg: 'linear-gradient(135deg,#4fc3f7,#7c5cff)' },
+  { id: 'init4', kind: 'initials', bg: 'linear-gradient(135deg,#ffd666,#ff9f43)' },
+  { id: 'init5', kind: 'initials', bg: 'linear-gradient(135deg,#c77dff,#5ee7ff)' },
+  { id: 'e1', kind: 'emoji', emoji: '😎', bg: 'linear-gradient(145deg,#1a2a36,#0f1820)' },
+  { id: 'e2', kind: 'emoji', emoji: '🔥', bg: 'linear-gradient(145deg,#2a1810,#1a0e08)' },
+  { id: 'e3', kind: 'emoji', emoji: '💎', bg: 'linear-gradient(145deg,#0e2430,#081820)' },
+  { id: 'e4', kind: 'emoji', emoji: '🎮', bg: 'linear-gradient(145deg,#1a1830,#100e20)' },
+  { id: 'e5', kind: 'emoji', emoji: '⚡', bg: 'linear-gradient(145deg,#242010,#181408)' },
+  { id: 'e6', kind: 'emoji', emoji: '🦊', bg: 'linear-gradient(145deg,#2a1c14,#1a1008)' },
+  { id: 'e7', kind: 'emoji', emoji: '🐱', bg: 'linear-gradient(145deg,#221a20,#140e14)' },
+  { id: 'e8', kind: 'emoji', emoji: '🚀', bg: 'linear-gradient(145deg,#101828,#0a1018)' },
+  { id: 'e9', kind: 'emoji', emoji: '🌟', bg: 'linear-gradient(145deg,#242018,#141008)' },
+  { id: 'e10', kind: 'emoji', emoji: '🧊', bg: 'linear-gradient(145deg,#0e2030,#081018)' },
+  { id: 'e11', kind: 'emoji', emoji: '🎯', bg: 'linear-gradient(145deg,#201018,#14080c)' },
+  { id: 'e12', kind: 'emoji', emoji: '🍀', bg: 'linear-gradient(145deg,#102018,#081210)' },
+  { id: 'e13', kind: 'emoji', emoji: '🦄', bg: 'linear-gradient(145deg,#241428,#140c18)' },
+  { id: 'e14', kind: 'emoji', emoji: '👾', bg: 'linear-gradient(145deg,#1a1430,#0c0a18)' },
+  { id: 'e15', kind: 'emoji', emoji: '👑', bg: 'linear-gradient(145deg,#2a2410,#181408)' },
+];
+let myAvatarId = localStorage.getItem('bp_avatar') || 'init';
+let myStatus = '';
+try { myStatus = localStorage.getItem('bp_status') || ''; } catch (_) { myStatus = ''; }
+let profileDraft = { nick: myNickname, avatarId: myAvatarId, status: myStatus };
+
+function getAvatarPreset(id) {
+  return AVATAR_PRESETS.find(a => a.id === id) || AVATAR_PRESETS[0];
+}
+function profileInitials(name) {
+  const n = String(name || 'Гость').trim();
+  if (!n) return '?';
+  const parts = n.split(/\s+/).filter(Boolean);
+  let s;
+  if (parts.length >= 2) s = (parts[0][0] + parts[1][0]).toUpperCase().slice(0, 2);
+  else s = n.slice(0, 2).toUpperCase();
+  // Pure digits look broken in avatar grid — mix in a letter
+  if (/^\d+$/.test(s)) {
+    const letters = 'ABCDEFGHJKLMNPQRSTUVWXYZ';
+    let h = 0;
+    for (let i = 0; i < n.length; i++) h = (h * 31 + n.charCodeAt(i)) | 0;
+    s = letters[Math.abs(h) % letters.length] + s[0];
+  }
+  return s;
+}
+let myAvatarCustom = '';
+try { myAvatarCustom = localStorage.getItem('bp_avatar_custom') || ''; } catch (_) { myAvatarCustom = ''; }
+
+function renderAvatarInto(el, opts) {
+  if (!el) return;
+  opts = opts || {};
+  const id = opts.avatarId || myAvatarId;
+  const nick = opts.nick != null ? opts.nick : myNickname;
+  const customUrl = (opts.custom != null) ? opts.custom : myAvatarCustom;
+  el.innerHTML = '';
+  el.classList.remove('has-photo');
+  // Reset previous photo/gradient so switching presets is clean
+  el.style.background = '';
+  el.style.backgroundImage = '';
+  el.style.backgroundSize = '';
+  el.style.backgroundPosition = '';
+  el.style.backgroundRepeat = '';
+  el.style.backgroundColor = '';
+  if (id === 'custom' && customUrl) {
+    el.style.backgroundColor = 'transparent';
+    el.style.backgroundImage = 'url(' + JSON.stringify(customUrl) + ')';
+    el.style.backgroundSize = 'cover';
+    el.style.backgroundPosition = 'center';
+    el.style.backgroundRepeat = 'no-repeat';
+    el.style.color = 'transparent';
+    el.textContent = '';
+    el.classList.add('has-photo');
+    return;
+  }
+  const preset = getAvatarPreset(id);
+  // Gradient must be set via background (shorthand) and NOT cleared with backgroundImage='none'
+  el.style.background = preset.bg;
+  if (preset.kind === 'emoji') {
+    el.textContent = preset.emoji;
+    el.style.fontSize = opts.big ? '1.85rem' : (opts.size === 'duel' ? '1.45rem' : '1rem');
+    el.style.color = '#fff';
+  } else {
+    el.textContent = profileInitials(nick);
+    el.style.fontSize = opts.big ? '1.55rem' : (opts.size === 'duel' ? '1.1rem' : '0.85rem');
+    el.style.color = '#04120e';
+  }
+}
+
+function compressAvatarFile(file) {
+  return new Promise((resolve, reject) => {
+    if (!file || !file.type || !file.type.startsWith('image/')) {
+      reject(new Error('Нужно изображение'));
+      return;
+    }
+    if (file.size > 8 * 1024 * 1024) {
+      reject(new Error('Файл слишком большой (макс. 8 МБ)'));
+      return;
+    }
+    const img = new Image();
+    const url = URL.createObjectURL(file);
+    img.onload = () => {
+      try {
+        const max = 160;
+        let w = img.naturalWidth || img.width;
+        let h = img.naturalHeight || img.height;
+        const scale = Math.min(1, max / Math.max(w, h));
+        w = Math.max(1, Math.round(w * scale));
+        h = Math.max(1, Math.round(h * scale));
+        const c = document.createElement('canvas');
+        c.width = w; c.height = h;
+        const ctx = c.getContext('2d');
+        ctx.drawImage(img, 0, 0, w, h);
+        let data = c.toDataURL('image/jpeg', 0.82);
+        // shrink if still huge
+        if (data.length > 180000) data = c.toDataURL('image/jpeg', 0.65);
+        if (data.length > 220000) data = c.toDataURL('image/jpeg', 0.5);
+        URL.revokeObjectURL(url);
+        resolve(data);
+      } catch (e) {
+        URL.revokeObjectURL(url);
+        reject(e);
+      }
+    };
+    img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('Не удалось прочитать фото')); };
+    img.src = url;
+  });
+}
+function sanitizeNick(raw) {
+  let s = String(raw || '').replace(/[<>]/g, '').replace(/\s+/g, ' ').trim();
+  if (s.length > 7) s = s.slice(0, 7);
+  return s;
+}
+function saveProfile(data) {
+  const nick = sanitizeNick(data.nick);
+  if (nick.length < 2) return { ok: false, err: 'Ник слишком короткий (мин. 2)' };
+  const prevNick = myNickname;
+  const prevAv = myAvatarId;
+  const prevStatus = myStatus;
+  myNickname = nick;
+  myAvatarId = data.avatarId || myAvatarId;
+  myStatus = String(data.status || '').slice(0, 48);
+  if (data.custom != null) myAvatarCustom = data.custom;
+  try {
+    if (myNickname && myNickname !== prevNick && !/^Player/i.test(myNickname)) setAchStat('profileNick', 1);
+    if (myAvatarId && myAvatarId !== prevAv) setAchStat('profileAvatar', 1);
+    if (myAvatarId === 'custom' && myAvatarCustom) setAchStat('profileCustom', 1);
+    if (myStatus && myStatus !== prevStatus) setAchStat('profileStatus', 1);
+    checkNewAchievements();
+  } catch (_) {}
+  try {
+    localStorage.setItem('bp_nickname', myNickname);
+    localStorage.setItem('bp_avatar', myAvatarId);
+    localStorage.setItem('bp_status', myStatus);
+    if (myAvatarId === 'custom' && myAvatarCustom) {
+      localStorage.setItem('bp_avatar_custom', myAvatarCustom);
+    }
+  } catch (e) {
+    if (myAvatarId === 'custom') {
+      return { ok: false, err: 'Не хватило места для фото — выбери пресет' };
+    }
+  }
+  refreshProfileUI();
+  try { updateMenuStats(); } catch (_) {}
+  return { ok: true };
+}
+function refreshProfileUI() {
+  renderAvatarInto(document.getElementById('homeProfileAv'), { avatarId: myAvatarId, nick: myNickname });
+  const hn = document.getElementById('homeProfileName');
+  if (hn) hn.textContent = myNickname || 'Гость';
+  renderAvatarInto(document.getElementById('profileAvBig'), { avatarId: myAvatarId, nick: myNickname, big: true });
+  const heroN = document.getElementById('profileHeroName');
+  if (heroN) heroN.textContent = myNickname || 'Гость';
+  const prev = document.getElementById('profileStatusPreview');
+  if (prev) prev.textContent = myStatus || '';
+  const codeEl = document.getElementById('profileFriendCode');
+  if (codeEl) codeEl.textContent = myFriendCode;
+  const stT = document.getElementById('profStatTrophies');
+  const stD = document.getElementById('profStatDiamonds');
+  const stB = document.getElementById('profStatBest');
+  const stS = document.getElementById('profStatStars');
+  if (stT) stT.textContent = typeof trophies === 'number' ? trophies : 0;
+  if (stD) stD.textContent = typeof diamonds === 'number' ? diamonds : 0;
+  if (stB) stB.textContent = typeof best === 'number' ? best : 0;
+  try { if (stS) stS.textContent = totalSilverStars() + '/' + maxSilverStars(); } catch (_) {}
+  // Sync duel avatar if present
+  try {
+    const avMe = document.getElementById('duelAvMeInner');
+    if (avMe) renderAvatarInto(avMe, { avatarId: myAvatarId, nick: myNickname, size: 'duel' });
+  } catch (_) {}
+}
+function renderProfileAvatarGrid() {
+  const grid = document.getElementById('profileAvatarGrid');
+  if (!grid) return;
+  const selected = profileDraft.avatarId || myAvatarId;
+  const customUrl = profileDraft.custom != null ? profileDraft.custom : myAvatarCustom;
+  const customSel = selected === 'custom' ? ' selected' : '';
+  let html = '';
+  // upload / custom slot first
+  if (customUrl) {
+    html += `<button type="button" class="profile-av-opt custom-upload${customSel}" data-av="custom" role="option" aria-selected="${selected === 'custom'}" title="Своё фото"></button>`;
+  } else {
+    html += `<button type="button" class="profile-av-opt custom-upload${customSel}" data-av="upload" role="option" title="Загрузить фото">＋</button>`;
+  }
+  html += AVATAR_PRESETS.map(p => {
+    const sel = p.id === selected ? ' selected' : '';
+    let content;
+    if (p.kind === 'emoji') {
+      content = p.emoji || '⭐';
+    } else {
+      // Always show nickname initials on every initials skin (different gradient only)
+      content = profileInitials(profileDraft.nick || myNickname);
+    }
+    const emojiCls = p.kind === 'emoji' ? ' is-emoji' : ' is-initials';
+    return `<button type="button" class="profile-av-opt${emojiCls}${sel}" data-av="${p.id}" role="option" aria-selected="${p.id === selected}" style="background:${p.bg}">${content}</button>`;
+  }).join('');
+  grid.innerHTML = html;
+  const customBtn = grid.querySelector('[data-av="custom"]');
+  if (customBtn && customUrl) {
+    customBtn.style.backgroundImage = 'url("' + customUrl.replace(/"/g, '%22') + '")';
+    customBtn.style.backgroundSize = 'cover';
+    customBtn.style.backgroundPosition = 'center';
+    customBtn.textContent = '';
+  }
+  grid.querySelectorAll('.profile-av-opt').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const av = btn.dataset.av;
+      if (av === 'upload') {
+        const fi = document.getElementById('profileAvatarFile');
+        if (fi) fi.click();
+        return;
+      }
+      if (av === 'custom') {
+        profileDraft.avatarId = 'custom';
+        renderProfileAvatarGrid();
+        renderAvatarInto(document.getElementById('profileAvBig'), {
+          avatarId: 'custom',
+          nick: profileDraft.nick || myNickname,
+          custom: customUrl,
+          big: true
+        });
+        try { SFX.ui(); } catch (_) {}
+        return;
+      }
+      profileDraft.avatarId = av;
+      renderProfileAvatarGrid();
+      renderAvatarInto(document.getElementById('profileAvBig'), {
+        avatarId: profileDraft.avatarId,
+        nick: profileDraft.nick || myNickname,
+        big: true
+      });
+      try { SFX.ui(); } catch (_) {}
+    });
+  });
+}
+function openProfileScreen() {
+  profileDraft = { nick: myNickname, avatarId: myAvatarId, status: myStatus, custom: myAvatarCustom };
+  const nickIn = document.getElementById('profileNickInput');
+  const stIn = document.getElementById('profileStatusInput');
+  if (nickIn) nickIn.value = myNickname;
+  if (stIn) stIn.value = myStatus;
+  renderProfileAvatarGrid();
+  refreshProfileUI();
+  renderAvatarInto(document.getElementById('profileAvBig'), {
+    avatarId: profileDraft.avatarId,
+    nick: profileDraft.nick,
+    big: true
+  });
+  showScreen('profile');
+}
+
+let friends = [];
+try { friends = JSON.parse(localStorage.getItem('bp_friends') || '[]'); } catch (_) { friends = []; }
+function saveFriends() { localStorage.setItem('bp_friends', JSON.stringify(friends)); }
+
+const screens = {
+  menu: document.getElementById('screenMenu'),
+  settings: document.getElementById('screenSettings'),
+  history: document.getElementById('screenHistory'),
+  friends: document.getElementById('screenFriends'),
+  compType: document.getElementById('screenCompType'),
+  difficulty: document.getElementById('screenDifficulty'),
+  achievements: document.getElementById('screenAchievements'),
+  duration: document.getElementById('screenDuration'),
+  match: document.getElementById('screenMatch'),
+  classic: document.getElementById('screenClassic'),
+  versus: document.getElementById('screenVersus'),
+  shop: document.getElementById('screenShop'),
+  inventory: document.getElementById('screenInventory'),
+  profile: document.getElementById('screenProfile'),
+};
+
+// —— Friends: presence + requests via WebSocket MatchClient ——
+function friendRelayKey(code) {
+  // Legacy id helper (server removed). Kept for rare log keys only.
+  return 'bp-friend-' + normalizeFriendCode(code);
+}
+
+let frSessionLink = null;
+let frSessionReady = false;
+let frIncoming = []; // { code, name, trophies, conn, ts }
+let frSearchBusy = false;
+let frActiveToast = null; // current toast request
+let frOutgoingConn = null;
+let frOutgoingSession = null;
+let frOutgoingTimer = null;
+/** Outgoing friend requests awaiting accept/decline: { code, name, ts } */
+let frOutgoingPending = [];
+/** code -> 'online' | 'offline' | 'checking' */
+let friendPresence = {};
+let friendPresenceBusy = false;
+let friendPresenceTimer = null;
+/** code -> activity string from last pong/ping */
+let friendActivity = {};
+/** Local activity broadcast to friends */
+let myActivity = 'menu';
+function activityLabel(act) {
+  const a = String(act || '').toLowerCase();
+  if (a === 'classic') return 'Классика';
+  if (a === 'versus_bots' || a === 'training') return 'Тренировка';
+  if (a === 'versus' || a === 'online' || a === 'match') return 'Соревнование';
+  if (a === 'shop' || a === 'inventory') return 'Магазин';
+  if (a === 'settings') return 'Настройки';
+  if (a === 'friends') return 'Друзья';
+  if (a === 'history') return 'История';
+  if (a === 'achievements') return 'Достижения';
+  if (a === 'difficulty' || a === 'duration' || a === 'comptype') return 'Соревнование';
+  return 'В меню';
+}
+function detectMyActivity() {
+  try {
+    const active = document.querySelector('.screen.active');
+    const id = (active && active.id) || '';
+    const raw = id.replace(/^screen/, '');
+    const map = {
+      Menu: 'menu', Classic: 'classic', Versus: 'versus', Settings: 'settings',
+      Match: 'match', Friends: 'friends', History: 'history', Achievements: 'achievements',
+      CompType: 'compType', Difficulty: 'difficulty', Duration: 'duration',
+      Shop: 'shop', Inventory: 'inventory'
+    };
+    let act = map[raw] || 'menu';
+    if (act === 'versus') {
+      if (vsModeType === 'bots' || currentBot) act = 'versus_bots';
+      else if (vsModeType === 'online' || mpMode) act = 'versus';
+    }
+    if (act === 'match') act = 'match';
+    myActivity = act;
+    return act;
+  } catch (_) {
+    return myActivity || 'menu';
+  }
+}
+function getFriendActivity(code) {
+  code = normalizeFriendCode(code);
+  return friendActivity[code] || null;
+}
+function setFriendActivity(code, act) {
+  code = normalizeFriendCode(code);
+  if (!code) return;
+  const next = act ? String(act) : null;
+  const prev = friendActivity[code] || null;
+  if (next) friendActivity[code] = next;
+  else delete friendActivity[code];
+  if (prev !== next) {
+    // Live update status line without leaving the Friends tab
+    try { paintFriendStatusLine(code); } catch (_) {}
+  }
+}
+try {
+  frOutgoingPending = JSON.parse(localStorage.getItem('bp_fr_out') || '[]') || [];
+  if (!Array.isArray(frOutgoingPending)) frOutgoingPending = [];
+} catch (_) { frOutgoingPending = []; }
+
+function saveOutgoingPending() {
+  try { localStorage.setItem('bp_fr_out', JSON.stringify(frOutgoingPending.slice(0, 20))); } catch (_) {}
+}
+function addOutgoingPending(code, name) {
+  code = normalizeFriendCode(code);
+  if (!code) return;
+  frOutgoingPending = frOutgoingPending.filter(p => p.code !== code);
+  // Prefer real nickname; never display raw code as the title (avoids code→name flicker)
+  let displayName = (name || '').toString().trim().slice(0, 20);
+  if (!displayName || displayName.toUpperCase() === code) {
+    displayName = 'Игрок';
+  }
+  frOutgoingPending.unshift({
+    code,
+    name: displayName,
+    namePending: displayName === 'Игрок',
+    ts: Date.now()
+  });
+  saveOutgoingPending();
+  renderOutgoingPending(true);
+}
+
+/** Update outgoing card name in-place (no full re-render / no flash) */
+function updateOutgoingPendingName(code, name) {
+  code = normalizeFriendCode(code);
+  const p = frOutgoingPending.find(x => x.code === code);
+  if (!p) return;
+  const n = String(name || '').trim().slice(0, 20);
+  if (!n) return;
+  p.name = n;
+  p.namePending = false;
+  saveOutgoingPending();
+  const list = document.getElementById('friendOutList');
+  if (!list) return;
+  const card = list.querySelector('.friend-req-card[data-code="' + code + '"]');
+  if (!card) {
+    renderOutgoingPending(false);
+    return;
+  }
+  const nameEl = card.querySelector('.f-name');
+  const av = card.querySelector('.f-av');
+  if (nameEl) nameEl.textContent = n;
+  if (av) {
+    // keep only initials text node; preserve structure
+    const initials = n.slice(0, 2).toUpperCase();
+    // replace first text content carefully
+    let replaced = false;
+    av.childNodes.forEach(node => {
+      if (node.nodeType === 3 && node.textContent.trim()) {
+        node.textContent = initials;
+        replaced = true;
+      }
+    });
+    if (!replaced) {
+      // prepend text
+      av.insertBefore(document.createTextNode(initials), av.firstChild);
+    }
+  }
+}
+function removeOutgoingPending(code) {
+  code = normalizeFriendCode(code);
+  frOutgoingPending = frOutgoingPending.filter(p => p.code !== code);
+  saveOutgoingPending();
+  renderOutgoingPending(false);
+  updateFriendsSectionCounts();
+}
+
+/** Notify recipient that we cancelled the friend request */
+function notifyFriendReqCancel(targetCode) {
+  targetCode = normalizeFriendCode(targetCode);
+  if (!targetCode) return;
+  try {
+    deliverSocialMessage(targetCode, {
+      type: 'friend_req_cancel',
+      code: myFriendCode,
+      name: myNickname
+    });
+  } catch (_) {}
+}
+
+function cancelOutgoingRequest(code) {
+  code = normalizeFriendCode(code);
+  if (!code) return;
+  const list = document.getElementById('friendOutList');
+  const card = list && (
+    list.querySelector('.friend-req-card[data-code="' + code + '"]') ||
+    (list.querySelector('.fr-out-cancel[data-code="' + code + '"]') &&
+      list.querySelector('.fr-out-cancel[data-code="' + code + '"]').closest('.friend-req-card'))
+  );
+  const finish = () => {
+    removeOutgoingPending(code);
+    try {
+      if (frOutgoingConn) frOutgoingConn.close();
+      if (frOutgoingSession) frOutgoingSession.destroy();
+    } catch (_) {}
+    frOutgoingConn = null;
+    frOutgoingSession = null;
+    if (frOutgoingTimer) { clearTimeout(frOutgoingTimer); frOutgoingTimer = null; }
+    frSearchBusy = false;
+    notifyFriendReqCancel(code);
+    setFriendAddStatus('Заявка отменена', 'ok');
+    try { SFX.ui(); } catch (_) {}
+  };
+  if (card) {
+    card.classList.add('friend-exit');
+    setTimeout(finish, 360);
+  } else {
+    finish();
+  }
+}
+
+function updateFriendsSectionCounts() {
+  let reqN = (frIncoming ? frIncoming.length : 0) + (frOutgoingPending ? frOutgoingPending.length : 0);
+  try {
+    if (mpPendingJoin && mpRoomCode) reqN += 1;
+    if (typeof chPending !== 'undefined' && chPending && chPending.room) reqN += 1;
+  } catch (_) {}
+  const reqCount = document.getElementById('friendsReqCount');
+  const listCount = document.getElementById('friendsListCount');
+  const empty = document.getElementById('friendsReqEmpty');
+  if (reqCount) reqCount.textContent = String(reqN);
+  if (listCount) listCount.textContent = String(friends ? friends.length : 0);
+  if (empty) empty.style.display = reqN ? 'none' : '';
+}
+
+function renderOutgoingPending(animateEnter) {
+  const list = document.getElementById('friendOutList');
+  if (!list) return;
+  // drop stale (>7 days)
+  const week = 7 * 24 * 3600 * 1000;
+  frOutgoingPending = frOutgoingPending.filter(p => p && p.code && (Date.now() - (p.ts || 0)) < week);
+  saveOutgoingPending();
+  if (!frOutgoingPending.length) {
+    list.innerHTML = '';
+    updateFriendsSectionCounts();
+    return;
+  }
+  // Preserve existing cards that already match — only add missing / remove gone (no flicker)
+  const existing = new Map();
+  list.querySelectorAll('.friend-req-card[data-code]').forEach(el => {
+    existing.set(el.getAttribute('data-code'), el);
+  });
+  const keepCodes = new Set(frOutgoingPending.map(p => p.code));
+  // Remove cards no longer pending (without anim here — callers animate first)
+  existing.forEach((el, code) => {
+    if (!keepCodes.has(code) && !el.classList.contains('friend-exit')) {
+      el.remove();
+    }
+  });
+  frOutgoingPending.forEach((p, i) => {
+    let card = existing.get(p.code);
+    const t = p.ts ? new Date(p.ts).toLocaleString('ru-RU', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }) : '';
+    const label = (p.name && p.name.toUpperCase() !== p.code) ? p.name : 'Игрок';
+    if (card) {
+      // Update text in place — never re-run enter animation
+      const nameEl = card.querySelector('.f-name');
+      const metaEl = card.querySelector('.f-meta');
+      const av = card.querySelector('.f-av');
+      if (nameEl && nameEl.textContent !== label) nameEl.textContent = label;
+      if (metaEl) metaEl.textContent = 'Исходящая · ' + p.code + (t ? ' · ' + t : '');
+      if (av) {
+        const initials = label.slice(0, 2).toUpperCase();
+        av.childNodes.forEach(node => {
+          if (node.nodeType === 3 && node.textContent.trim()) node.textContent = initials;
+        });
+      }
+      return;
+    }
+    // New card
+    card = document.createElement('div');
+    card.className = 'friend-req-card' + (animateEnter ? ' friend-enter' : '');
+    card.setAttribute('data-code', p.code);
+    card.style.opacity = '0.95';
+    card.innerHTML =
+      '<div class="f-av">' + label.slice(0, 2).toUpperCase() + '</div>' +
+      '<div class="f-info">' +
+        '<div class="f-name">' + label + '</div>' +
+        '<div class="f-meta">Исходящая · ' + p.code + (t ? ' · ' + t : '') + '</div>' +
+      '</div>' +
+      '<div class="f-actions">' +
+        '<button type="button" class="ghost fr-out-cancel" data-code="' + p.code + '">Отменить</button>' +
+      '</div>';
+    list.appendChild(card);
+    const btn = card.querySelector('.fr-out-cancel');
+    if (btn) btn.addEventListener('click', () => cancelOutgoingRequest(btn.dataset.code));
+  });
+  // Re-bind cancel on any card that lost listeners (safety)
+  list.querySelectorAll('.fr-out-cancel').forEach(btn => {
+    if (btn._bpBound) return;
+    btn._bpBound = true;
+    btn.addEventListener('click', () => cancelOutgoingRequest(btn.dataset.code));
+  });
+  updateFriendsSectionCounts();
+}
+
+function setFriendAddStatus(msg, kind) {
+  const el = document.getElementById('friendAddStatus');
+  if (el) {
+    // Keep inline status minimal / empty — primary feedback is top-right toast
+    el.textContent = '';
+    el.className = 'friend-add-status';
+  }
+  if (!msg) return;
+  const label = kind === 'err' ? 'Ошибка'
+    : kind === 'ok' ? 'Готово'
+    : kind === 'wait' ? 'Ожидание'
+    : 'Друзья';
+  const toastKind = kind === 'err' ? 'bad' : (kind === 'ok' ? 'ok' : '');
+  try { showInfoToast(label, String(msg), toastKind); } catch (_) {}
+}
+
+/** Deliver social message via server relay (replaces server one-shot). */
+function deliverSocialMessage(code, payload, opts) {
+  opts = opts || {};
+  code = normalizeFriendCode(code);
+  if (!code || typeof MatchClient === 'undefined') return Promise.resolve(false);
+  const timeoutMs = opts.timeoutMs || 10000;
+  const msgType = (payload && payload.type) ? payload.type : 'message';
+  const body = Object.assign({}, payload || {});
+  delete body.type;
+  return new Promise(async (resolve) => {
+    let settled = false;
+    const finish = (ok) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      try { MatchClient.off('social_result', onResult); } catch (_) {}
+      resolve(!!ok);
+    };
+    const onResult = (data) => {
+      if (!data) return;
+      const to = normalizeFriendCode(data.to || '');
+      if (to && to !== code) return;
+      if (data.msgType && data.msgType !== msgType) return;
+      finish(!!data.ok);
+    };
+    const timer = setTimeout(() => finish(false), timeoutMs);
+    try { MatchClient.on('social_result', onResult); } catch (_) {}
+    try {
+      // Register presence BEFORE send so target can find us too
+      try { ensureFriendPresence(); } catch (_) {}
+      const opened = await MatchClient.waitForOpen(Math.min(7000, timeoutMs - 500));
+      if (!opened) {
+        finish(false);
+        return;
+      }
+      try { ensureFriendPresence(); } catch (_) {}
+      // Small delay so presence_register is processed before social_send
+      await new Promise(r => setTimeout(r, 120));
+      MatchClient.socialSend(code, msgType, body, {
+        name: myNickname,
+        trophies: typeof trophies === 'number' ? trophies : 0,
+        activity: (typeof detectMyActivity === 'function' ? detectMyActivity() : 'online'),
+        from: myFriendCode
+      });
+    } catch (_) {
+      finish(false);
+    }
+  });
+}
+
+function applyIncomingFriendAccept(data) {
+  const code = normalizeFriendCode(data && data.code);
+  if (!code || code === myFriendCode) return;
+  const theirName = (data.name || ('Игрок ' + code.slice(0, 3))).toString().slice(0, 20);
+  if (typeof data.activity === 'string') setFriendActivity(code, data.activity);
+  const wasPending = frOutgoingPending.some(p => p.code === code);
+  const added = addFriendRecord(code, theirName, { trophies: data.trophies });
+  removeOutgoingPending(code);
+  try { setFriendPresence(code, 'online'); } catch (_) {}
+  try { renderFriends(!!(added || wasPending)); } catch (_) {}
+  try { renderOutgoingPending(false); } catch (_) {}
+  try { updateFriendsSectionCounts(); } catch (_) {}
+  if (wasPending || added) {
+    try {
+      setFriendAddStatus('✓ ' + theirName + ' принял(а) заявку!', 'ok');
+    } catch (_) {}
+    try { SFX.win && SFX.win(); } catch (_) {}
+  }
+}
+
+function applyIncomingFriendDecline(data) {
+  const code = normalizeFriendCode(data && data.code);
+  if (!code) return;
+  const wasPending = frOutgoingPending.some(p => p.code === code);
+  removeOutgoingPending(code);
+  if (wasPending) {
+    try { setFriendAddStatus('Заявка отклонена', 'err'); } catch (_) {}
+    try { SFX.bad && SFX.bad(); } catch (_) {}
+  }
+  try { renderOutgoingPending(false); } catch (_) {}
+  try { updateFriendsSectionCounts(); } catch (_) {}
+}
+
+    function ensureFriendPresence() {
+  if (typeof MatchClient === 'undefined' || !myFriendCode) return;
+  try {
+    MatchClient.registerPresence({
+      friendCode: myFriendCode,
+      name: myNickname || 'Игрок',
+      activity: (typeof detectMyActivity === 'function' ? detectMyActivity() : 'online'),
+      trophies: typeof trophies === 'number' ? trophies : 0
+    });
+  } catch (_) {}
+}
+
+
+function normalizeFriendCode(raw) {
+  return String(raw || '').trim().toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 6);
+}
+
+function clearFriendRequestState(code) {
+  code = normalizeFriendCode(code);
+  if (!code) return;
+  frIncoming = frIncoming.filter(r => r.code !== code);
+  if (frActiveToast && frActiveToast.code === code) dismissFrToast(false);
+  frOutgoingPending = frOutgoingPending.filter(p => p.code !== code);
+  saveOutgoingPending();
+}
+
+function addFriendRecord(code, name, extra) {
+  code = normalizeFriendCode(code);
+  if (!code || code === myFriendCode) return false;
+  // Becoming friends clears any mutual hanging requests both ways locally
+  clearFriendRequestState(code);
+  if (friends.some(f => f.code === code)) {
+    // update name if empty
+    const f = friends.find(x => x.code === code);
+    if (f && name && (!f.name || f.name.startsWith('Friend'))) f.name = name;
+    saveFriends();
+    try { renderFriendRequests(); renderOutgoingPending(); updateFriendsSectionCounts(); } catch (_) {}
+    return false;
+  }
+  friends.unshift({
+    code,
+    name: (name || ('Игрок ' + code.slice(0, 3))).trim().slice(0, 20),
+    added: Date.now(),
+    trophies: extra && typeof extra.trophies === 'number' ? extra.trophies : undefined
+  });
+  saveFriends();
+  try { renderFriendRequests(); renderOutgoingPending(); updateFriendsSectionCounts(); } catch (_) {}
+  return true;
+}
+
+function handleIncomingFriendReq(data, conn) {
+  const code = normalizeFriendCode(data.code || data.from);
+  if (!code || code === myFriendCode) {
+    return;
+  }
+  // Always ack so sender sees «на рассмотрении»
+  try {
+    deliverSocialMessage(code, {
+      type: 'friend_req_ack',
+      code: myFriendCode,
+      name: myNickname
+    });
+  } catch (_) {}
+  try {
+    if (conn && conn.open) {
+      conn.send({
+        type: 'friend_req_ack',
+        code: myFriendCode,
+        name: myNickname
+      });
+    }
+  } catch (_) {}
+  if (friends.some(f => f.code === code)) {
+    const accPayload = {
+      type: 'friend_accept',
+      code: myFriendCode,
+      name: myNickname,
+      trophies: typeof trophies === 'number' ? trophies : 0,
+      already: true,
+      activity: detectMyActivity()
+    };
+    try { conn.send(accPayload); } catch (_) {}
+    try { deliverSocialMessage(code, accPayload); } catch (_) {}
+    clearFriendRequestState(code);
+    renderFriendRequests();
+    renderOutgoingPending();
+    return;
+  }
+  // Mutual: we already sent them a request — auto-accept both sides
+  const hadOutgoing = frOutgoingPending.some(p => p.code === code);
+  if (hadOutgoing) {
+    const accPayload = {
+      type: 'friend_accept',
+      code: myFriendCode,
+      name: myNickname,
+      trophies: typeof trophies === 'number' ? trophies : 0,
+      activity: detectMyActivity()
+    };
+    try { conn.send(accPayload); } catch (_) {}
+    try { deliverSocialMessage(code, accPayload); } catch (_) {}
+    addFriendRecord(code, data.name, { trophies: data.trophies });
+    setFriendAddStatus('Вы теперь друзья с ' + ((data.name || code).toString().slice(0, 20)), 'ok');
+    renderFriends();
+    try { SFX.win && SFX.win(); } catch (_) {}
+    return;
+  }
+  // Deduplicate by code
+  frIncoming = frIncoming.filter(r => r.code !== code);
+  const req = {
+    code,
+    name: (data.name || ('Игрок ' + code.slice(0, 3))).toString().slice(0, 20),
+    trophies: typeof data.trophies === 'number' ? data.trophies : null,
+    conn,
+    ts: Date.now()
+  };
+  frIncoming.unshift(req);
+  renderFriendRequests();
+  showFrToast(req);
+  try { SFX.ui(); } catch (_) {}
+  try { hapticTap(12); } catch (_) {}
+}
+
+let frToastHideTimer = null;
+let frToastCountTimer = null;
+function clearFrToastHideTimer() {
+  if (frToastHideTimer) { clearTimeout(frToastHideTimer); frToastHideTimer = null; }
+  if (frToastCountTimer) { clearInterval(frToastCountTimer); frToastCountTimer = null; }
+}
+function startToastCountdown(elId, seconds, onZero) {
+  const el = document.getElementById(elId);
+  let left = Math.max(1, seconds | 0);
+  const paint = () => {
+    if (el) el.textContent = 'Скроется через ' + left + ' с';
+  };
+  paint();
+  const tickId = setInterval(() => {
+    left -= 1;
+    if (left <= 0) {
+      clearInterval(tickId);
+      if (el) el.textContent = 'Скроется…';
+      if (onZero) onZero();
+      return;
+    }
+    paint();
+  }, 1000);
+  return tickId;
+}
+function showFrToast(req) {
+  const toast = document.getElementById('frToast');
+  if (!toast || !req) return;
+  frActiveToast = req;
+  clearFrToastHideTimer();
+  const av = document.getElementById('frToastAv');
+  const name = document.getElementById('frToastName');
+  const meta = document.getElementById('frToastMeta');
+  if (av) av.textContent = (req.name || '?').slice(0, 2).toUpperCase();
+  if (name) name.textContent = req.name || req.code;
+  if (meta) {
+    const parts = ['код ' + req.code];
+    if (req.trophies != null) parts.push('🏆 ' + req.trophies);
+    meta.textContent = parts.join(' · ');
+  }
+  toast.style.transform = '';
+  toast.style.opacity = '';
+  toast.classList.remove('out', 'dragging');
+  void toast.offsetWidth;
+  toast.classList.add('visible');
+  frToastCountTimer = startToastCountdown('frToastCountdown', 5, null);
+  frToastHideTimer = setTimeout(() => {
+    frToastHideTimer = null;
+    if (frActiveToast === req) dismissFrToast(true);
+  }, 5000);
+}
+
+/** Hide toast only — request stays in frIncoming / «Друзья» */
+function dismissFrToast(animate) {
+  const toast = document.getElementById('frToast');
+  if (!toast) return;
+  clearFrToastHideTimer();
+  frActiveToast = null;
+  toast.style.transform = '';
+  toast.style.opacity = '';
+  toast.classList.remove('dragging');
+  if (animate === false) {
+    toast.classList.remove('visible', 'out');
+    return;
+  }
+  toast.classList.add('out');
+  toast.classList.remove('visible');
+  setTimeout(() => toast.classList.remove('out'), 400);
+}
+
+function hideFrToast(animate) {
+  // backward-compatible alias: hide UI only, keep pending request
+  dismissFrToast(animate);
+}
+
+function respondFriendReq(req, accept) {
+  if (!req) return;
+  const payload = accept ? {
+    type: 'friend_accept',
+    code: myFriendCode,
+    name: myNickname,
+    trophies: typeof trophies === 'number' ? trophies : 0,
+    activity: detectMyActivity()
+  } : {
+    type: 'friend_decline',
+    code: myFriendCode,
+    reason: 'declined'
+  };
+  try {
+    if (req.conn && req.conn.open) {
+      req.conn.send(payload);
+    }
+  } catch (_) {}
+  // Always deliver via presence relay so sender clears outgoing even if original conn died
+  try {
+    deliverSocialMessage(req.code, payload).then((ok) => {
+      if (accept && !ok) {
+        // Retry once after short delay
+        setTimeout(() => {
+          try { deliverSocialMessage(req.code, payload); } catch (_) {}
+        }, 2000);
+      }
+    });
+  } catch (_) {}
+  const finishResp = () => {
+    if (accept) {
+      addFriendRecord(req.code, req.name, { trophies: req.trophies });
+      try { SFX.win && SFX.win(); } catch (_) {}
+      setFriendAddStatus('Вы теперь друзья с ' + (req.name || req.code), 'ok');
+    } else {
+      clearFriendRequestState(req.code);
+      setFriendAddStatus('Запрос отклонён', 'err');
+    }
+    frIncoming = frIncoming.filter(r => r !== req && r.code !== req.code);
+    if (frActiveToast === req) dismissFrToast(true);
+    renderFriendRequests();
+    renderFriends(!!accept);
+    renderOutgoingPending(false);
+    updateFriendsSectionCounts();
+  };
+  // Animate card out if visible in list
+  try {
+    const list = document.getElementById('friendReqList');
+    const cards = list ? list.querySelectorAll('.friend-req-card') : [];
+    let card = null;
+    cards.forEach(c => {
+      const meta = c.querySelector('.f-meta');
+      if (meta && meta.textContent && meta.textContent.indexOf(req.code) >= 0) card = c;
+    });
+    if (card) {
+      card.classList.add('friend-exit');
+      setTimeout(finishResp, 360);
+      return;
+    }
+  } catch (_) {}
+  finishResp();
+  try {
+    if (req.conn) setTimeout(() => { try { req.conn.close(); } catch (_) {} }, 400);
+  } catch (_) {}
+}
+
+// Swipe right / up to dismiss friend-request toast (request stays pending)
+(function bindFrToastSwipe() {
+  const toast = document.getElementById('frToast');
+  if (!toast || toast._bpSwipe) return;
+  toast._bpSwipe = true;
+  let startY = 0, startX = 0, dragging = false, dy = 0, dx = 0;
+  const onStart = (e) => {
+    if (e.target && e.target.closest && e.target.closest('button')) return;
+    const t = e.touches ? e.touches[0] : e;
+    startY = t.clientY;
+    startX = t.clientX;
+    dy = 0; dx = 0;
+    dragging = true;
+    toast.classList.add('dragging');
+  };
+  const onMove = (e) => {
+    if (!dragging) return;
+    const t = e.touches ? e.touches[0] : e;
+    dy = t.clientY - startY;
+    dx = t.clientX - startX;
+    if (dx > 8 || dy < -8) {
+      if (e.cancelable) e.preventDefault();
+      const distX = Math.max(0, Math.min(dx, 200));
+      const distY = Math.min(0, Math.max(dy, -120));
+      toast.style.transform = 'translateX(' + distX + 'px) translateY(' + distY + 'px)';
+      toast.style.opacity = String(Math.max(0.2, 1 - distX / 160 - Math.abs(distY) / 140));
+    }
+  };
+  const onEnd = () => {
+    if (!dragging) return;
+    dragging = false;
+    toast.classList.remove('dragging');
+    if (dx > 64 || dy < -56) {
+      dismissFrToast(true);
+      try { setFriendAddStatus('Заявка сохранена', 'ok'); } catch (_) {}
+    } else {
+      toast.style.transform = '';
+      toast.style.opacity = '';
+    }
+    dy = 0; dx = 0;
+  };
+  toast.addEventListener('touchstart', onStart, { passive: true });
+  toast.addEventListener('touchmove', onMove, { passive: false });
+  toast.addEventListener('touchend', onEnd, { passive: true });
+  toast.addEventListener('mousedown', onStart);
+  window.addEventListener('mousemove', onMove);
+  window.addEventListener('mouseup', onEnd);
+})();
+
+function renderFriendRequests() {
+  const list = document.getElementById('friendReqList');
+  if (!list) return;
+  try {
+    if (mpPendingJoin) {
+      const roomDead = !mpRoomCode || !mpSessionLink || (mpSessionLink && mpSessionLink.destroyed);
+      const full = !!mpOppConnected || !!vsActive;
+      if (roomDead || full) {
+        const pend = mpPendingJoin;
+        mpPendingJoin = null;
+        try { hideRjToast(false); } catch (_) {}
+        try {
+          if (pend.conn && pend.conn.open) {
+            pend.conn.send({ type: 'join_decline', reason: full ? 'full' : 'closed' });
+          }
+        } catch (_) {}
+        setTimeout(() => { try { if (pend.conn) pend.conn.close(); } catch (_) {} }, 150);
+      }
+    }
+  } catch (_) {}
+
+  const parts = [];
+  frIncoming.forEach((r, i) => {
+    const initials = (r.name || r.code || '?').slice(0, 2).toUpperCase();
+    const cups = r.trophies != null ? ` · 🏆 ${r.trophies}` : '';
+    parts.push(`<div class="friend-req-card friend-only-card" data-ri="${i}">
+      <div class="f-av">${initials}</div>
+      <div class="f-info">
+        <div class="f-name">${r.name || 'Игрок'}</div>
+        <div class="f-meta"><span class="req-badge">Друзья</span>${r.code}${cups}</div>
+      </div>
+      <div class="f-actions">
+        <button class="primary fr-acc" data-ri="${i}">✓</button>
+        <button class="ghost fr-dec" data-ri="${i}">✕</button>
+      </div>
+    </div>`);
+  });
+  if (mpPendingJoin && mpRoomCode) {
+    const r = mpPendingJoin;
+    const initials = (r.name || r.code || '?').slice(0, 2).toUpperCase();
+    const cups = r.trophies != null ? ` · 🏆 ${r.trophies}` : '';
+    parts.push(`<div class="friend-req-card lobby-join-card" data-join="1">
+      <div class="f-av">${initials}</div>
+      <div class="f-info">
+        <div class="f-name">${r.name || 'Игрок'}</div>
+        <div class="f-meta"><span class="req-badge">Вход</span>комната ${mpRoomCode}${r.code ? ' · ' + r.code : ''}${cups}</div>
+      </div>
+      <div class="f-actions">
+        <button class="primary" id="frJoinAcc">✓</button>
+        <button class="ghost" id="frJoinDec">✕</button>
+      </div>
+    </div>`);
+  }
+  if (typeof chPending !== 'undefined' && chPending && chPending.room) {
+    const r = chPending;
+    const initials = (r.name || r.code || '?').slice(0, 2).toUpperCase();
+    const cups = r.trophies != null ? ` · 🏆 ${r.trophies}` : '';
+    const mid = vsActive ? ' · матч идёт' : '';
+    parts.push(`<div class="friend-req-card lobby-ch-card" data-ch="1">
+      <div class="f-av">${initials}</div>
+      <div class="f-info">
+        <div class="f-name">${r.name || 'Игрок'}</div>
+        <div class="f-meta"><span class="req-badge">Лобби</span>${r.room}${mid}${cups}</div>
+      </div>
+      <div class="f-actions">
+        <button class="primary" id="frChAcc">✓</button>
+        <button class="ghost" id="frChDec">✕</button>
+      </div>
+    </div>`);
+  }
+
+  list.innerHTML = parts.join('');
+  list.querySelectorAll('.fr-acc').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const r = frIncoming[parseInt(btn.dataset.ri, 10)];
+      respondFriendReq(r, true);
+    });
+  });
+  list.querySelectorAll('.fr-dec').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const r = frIncoming[parseInt(btn.dataset.ri, 10)];
+      respondFriendReq(r, false);
+    });
+  });
+  const ja = document.getElementById('frJoinAcc');
+  const jd = document.getElementById('frJoinDec');
+  if (ja) ja.addEventListener('click', () => { try { acceptPendingJoin(); } catch (_) {} });
+  if (jd) jd.addEventListener('click', () => { try { declinePendingJoin('declined'); } catch (_) {} });
+  const ca = document.getElementById('frChAcc');
+  const cd = document.getElementById('frChDec');
+  if (ca) ca.addEventListener('click', () => { try { acceptChallenge(); } catch (_) {} });
+  if (cd) cd.addEventListener('click', () => { try { declineChallenge(); } catch (_) {} });
+  updateFriendsSectionCounts();
+}
+
+
+function getFriendPresence(code) {
+  code = normalizeFriendCode(code);
+  return friendPresence[code] || 'checking';
+}
+
+function paintFriendStatusLine(code, state) {
+  code = normalizeFriendCode(code);
+  if (!code) return;
+  const pres = state || getFriendPresence(code);
+  const act = getFriendActivity(code);
+  let stText = pres === 'online' ? 'В сети' : pres === 'offline' ? 'Не в сети' : 'Проверка…';
+  if (pres === 'online' && act) stText = activityLabel(act);
+  try {
+    document.querySelectorAll('.friend-card[data-code="' + code + '"], .lobby-invite-item[data-code="' + code + '"]').forEach(card => {
+      const dot = card.querySelector('.f-online-dot');
+      const st = card.querySelector('.f-status-line');
+      if (dot) {
+        dot.classList.remove('on', 'off', 'checking');
+        dot.classList.add(pres === 'online' ? 'on' : pres === 'offline' ? 'off' : 'checking');
+      }
+      if (st) {
+        st.classList.remove('on', 'off');
+        if (pres === 'online') st.classList.add('on');
+        else if (pres === 'offline') st.classList.add('off');
+        st.textContent = stText;
+      }
+    });
+  } catch (_) {}
+}
+
+function setFriendPresence(code, state) {
+  code = normalizeFriendCode(code);
+  if (!code) return;
+  const prev = friendPresence[code];
+  if (prev === state) {
+    // Still refresh label (activity may have changed)
+    if (state === 'online') paintFriendStatusLine(code, state);
+    return;
+  }
+  friendPresence[code] = state;
+  paintFriendStatusLine(code, state);
+}
+
+function probeFriendOnline(code) {
+  code = normalizeFriendCode(code);
+  if (!code) return Promise.resolve(false);
+  if (typeof MatchClient === 'undefined') {
+    setFriendPresence(code, 'offline');
+    return Promise.resolve(false);
+  }
+  setFriendPresence(code, 'checking');
+  return new Promise((resolve) => {
+    let settled = false;
+    const finish = (ok) => {
+      if (settled) return;
+      settled = true;
+      try { MatchClient.off('presence_state', onState); } catch (_) {}
+      setFriendPresence(code, ok ? 'online' : 'offline');
+      resolve(!!ok);
+    };
+    const onState = (data) => {
+      if (!data || !data.friends) return;
+      const info = data.friends[code];
+      if (info === undefined) return;
+      if (info && info.online) {
+        if (info.activity) setFriendActivity(code, info.activity);
+        if (typeof info.trophies === 'number') {
+          const f = friends.find(x => x.code === code);
+          if (f) { f.trophies = info.trophies; try { saveFriends(); } catch (_) {} }
+        }
+        finish(true);
+      } else {
+        finish(false);
+      }
+    };
+    try { MatchClient.on('presence_state', onState); } catch (_) {}
+    setTimeout(() => finish(false), 5000);
+    try {
+      MatchClient.queryPresence([code]);
+    } catch (_) {
+      finish(false);
+    }
+  });
+}
+
+
+async function refreshFriendsPresence() {
+  if (friendPresenceBusy) return;
+  if (!friends || !friends.length) return;
+  if (true /* no client mesh */) return;
+  friendPresenceBusy = true;
+  try {
+    // Probe sequentially with small gaps to avoid server spam
+    for (const f of friends.slice(0, 30)) {
+      const c = normalizeFriendCode(f.code);
+      if (!c) continue;
+      await probeFriendOnline(c);
+      await new Promise(r => setTimeout(r, 180));
+    }
+  } catch (_) {}
+  friendPresenceBusy = false;
+}
+
+function scheduleFriendsPresence() {
+  try { refreshFriendsPresence(); } catch (_) {}
+  if (friendPresenceTimer) clearInterval(friendPresenceTimer);
+  friendPresenceTimer = setInterval(() => {
+    const scr = document.getElementById('screenFriends');
+    const inv = document.getElementById('lobbyInviteModal');
+    if ((scr && scr.classList.contains('active')) || (inv && inv.classList.contains('visible'))) {
+      try { refreshFriendsPresence(); } catch (_) {}
+    }
+  }, 10000);
+}
+
+let activityBroadcastTimer = null;
+let lastBroadcastActivity = null;
+function broadcastMyActivity(force) {
+  try {
+    const act = detectMyActivity();
+    if (!force && act === lastBroadcastActivity) return;
+    lastBroadcastActivity = act;
+    if (!friends || !friends.length || true /* no client mesh */) return;
+    // Push activity to friends we already know are online (cheap sequential)
+    const targets = friends.filter(f => getFriendPresence(f.code) === 'online').slice(0, 12);
+    if (!targets.length) return;
+    let i = 0;
+    const step = () => {
+      if (i >= targets.length) return;
+      const f = targets[i++];
+      deliverSocialMessage(f.code, {
+        type: 'activity_update',
+        activity: act,
+        name: myNickname,
+        trophies: typeof trophies === 'number' ? trophies : 0
+      }, { timeoutMs: 4500 }).finally(() => {
+        setTimeout(step, 120);
+      });
+    };
+    step();
+  } catch (_) {}
+}
+function scheduleActivityBroadcast() {
+  if (activityBroadcastTimer) clearTimeout(activityBroadcastTimer);
+  activityBroadcastTimer = setTimeout(() => {
+    activityBroadcastTimer = null;
+    try { broadcastMyActivity(false); } catch (_) {}
+  }, 400);
+}
+
+function getFriendSearchQuery() {
+  const el = document.getElementById('friendSearchInput');
+  return el ? (el.value || '').trim().toLowerCase() : '';
+}
+
+function renderFriends(highlightNew) {
+  const codeEl = document.getElementById('myFriendCode');
+  if (codeEl) codeEl.textContent = myFriendCode;
+  renderFriendRequests();
+  renderOutgoingPending();
+  const list = document.getElementById('friendList');
+  if (!list) return;
+  if (!friends.length) {
+    list.innerHTML = '<div class="friends-section-empty">Пока нет друзей — добавьте по коду выше</div>';
+    updateFriendsSectionCounts();
+    return;
+  }
+  const q = getFriendSearchQuery();
+  const indexed = friends.map((f, i) => ({ f, i })).filter(({ f }) => {
+    if (!q) return true;
+    const name = (f.name || '').toLowerCase();
+    const code = (f.code || '').toLowerCase();
+    return name.includes(q) || code.includes(q);
+  });
+  if (!indexed.length) {
+    list.innerHTML = '<div class="friends-section-empty">Никого не найдено по «' +
+      (getFriendSearchQuery().replace(/[<>&]/g, '') || '…') + '»</div>';
+    updateFriendsSectionCounts();
+    return;
+  }
+  list.innerHTML = indexed.map(({ f, i }, visIdx) => {
+    const initials = (f.name || f.code || '?').slice(0, 2).toUpperCase();
+    const cups = (typeof f.trophies === 'number') ? ` · 🏆 ${f.trophies}` : '';
+    // Animate only on first paint of the screen (or new friend) — not on presence refresh
+    const scr = document.getElementById('screenFriends');
+    const alreadyOpen = !!(scr && scr.classList.contains('active'));
+    const anim = (highlightNew && i === 0)
+      ? ' friend-added'
+      : (!alreadyOpen && visIdx < 8 ? ' friend-enter' : '');
+    const delay = (!alreadyOpen && visIdx < 8) ? ` style="animation-delay:${visIdx * 0.04}s"` : '';
+    const pres = getFriendPresence(f.code);
+    const act = getFriendActivity(f.code);
+    const dotCls = pres === 'online' ? 'on' : pres === 'offline' ? 'off' : 'checking';
+    let stText = pres === 'online' ? 'В сети' : pres === 'offline' ? 'Не в сети' : 'Проверка…';
+    if (pres === 'online' && act) stText = activityLabel(act);
+    const stCls = pres === 'online' ? 'on' : pres === 'offline' ? 'off' : '';
+    return `<div class="friend-card${anim}" data-fi="${i}" data-code="${f.code}"${delay}>
+      <div class="f-av">${initials}<span class="f-online-dot ${dotCls}"></span></div>
+      <div class="f-info">
+        <div class="f-name">${f.name || 'Друг'}</div>
+        <div class="f-code">${f.code}${cups} · <span class="f-status-line ${stCls}" style="display:inline">${stText}</span></div>
+      </div>
+      <div class="f-actions">
+        <button type="button" class="primary f-challenge" data-fi="${i}">Вызов</button>
+        <button type="button" class="ghost f-remove" data-fi="${i}">✕</button>
+      </div>
+    </div>`;
+  }).join('');
+  list.querySelectorAll('.f-challenge').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      challengeFriend(friends[parseInt(btn.dataset.fi, 10)]);
+    });
+  });
+  list.querySelectorAll('.f-remove').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const idx = parseInt(btn.dataset.fi, 10);
+      if (confirm('Удалить из друзей? Вы также пропадёте у него в списке.')) {
+        removeFriendAt(idx);
+      }
+    });
+  });
+  updateFriendsSectionCounts();
+}
+
+// Event delegation backup for friend actions (touch / re-renders)
+(function bindFriendListDelegation() {
+  const list = document.getElementById('friendList');
+  if (!list || list._bpFriendDel) return;
+  list._bpFriendDel = true;
+  list.addEventListener('click', (e) => {
+    const rm = e.target.closest && e.target.closest('.f-remove');
+    const ch = e.target.closest && e.target.closest('.f-challenge');
+    if (rm) {
+      e.preventDefault();
+      e.stopPropagation();
+      const idx = parseInt(rm.dataset.fi, 10);
+      if (!isNaN(idx) && confirm('Удалить из друзей? Вы также пропадёте у него в списке.')) {
+        removeFriendAt(idx);
+      }
+    } else if (ch) {
+      e.preventDefault();
+      e.stopPropagation();
+      const idx = parseInt(ch.dataset.fi, 10);
+      if (!isNaN(idx)) challengeFriend(friends[idx]);
+    }
+  });
+})();
+
+
+function cleanupOutgoingSearch() {
+  if (frOutgoingTimer) { clearTimeout(frOutgoingTimer); frOutgoingTimer = null; }
+  try { if (frOutgoingConn) frOutgoingConn.close(); } catch (_) {}
+  try { if (frOutgoingSession) frOutgoingSession.destroy(); } catch (_) {}
+  frOutgoingConn = null;
+  frOutgoingSession = null;
+  frSearchBusy = false;
+}
+
+function addFriendByCode(code) {
+  code = normalizeFriendCode(code);
+  const input = document.getElementById('friendCodeInput');
+  if (input) input.value = code;
+
+  if (code.length !== 6) {
+    setFriendAddStatus('Код должен быть из 6 символов (A–Z, 2–9)', 'err');
+    return;
+  }
+  if (code === myFriendCode) {
+    setFriendAddStatus('Это твой собственный код', 'err');
+    return;
+  }
+  if (friends.some(f => f.code === code)) {
+    setFriendAddStatus('Уже в списке друзей', 'err');
+    return;
+  }
+  if (frOutgoingPending.some(p => p.code === code)) {
+    renderOutgoingPending();
+    setFriendAddStatus('Заявка уже отправлена', 'wait');
+    return;
+  }
+  if (typeof MatchClient === 'undefined') {
+    setFriendAddStatus('Сервер недоступен. Обнови страницу.', 'err');
+    return;
+  }
+  if (!checkCrossPlatformReady()) return;
+  if (frSearchBusy) {
+    setFriendAddStatus('Подождите, проверяем предыдущий код…', 'wait');
+    return;
+  }
+
+  frSearchBusy = true;
+  setFriendAddStatus('Проверяем код…', 'wait');
+  try { SFX.ui(); } catch (_) {}
+  try { ensureFriendPresence(); } catch (_) {}
+
+  // Register outgoing pending optimistically; remove if offline
+  try {
+    if (!frOutgoingPending.some(p => p.code === code)) {
+      frOutgoingPending.unshift({ code, name: null, ts: Date.now() });
+      saveOutgoingPending();
+      renderOutgoingPending(true);
+    }
+  } catch (_) {}
+
+  // Ensure we are registered in presence before sending
+  try { ensureFriendPresence(); } catch (_) {}
+  deliverSocialMessage(code, {
+    type: 'friend_req',
+    code: myFriendCode,
+    name: myNickname,
+    trophies: trophies | 0
+  }, { timeoutMs: 10000 }).then((ok) => {
+    frSearchBusy = false;
+    if (!ok) {
+      // Keep pending locally — code format was valid; friend may come online later
+      setFriendAddStatus('Заявка сохранена. Друг получит её, когда зайдёт в игру', 'ok');
+      try { renderOutgoingPending(false); } catch (_) {}
+      return;
+    }
+    setFriendAddStatus('Заявка отправлена — ждём ответа', 'ok');
+    try { renderOutgoingPending(false); } catch (_) {}
+  });
+}
+
+function animateRemoveOutgoing(code, after) {
+  const list = document.getElementById('friendOutList');
+  if (!list) { if (after) after(); return; }
+  const card = list.querySelector('.friend-req-card[data-code="' + code + '"]')
+    || (list.querySelector('.fr-out-cancel[data-code="' + code + '"]') || {}).closest?.('.friend-req-card');
+  if (!card) { if (after) after(); return; }
+  card.classList.add('friend-exit');
+  setTimeout(() => { if (after) after(); }, 360);
+}
+
+// Bind toast buttons once DOM ready (script at end of body)
+(function bindFrToast() {
+  const acc = document.getElementById('frToastAccept');
+  const dec = document.getElementById('frToastDecline');
+  const dis = document.getElementById('frToastDismiss');
+  if (acc) acc.addEventListener('click', () => {
+    if (frActiveToast) respondFriendReq(frActiveToast, true);
+  });
+  if (dec) dec.addEventListener('click', () => {
+    if (frActiveToast) respondFriendReq(frActiveToast, false);
+  });
+  if (dis) dis.addEventListener('click', (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    dismissFrToast(true);
+    try { setFriendAddStatus('Заявка сохранена', 'ok'); } catch (_) {}
+  });
+})();
+
+// Start presence when possible (WebSocket, no server)
+setTimeout(() => {
+  try { checkCrossPlatformReady(); } catch (_) {}
+  try {
+    if (typeof MatchClient !== 'undefined') {
+      MatchClient.connect();
+      ensureFriendPresence();
+      setNetStatus(true);
+    }
+  } catch (_) { try { setNetStatus(false, 'ws'); } catch (_) {} }
+}, 800);
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) {
+    // Opera/Chromium: tab hide often fires before pagehide; send leave while channel is still open
+    try {
+      if (mpMode && !window._matchEnded && (typeof isPreStartOrEmptyMatchLeave === 'function')
+        && isPreStartOrEmptyMatchLeave()) {
+        try {
+          mpSend({ type: 'match_load_abort', reason: 'opp_left_before_start' });
+        } catch (_) {}
+        try {
+          mpSend({
+            type: 'leaving',
+            preStart: true,
+            score: 0,
+            oppScore: 0,
+            vsTimeLeft: vsTimeLeft,
+            leftAt: Date.now()
+          });
+        } catch (_) {}
+      }
+    } catch (_) {}
+  } else {
+    try { ensureFriendPresence(); } catch (_) {}
+    // Both left → one rejoined already: other must still see rejoin toast on return
+    try {
+      if (!vsActive && !window._matchEnded && !window._mpRejoiningMatch) {
+        const s = (typeof readLiveMatch === 'function') ? readLiveMatch() : null;
+        if (s) {
+          showMatchRejoinPanel(s);
+          try { startRejoinPanelListen(s); } catch (_2) {}
+        }
+      }
+    } catch (_) {}
+  }
+});
+
+const LIVE_MATCH_KEY = 'bp_live_match';
+function persistLiveMatch(opts) {
+  try {
+    opts = opts || {};
+    const resultUp = (() => {
+      try {
+        const r = document.getElementById('versusResult');
+        return !!(r && r.classList.contains('visible'));
+      } catch (_) { return false; }
+    })();
+    // Never DELETE the snapshot here — only skip writing.
+    // Deleting on !vsActive wiped rejoin ability when both players left.
+    if (resultUp || window._matchEnded) return;
+    if (!opts.forceLeave && (!vsActive || !mpMode)) return;
+    if (!mpMode && !opts.forceLeave) return;
+    // Empty pre-start / no moves: never create a rejoinable live snapshot.
+    // (Previously only within 6s after go-live — waiting on loaded boards without
+    // touching the screen left a rejoin offer for the leaver into a cancelled match.)
+    try {
+      if (typeof isEmptyMatchNoMoves === 'function' && isEmptyMatchNoMoves()) {
+        try { clearLiveMatch(); } catch (_) {}
+        return;
+      }
+    } catch (_) {}
+
+    const nowTs = Date.now();
+    // leftAt only when the player actually left (myDcAt set by notifyLeavingMatch)
+    const leftAtVal = (typeof myDcAt === 'number' && myDcAt > 0) ? myDcAt : null;
+    const oppLeftVal = (typeof oppDcAt === 'number' && oppDcAt > 0) ? oppDcAt : 0;
+    const snap = {
+      t: nowTs,
+      leftAt: leftAtVal || nowTs,
+      oppLeftAt: oppLeftVal,
+      oppDcDeadline: (typeof dcDeadlineTs === 'number' && dcDeadlineTs > 0) ? dcDeadlineTs : 0,
+      bothAway: !!(leftAtVal && oppLeftVal),
+      role: mpRole,
+      room: mpRoomCode,
+      remoteSessionId: mpRemoteSessionId,
+      selfSessionId: (mpSessionLink && !mpSessionLink.destroyed && mpSessionLink.id) ? mpSessionLink.id : null,
+      fromMM: !!mpFromMatchmaking,
+      score: score,
+      oppScore: oppScore,
+      vsTimeLeft: vsTimeLeft,
+      // Wall-clock match end — keeps ticking while both players are offline
+      clockEndTs: (function () {
+        try {
+          if (typeof window._matchClockEndTs === 'number' && window._matchClockEndTs > 0) {
+            return window._matchClockEndTs;
+          }
+          const prev = JSON.parse(localStorage.getItem(LIVE_MATCH_KEY) || 'null');
+          if (prev && typeof prev.clockEndTs === 'number' && prev.clockEndTs > 0) {
+            window._matchClockEndTs = prev.clockEndTs;
+            return prev.clockEndTs;
+          }
+        } catch (_) {}
+        const end = Date.now() + Math.max(0, vsTimeLeft || 0) * 1000;
+        window._matchClockEndTs = end;
+        return end;
+      })(),
+      vsDuration: vsDuration,
+      oppName: oppName || mpOppName,
+      myBoardId: equippedBoardId,
+      oppBoardId: window.mpOppBoardId || null,
+      mySkinId: equippedSkinId,
+      oppSkinId: window.mpOppSkinId || null,
+      ranked: !!mpFromMatchmaking,
+      grid: (typeof grid !== 'undefined' && Array.isArray(grid)) ? grid : null,
+      oppGrid: (typeof oppGrid !== 'undefined' && Array.isArray(oppGrid)) ? oppGrid : null,
+      pieces: (typeof pieces !== 'undefined' && Array.isArray(pieces)) ? pieces.map(p => ({
+        shape: (p.shape || []).map(c => c.slice()), color: p.color, used: !!p.used
+      })) : null,
+      oppPieces: (typeof oppPieces !== 'undefined' && Array.isArray(oppPieces)) ? oppPieces.map(p => ({
+        shape: (p.shape || []).map(c => c.slice()), color: p.color, used: !!p.used
+      })) : null,
+      // Replay log so expired dual-away matches still appear in history
+      moves: (typeof matchLog !== 'undefined' && Array.isArray(matchLog)) ? matchLog.slice() : null,
+      matchStartTs: (typeof matchStartTs === 'number') ? matchStartTs : null
+    };
+    // Preserve prior leave stamps if this is a mid-match autosave without leave
+    // Critical: while solo-rejoin / opponent still offline, never rewrite leftAt to "now"
+    // (that freezes the reconnect countdown for both clients).
+    if (!leftAtVal) {
+      try {
+        const prev = JSON.parse(localStorage.getItem(LIVE_MATCH_KEY) || 'null');
+        const solo = !!(typeof window !== 'undefined' && window._soloRejoinActive);
+        const waitingOpp = !!(typeof oppDisconnected !== 'undefined' && oppDisconnected);
+        if (prev && typeof prev.leftAt === 'number' && prev.leftAt > 0 && (prev.bothAway || solo || waitingOpp)) {
+          snap.leftAt = prev.leftAt;
+          snap.bothAway = !!(prev.bothAway || solo);
+          if (typeof prev.oppLeftAt === 'number' && prev.oppLeftAt > 0 && !snap.oppLeftAt) {
+            snap.oppLeftAt = prev.oppLeftAt;
+          }
+          if (typeof prev.oppDcDeadline === 'number' && prev.oppDcDeadline > 0 && !snap.oppDcDeadline) {
+            snap.oppDcDeadline = prev.oppDcDeadline;
+          }
+        } else if (solo || waitingOpp) {
+          // Keep absolute deadline already in memory
+          if (typeof dcDeadlineTs === 'number' && dcDeadlineTs > 0) {
+            snap.oppDcDeadline = dcDeadlineTs;
+            // Reconstruct a stable leftAt so panel countdown keeps ticking
+            const winMs = (typeof reconnectWindowMs === 'function' && prev)
+              ? reconnectWindowMs(prev) : 60000;
+            snap.leftAt = Math.max(0, dcDeadlineTs - winMs);
+          } else if (prev && typeof prev.leftAt === 'number' && prev.leftAt > 0) {
+            snap.leftAt = prev.leftAt;
+          }
+          snap.bothAway = true;
+        } else {
+          // Active match save — leftAt = t means "last seen alive", not a leave
+          snap.leftAt = nowTs;
+          snap.bothAway = false;
+        }
+      } catch (_) {}
+    }
+    localStorage.setItem(LIVE_MATCH_KEY, JSON.stringify(snap));
+  } catch (_) {}
+}
+function clearLiveMatch() {
+  try { localStorage.removeItem(LIVE_MATCH_KEY); } catch (_) {}
+  try { hideMatchRejoinPanel(); } catch (_) {}
+  try { window._rejoinStateApplied = false; } catch (_) {}
+  try { window._rejoinPanelListening = false; } catch (_) {}
+  try {
+    if (window._rejoinPanelDialIv) {
+      clearInterval(window._rejoinPanelDialIv);
+      window._rejoinPanelDialIv = null;
+    }
+  } catch (_) {}
+}
+/** Sync vsTimeLeft from wall-clock end; start 1s tick. Time runs even if opponent is gone. */
+function startMatchWallClock(endTs) {
+  try {
+    if (typeof endTs === 'number' && endTs > 0) {
+      window._matchClockEndTs = endTs;
+    } else if (!(typeof window._matchClockEndTs === 'number' && window._matchClockEndTs > 0)) {
+      window._matchClockEndTs = Date.now() + Math.max(0, vsTimeLeft || vsDuration || 120) * 1000;
+    }
+    vsTimeLeft = Math.max(0, Math.ceil((window._matchClockEndTs - Date.now()) / 1000));
+    try { updateTimerDisplay(); } catch (_) {}
+    if (vsTimerId) { try { clearInterval(vsTimerId); } catch (_) {} vsTimerId = null; }
+    vsTimerId = setInterval(() => {
+      if (!vsActive || window._matchEnded) return;
+      vsTimeLeft = Math.max(0, Math.ceil((window._matchClockEndTs - Date.now()) / 1000));
+      try { updateTimerDisplay(); } catch (_) {}
+      if (vsTimeLeft <= 0) {
+        try { endVersus(); } catch (_) {}
+      }
+    }, 250);
+  } catch (_) {}
+}
+/** Restart wall clock if interval was killed but match is still live. */
+function ensureMatchClockRunning() {
+  try {
+    if (!vsActive || window._matchEnded || replayMode) return;
+    if (vsTimerId) return;
+    const end = (typeof window._matchClockEndTs === 'number' && window._matchClockEndTs > 0)
+      ? window._matchClockEndTs
+      : (Date.now() + Math.max(0, vsTimeLeft || 0) * 1000);
+    startMatchWallClock(end);
+  } catch (_) {}
+}
+/** Drop input locks if match is live (recovers from stuck rejoin overlay). */
+function ensurePlayableIfLive() {
+  try {
+    if (mpMode || mode === 'versus') document.body.classList.add('quiet-hands');
+    else document.body.classList.remove('quiet-hands');
+  } catch (_) {}
+  try {
+    if (!vsActive || window._matchEnded || replayMode) return;
+    // Overlay must not stick forever
+    if (window._rejoinLoading || window._rejoinInputLock) {
+      const el = document.getElementById('rejoinLoading');
+      const shown = el && el.classList.contains('show');
+      // If overlay not visible, force-clear locks
+      if (!shown) {
+        window._rejoinLoading = false;
+        window._rejoinInputLock = false;
+        placingLock = false;
+        window._mpRejoiningMatch = false;
+      }
+    }
+    if (placingLock && !isDragging && !window._rejoinLoading) {
+      placingLock = false;
+    }
+    ensureMatchClockRunning();
+  } catch (_) {}
+}
+/** Absolute wall-clock end of match timer (ms). Time keeps running while both are away. */
+function getSnapClockEndTs(snap) {
+  if (!snap) return 0;
+  if (typeof snap.clockEndTs === 'number' && snap.clockEndTs > 0) return snap.clockEndTs;
+  const leftAt = (typeof snap.leftAt === 'number' && snap.leftAt > 0) ? snap.leftAt : (snap.t || Date.now());
+  const leftSec = (typeof snap.vsTimeLeft === 'number') ? snap.vsTimeLeft
+    : (typeof snap.vsDuration === 'number' ? snap.vsDuration : 120);
+  return leftAt + Math.max(0, leftSec) * 1000;
+}
+/** Remaining match seconds from wall clock (0 if time already up). */
+function remainingMatchSecFromSnap(snap) {
+  const end = getSnapClockEndTs(snap);
+  return Math.max(0, Math.ceil((end - Date.now()) / 1000));
+}
+/** Reconnect window: min(60s from leave, remaining match time at leave). */
+function reconnectWindowMs(snap) {
+  if (!snap) return 60000;
+  const leftAt = (typeof snap.leftAt === 'number' && snap.leftAt > 0) ? snap.leftAt : (snap.t || Date.now());
+  const end = getSnapClockEndTs(snap);
+  // How much match time was left when they left
+  const matchLeftAtLeave = Math.max(0, end - leftAt);
+  return Math.min(60000, matchLeftAtLeave);
+}
+function reconnectDeadlineTs(snap) {
+  const leftAt = (typeof snap.leftAt === 'number' && snap.leftAt > 0) ? snap.leftAt : (snap.t || Date.now());
+  return leftAt + reconnectWindowMs(snap);
+}
+function readLiveMatch() {
+  try {
+    const raw = localStorage.getItem(LIVE_MATCH_KEY);
+    if (!raw) return null;
+    const s = JSON.parse(raw);
+    if (!s || !s.t) return null;
+    const now = Date.now();
+    // Hard expire after 10 minutes wall-clock (safety)
+    if (now - s.t > 10 * 60 * 1000) {
+      localStorage.removeItem(LIVE_MATCH_KEY);
+      return null;
+    }
+    // Empty 0–0 never-played match is not rejoinable (opponent already cancelled as pre-start).
+    // Drop so leaver is not offered «переподключиться» into a free win on disconnected board.
+    try {
+      const empty = (s.score | 0) === 0 && (s.oppScore | 0) === 0
+        && (!Array.isArray(s.moves) || !s.moves.some(e => e && (e.type === 'place' || e.type === 'opp_place')));
+      if (empty) {
+        localStorage.removeItem(LIVE_MATCH_KEY);
+        return null;
+      }
+    } catch (_) {}
+    const leftAt = (typeof s.leftAt === 'number' && s.leftAt > 0) ? s.leftAt : s.t;
+    const age = now - leftAt;
+    const reconnectMs = reconnectWindowMs(s);
+    // Prefer wall-clock match end: allow rejoin while match time remains
+    let clockEnd = 0;
+    try {
+      if (typeof s.clockEndTs === 'number' && s.clockEndTs > 0) clockEnd = s.clockEndTs;
+      else if (typeof s.vsTimeLeft === 'number') clockEnd = leftAt + Math.max(0, s.vsTimeLeft) * 1000;
+    } catch (_) {}
+    const matchStillRunning = clockEnd > now + 1500;
+    // Expire only if reconnect window AND match clock are both over
+    if (age > reconnectMs + 5000 && !matchStillRunning) {
+      localStorage.removeItem(LIVE_MATCH_KEY);
+      return null;
+    }
+    // Soft: if age > reconnect but match still running, keep snap for auto-rejoin
+    return s;
+  } catch (_) { return null; }
+}
+function resolveRejoinAwait(payload) {
+  try {
+    const fn = window._rejoinAwait;
+    window._rejoinAwait = null;
+    if (typeof fn === 'function') fn(payload);
+  } catch (_) {}
+}
+/** Quiet probe: if opponent says match ended (or unreachable), drop rejoin toast. */
+function probeAndCleanLiveMatch() {
+  const snap = readLiveMatch();
+  if (!snap) { try { hideMatchRejoinPanel(); } catch (_) {} return false; }
+  if (vsActive || window._mpRejoiningMatch) return true;
+  /* P2P probe removed — MatchClient rejoin handles live matches */
+  return true;
+}
+/** True when no one has placed a piece and scores are still 0-0. */
+function isEmptyMatchNoMoves() {
+  try {
+    if (window._matchHadAnyPlace) return false;
+    const hasPlace = Array.isArray(matchLog) && matchLog.some(e => e && (e.type === 'place' || e.type === 'opp_place'));
+    if (hasPlace) return false;
+    if ((score | 0) !== 0 || (oppScore | 0) !== 0) return false;
+    return true;
+  } catch (_) {
+    return (score | 0) === 0 && (oppScore | 0) === 0;
+  }
+}
+/** Align with abortPreMatch / handleOpponentDisconnect: loading or empty (no places) = pre-start. */
+function isPreStartOrEmptyMatchLeave() {
+  try {
+    if (!vsActive && (
+      (typeof isMatchLoadActive === 'function' && isMatchLoadActive())
+      || !!mpLoading || !!vsIntroLock || !!mpMatchStarting
+    )) return true;
+    // Went live but nobody placed: always cancel as pre-start (no time window).
+    // Leaver must not keep a rejoin snapshot; stayer must not freeze on DC wait.
+    if (mpMode && isEmptyMatchNoMoves()) return true;
+  } catch (_) {}
+  return false;
+}
+function notifyLeavingMatch() {
+  try { sessionStorage.setItem('bp_rejoin_storm', '1'); } catch (_) {}
+  try { window._thisMatchHadRejoin = true; } catch (_) {}
+
+  if (!mpMode) return;
+  // Pre-live / empty just-started leave: cancel for opponent, never persist rejoin snapshot
+  const preLive = isPreStartOrEmptyMatchLeave();
+  if (preLive) {
+    // Fire both signals repeatedly — Opera may drop the first packet on tab close
+    const blast = () => {
+      try {
+        mpSend({ type: 'match_load_abort', reason: 'opp_left_before_start' });
+      } catch (_) {}
+      try {
+        mpSend({
+          type: 'leaving',
+          preStart: true,
+          score: 0,
+          oppScore: 0,
+          vsTimeLeft: vsTimeLeft,
+          leftAt: Date.now()
+        });
+      } catch (_) {}
+    };
+    try { blast(); } catch (_) {}
+    try { blast(); } catch (_) {}
+    try { if (false) mpConn.close(); } catch (_) {}
+    // After boards were prepared / "Старт!" shown — record local forfeit so history is not empty
+    try {
+      const bound = (_matchLoad && _matchLoad.meBound && _matchLoad.oppBound)
+        || mode === 'versus'
+        || !!vsIntroLock
+        || !!mpMatchStarting
+        || !!vsActive;
+      if (bound && !window._matchEnded) {
+        // Soft local loss record without full live fight UI
+        window._matchEnded = true;
+        vsActive = false;
+        const opp = oppName || mpOppName || 'Соперник';
+        const entry = {
+          id: Date.now() + '_' + Math.random().toString(36).slice(2, 7),
+          opp: opp,
+          oppName: opp,
+          botId: null,
+          mySkinId: (typeof equippedSkinId !== 'undefined' ? equippedSkinId : null) || 'default',
+          myBoardId: (typeof equippedBoardId !== 'undefined' ? equippedBoardId : null) || 'field_default',
+          oppSkinId: (typeof window.mpOppSkinId === 'string' && window.mpOppSkinId) ? window.mpOppSkinId : null,
+          oppBoardId: (typeof window.mpOppBoardId === 'string' && window.mpOppBoardId) ? window.mpOppBoardId : null,
+          my: 0,
+          oppScore: 0,
+          result: 'Поражение',
+          delta: 0,
+          mode: mpFromMatchmaking ? 'online' : 'friendly',
+          difficulty: '',
+          duration: vsDuration || 120,
+          timeLeft: vsDuration || 120,
+          date: Date.now(),
+          reason: 'leave_before_start',
+          moves: []
+        };
+        try {
+          matchHistory.unshift(entry);
+          if (matchHistory.length > 30) matchHistory = matchHistory.slice(0, 30);
+          localStorage.setItem('bp_history', JSON.stringify(matchHistory));
+        } catch (_) {}
+      }
+    } catch (_) {}
+    try { clearMatchLoadState(); } catch (_) {}
+    try { hideMatchLoading(); } catch (_) {}
+    try { vsIntroLock = false; mpMatchStarting = false; mpLoading = false; } catch (_) {}
+    // Critical: never offer "переподключиться" into a match the opponent already cancelled
+    try { clearLiveMatch(); } catch (_) {}
+    try { myDcAt = 0; oppDcAt = 0; bothAwayMode = false; } catch (_) {}
+    return;
+  }
+  // Allow leave stamp even if vsActive just flipped — still need rejoin snapshot
+  if (!vsActive && !readLiveMatch()) return;
+  try {
+    if (!myDcAt) myDcAt = Date.now();
+  } catch (_) { myDcAt = Date.now(); }
+  try {
+    if (oppDcAt > 0) bothAwayMode = true;
+  } catch (_) {}
+  try { myDcAt = Date.now(); } catch (_) {}
+  try { bothAwayMode = !!(oppDcAt > 0); } catch (_) {}
+  try { persistLiveMatch({ forceLeave: true }); } catch (_) {}
+  try {
+    mpSend({
+      type: 'leaving',
+      score: score,
+      oppScore: oppScore,
+      vsTimeLeft: vsTimeLeft,
+      leftAt: myDcAt || Date.now()
+    });
+  } catch (_) {}
+  try { if (false) mpConn.close(); } catch (_) {}
+  // Force flush storage for mobile webviews
+  try { localStorage.setItem(LIVE_MATCH_KEY, localStorage.getItem(LIVE_MATCH_KEY) || ''); } catch (_) {}
+}
+window.addEventListener('pagehide', () => { try { notifyLeavingMatch(); } catch (_) {} });
+window.addEventListener('beforeunload', () => { try { notifyLeavingMatch(); } catch (_) {} });
+
+function showMatchRejoinPanel(snap) {
+  // New system: no rejoin toasts/panels — auto-return into the match
+  try { hideMatchRejoinPanel(); } catch (_) {}
+  if (!snap) {
+    try { snap = readLiveMatch(); } catch (_) { snap = null; }
+  }
+  if (!snap) return;
+  if (window._matchEnded || vsActive || window._mpRejoiningMatch) return;
+  try {
+    if (typeof snap.leftAt === 'number') myDcAt = snap.leftAt;
+    if (typeof snap.oppLeftAt === 'number' && snap.oppLeftAt > 0) oppDcAt = snap.oppLeftAt;
+    if (myDcAt && oppDcAt) bothAwayMode = true;
+  } catch (_) {}
+  // Keep listening so forfeit packets still arrive
+  try { startRejoinPanelListen(snap); } catch (_) {}
+  // Auto rejoin immediately (and retry a few times if opponent is not up yet)
+  try {
+    if (window._autoRejoinTimer) { clearTimeout(window._autoRejoinTimer); window._autoRejoinTimer = null; }
+  } catch (_) {}
+  const tryAuto = (attempt) => {
+    try {
+      if (window._matchEnded || vsActive) return;
+      const s = readLiveMatch();
+      if (!s) return;
+      if (window._mpRejoiningMatch) {
+        window._autoRejoinTimer = setTimeout(() => tryAuto(attempt), 800);
+        return;
+      }
+      attemptMatchRejoin().then(() => {
+        try {
+          if (!vsActive && !window._matchEnded && readLiveMatch() && attempt < 8) {
+            window._autoRejoinTimer = setTimeout(() => tryAuto(attempt + 1), 1200);
+          }
+        } catch (_) {}
+      }).catch(() => {
+        try {
+          if (!vsActive && !window._matchEnded && readLiveMatch() && attempt < 8) {
+            window._autoRejoinTimer = setTimeout(() => tryAuto(attempt + 1), 1200);
+          }
+        } catch (_) {}
+      });
+    } catch (_) {}
+  };
+  tryAuto(0);
+}
+
+function hideMatchRejoinPanel() {
+  const el = document.getElementById('matchRejoinPanel');
+  if (el) el.classList.remove('show');
+}
+function showRejoinLoading(msg) {
+  window._rejoinLoading = true;
+  window._rejoinInputLock = true;
+  placingLock = true;
+  try { cancelActivePieceDrag(); } catch (_) {}
+  try { document.body.classList.add('rejoin-loading'); } catch (_) {}
+  const el = document.getElementById('rejoinLoading');
+  if (el) {
+    const sub = document.getElementById('rejoinLoadingSub');
+    if (sub) sub.textContent = msg || 'Возврат в матч…';
+    el.classList.add('show');
+  }
+}
+function hideRejoinLoading() {
+  window._rejoinLoading = false;
+  try { document.body.classList.remove('rejoin-loading'); } catch (_) {}
+  const el = document.getElementById('rejoinLoading');
+  if (el) el.classList.remove('show');
+}
+function finishRejoinLoading() {
+  // Brief lock + overlay, then unlock for play
+  showRejoinLoading('Возврат в матч…');
+  if (window._rejoinUnlockTimer) {
+    try { clearTimeout(window._rejoinUnlockTimer); } catch (_) {}
+  }
+  const unlockNow = () => {
+    try {
+      cancelActivePieceDrag();
+      hideRejoinLoading();
+      window._rejoinLoading = false;
+      window._rejoinInputLock = false;
+      window._mpRejoiningMatch = false;
+      placingLock = false;
+      try { ensureMatchClockRunning(); } catch (_) {}
+      try { ensurePlayableIfLive(); } catch (_) {}
+    } catch (_) {
+      hideRejoinLoading();
+      window._rejoinLoading = false;
+      window._rejoinInputLock = false;
+      window._mpRejoiningMatch = false;
+      placingLock = false;
+    }
+    window._rejoinUnlockTimer = null;
+  };
+  window._rejoinUnlockTimer = setTimeout(() => {
+    hideRejoinLoading();
+    window._rejoinUnlockTimer = setTimeout(unlockNow, 400);
+  }, 350);
+  // Hard safety: never leave locks on longer than 2.5s
+  setTimeout(() => {
+    if (window._rejoinLoading || window._rejoinInputLock || placingLock) {
+      unlockNow();
+    }
+  }, 2500);
+}
+
+// Capture-phase: swallow tray/board input while rejoin lock is on
+(function rejoinInputCaptureBlock() {
+  const block = (e) => {
+    try {
+      const ov = document.getElementById('rejoinLoading');
+      const ovOn = ov && ov.classList.contains('show');
+      if (!ovOn) {
+        // Sticky flags must not freeze a live room match
+        if (roomMatchMode || window._roomMatchMode) {
+          window._rejoinLoading = false;
+          window._rejoinInputLock = false;
+        }
+        if (!window._rejoinLoading && !window._rejoinInputLock) return;
+      }
+    } catch (_) {}
+    if (!window._rejoinLoading && !window._rejoinInputLock) return;
+    try {
+      const t = e.target;
+      if (t && t.closest && (t.closest('#screenVersus .pieces-area') || t.closest('#screenVersus .board-wrap') || t.closest('#screenVersus .piece-slot'))) {
+        e.preventDefault();
+        e.stopPropagation();
+        if (e.stopImmediatePropagation) e.stopImmediatePropagation();
+      }
+    } catch (_) {}
+  };
+  ['pointerdown', 'touchstart', 'mousedown'].forEach(ev => {
+    document.addEventListener(ev, block, true);
+  });
+})();
+
+/**
+ * One player rejoins while the other is still offline.
+ * Match UI + wall-clock timer run; opponent side keeps listening / retrying dial.
+ */
+/** While rejoin panel is open, stay reachable so opponent «Сдаться» arrives as quiet win. */
+function startRejoinPanelListen(snap) {
+  /* P2P rejoin panel listen removed — use MatchClient.rejoin */
+  return;
+}
+
+function enterSoloRejoinWait(snap, existingPeer) {
+  /* P2P solo rejoin removed */
+  try {
+    if (typeof MatchClient !== "undefined" && MatchClient.matchId) {
+      MatchClient.rejoin(MatchClient.matchId, MatchClient.token);
+    }
+  } catch (_) {}
+}
+
+
+function packHandForNet(arr) {
+  return (arr || []).map(p => ({
+    shape: (p && p.shape ? p.shape : []).map(c => Array.isArray(c) ? c.slice() : c),
+    color: p && p.color,
+    used: !!(p && p.used)
+  }));
+}
+function buildFullMatchSyncPayload(extra) {
+  const base = {
+    type: 'match_rejoin_ok',
+    stillLive: !window._matchEnded && (!!vsActive || !!window._mpRejoiningMatch || !!window._soloRejoinActive),
+    name: myNickname,
+    score: score | 0,
+    oppScore: oppScore | 0,
+    vsTimeLeft: vsTimeLeft | 0,
+    clockEndTs: (typeof window._matchClockEndTs === 'number') ? window._matchClockEndTs : 0,
+    grid: grid,
+    oppGrid: oppGrid,
+    pieces: packHandForNet(pieces),
+    oppPieces: packHandForNet(oppPieces),
+    boardId: equippedBoardId,
+    skinId: equippedSkinId,
+    matchStartTs: matchStartTs || 0,
+    fullSync: true,
+    t: Date.now()
+  };
+  if (extra && typeof extra === 'object') {
+    Object.keys(extra).forEach(k => { base[k] = extra[k]; });
+  }
+  return base;
+}
+/** Apply remote state as truth (remote "me" → our opp). Always full replace of boards/hands. */
+function handSig(arr) {
+  try {
+    return (arr || []).map(p => {
+      if (!p) return '_';
+      const sh = (p.shape || []).map(c => (c && c[0]) + ',' + (c && c[1])).join(';');
+      return (p.used ? '1' : '0') + '#' + sh + '#' + (p.color || '');
+    }).join('/');
+  } catch (_) { return ''; }
+}
+function gridSig(g) {
+  try {
+    if (!Array.isArray(g)) return '';
+    let s = '';
+    for (let r = 0; r < g.length; r++) {
+      const row = g[r];
+      if (!Array.isArray(row)) continue;
+      for (let c = 0; c < row.length; c++) s += row[c] ? '1' : '0';
+      s += '|';
+    }
+    return s;
+  } catch (_) { return ''; }
+}
+function countUnusedInHand(arr) {
+  try {
+    return (arr || []).filter(p => p && !p.used && p.shape && p.shape.length).length;
+  } catch (_) { return 0; }
+}
+function cloneHand(arr) {
+  return (arr || []).map(p => ({
+    shape: (p.shape || []).map(c => Array.isArray(c) ? c.slice() : c),
+    color: p.color,
+    used: !!p.used
+  }));
+}
+
