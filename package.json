@@ -1,6 +1,6 @@
 {
   "name": "block-puzzle-server",
-  "version": "3.9.31",
+  "version": "3.9.29",
   "description": "Block Puzzle — modular client + server + persistence",
   "main": "server.js",
   "scripts": {

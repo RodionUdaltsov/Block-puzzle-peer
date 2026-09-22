@@ -74,16 +74,3 @@ The former monolithic `game.js` (~19k lines) is split into ordered scripts
 Disabled (v3.6.2). PeerJS handlers are empty stubs; online is **only** WebSocket `MatchClient` ↔ `server.js`.
 No ICE/dataChannel watches, no `mpSend` traffic.
 
-
-
-### v3.9.30 — mobile smoothness
-- Added a mobile compositor/performance profile that preserves one-shot gameplay animations while disabling expensive continuous blur/field effects on touch devices.
-- Optimized piece dragging: placement search is recalculated only when the finger enters a different board cell; the ghost still follows the finger every animation frame.
-- Kept desktop rendering unchanged.
-
-
-### v3.9.31 — Mobile legendary FX
-- Legendary field and skin animations remain enabled on touch devices.
-- The 8x8 legendary board uses one shared prism shimmer layer instead of animating a separate hologram layer on every filled cell.
-- Tray pieces and the moving drag ghost retain their individual holographic animation.
-- Server-authoritative networking/rejoin hardening from v3.9.29 is unchanged.

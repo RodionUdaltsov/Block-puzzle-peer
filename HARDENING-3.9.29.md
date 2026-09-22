@@ -7,9 +7,3 @@
 - Synced package version to `3.9.29`.
 - Added `npm run check` and `npm test` with Node syntax/integrity checks.
 - Verified the server boots and serves HTTP successfully on a clean test port.
-
-
-## v3.9.30 mobile performance pass
-- Mobile/touch browsers get a CSS-only compositor profile; desktop is unchanged.
-- Continuous decorative board/hologram animations and backdrop blur are paused/removed on touch devices.
-- Drag placement search is cached by board cell while the ghost remains frame-smooth.

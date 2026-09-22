@@ -703,17 +703,6 @@ function createBoardDOM(el) {
     cell.className = 'cell'; cell.dataset.idx = i;
     el.appendChild(cell);
   }
-  // One shared prism shimmer layer is used by the mobile renderer.
-  // It replaces dozens of simultaneously animated cell pseudo-elements
-  // without removing the legendary holographic look.
-  try {
-    const oldSheen = el.querySelector('.prism-mobile-sheen');
-    if (oldSheen) oldSheen.remove();
-    const sheen = document.createElement('div');
-    sheen.className = 'prism-mobile-sheen';
-    sheen.setAttribute('aria-hidden', 'true');
-    el.appendChild(sheen);
-  } catch (_) {}
   try {
     const wrap = el && el.closest && el.closest('.board-wrap');
     if (wrap && typeof getBoardById === 'function') {
@@ -1086,8 +1075,6 @@ function cancelActivePieceDrag() {
     activeDragPointerId = null;
     dragPiece = null;
     selectedIdx = -1;
-    _dragAimCellKey = '';
-    _ghostCellKey = '';
     lastPreview = null;
     if (typeof rafId !== 'undefined' && rafId) {
       try { cancelAnimationFrame(rafId); } catch (_) {}
@@ -1153,8 +1140,6 @@ function startDrag(e, idx, areaEl) {
   }
   e.preventDefault(); e.stopPropagation();
   selectedIdx = idx; dragPiece = pieces[idx]; isDragging = true;
-  _dragAimCellKey = '';
-  _ghostCellKey = '';
   activeDragPointerId = (e && e.pointerId != null) ? e.pointerId : 'mouse';
   SFX.pick();
   const xy0 = eventClientXY(e);
@@ -1231,8 +1216,6 @@ function startDrag(e, idx, areaEl) {
     }
     isDragging = false;
     activeDragPointerId = null;
-    _dragAimCellKey = '';
-    _ghostCellKey = '';
     if (rafId) { cancelAnimationFrame(rafId); rafId=0; }
     try {
       if (e.pointerId != null && slot.releasePointerCapture) slot.releasePointerCapture(e.pointerId);
@@ -1301,27 +1284,12 @@ function placementWorldCenter(result, shape) {
   return { x: cx, y: cy };
 }
 let _ghostCellKey = '';
-// Placement preview depends on the board cell, not every sub-pixel pointer position.
-// Cache the aim cell so high-refresh mobile touch streams do not re-run placement search
-// (9 candidate positions × shape cells) on every animation frame. The ghost itself still
-// follows the finger every frame for smooth motion.
-let _dragAimCellKey = '';
 function dragFrame() {
   rafId = 0; if (!isDragging) return;
   // Cache board rect for the whole drag — measuring every frame forces layout on mobile
   ensureBoardMetrics();
   const aim = aimFromPointer(pointerX, pointerY);
-  let aimCellKey = '';
-  try {
-    const aimPos = getGridPos(aim.x, aim.y);
-    aimCellKey = aimPos ? (aimPos.r + ',' + aimPos.c) : 'off';
-  } catch (_) {
-    aimCellKey = 'unknown';
-  }
-  if (aimCellKey !== _dragAimCellKey) {
-    _dragAimCellKey = aimCellKey;
-    updatePreview(aim.x, aim.y);
-  }
+  updatePreview(aim.x, aim.y);
   // Soft cell lock: ghost snaps/glides to placement grid center
   if (lastPreview && dragPiece && boardRect && boardRect.width > 8) {
     const key = lastPreview.baseR + ',' + lastPreview.baseC + ',' + (lastPreview.valid ? 1 : 0);
