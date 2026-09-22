@@ -11695,3 +11695,231 @@ body:not(.match-ending):not(.rejoin-loading) #screenVersus.active .pieces-area:n
   transform: none;
   filter: none;
 }
+
+
+/* ==========================================================================
+   MOBILE SMOOTHNESS PROFILE — v3.9.30
+   Phones/tablets keep the same visual language as desktop, but avoid the
+   effects that are disproportionately expensive in iOS/Android browsers:
+   backdrop-filter, animated field filters, large live shadows and continuous
+   ambient animations. One-shot gameplay animations remain enabled.
+   ========================================================================== */
+@media (hover: none) and (pointer: coarse) {
+  /* Compositor-friendly containers. Do NOT promote every cell: that creates
+     dozens of GPU layers on phones and is often worse than normal painting. */
+  .board-wrap,
+  .board,
+  .pieces-area,
+  #ghost,
+  #aiGhost {
+    -webkit-backface-visibility: hidden;
+    backface-visibility: hidden;
+  }
+
+  /* Backdrop blur is one of the biggest recurring GPU costs on mobile. Keep
+     the translucent surface, replace only the live blur with a solid-ish tint. */
+  .net-banner,
+  #screenClassic .header,
+  .home-pill,
+  .skin-rarity,
+  [class*="modal"] .modal-card,
+  .modal-card,
+  .overlay-card,
+  .dc-card,
+  .result-card,
+  .rejoin-card {
+    -webkit-backdrop-filter: none !important;
+    backdrop-filter: none !important;
+  }
+
+  /* Screen transitions: preserve the rise/fade, remove blur during the
+     transition because animated filter is much more expensive on mobile. */
+  .screen.active {
+    animation-name: mobileScreenIn !important;
+  }
+  @keyframes mobileScreenIn {
+    0% { opacity: 0; transform: translateY(12px) scale(0.985); }
+    100% { opacity: 1; transform: translateY(0) scale(1); }
+  }
+
+  /* Continuous board atmosphere is decorative; static versions remain visible.
+     Stopping these avoids a permanent frame workload while playing. */
+  .board-wrap[class*="board-fx-"] {
+    animation: none !important;
+  }
+  .board-wrap[class*="board-fx-"]::before,
+  .board-wrap[class*="board-fx-"]::after {
+    animation: none !important;
+  }
+
+  /* Legendary/prism cell hologram: keep the highlight, stop the permanent
+     360° spin on every filled cell. The actual place/clear animations still run. */
+  body.skin-fx-prism .cell.filled::before,
+  body.skin-fx-prism #piecesArea .piece-cell::before,
+  body.skin-fx-prism #piecesAreaVs .piece-cell::before,
+  body.skin-fx-prism #ghost .piece-cell::before,
+  .player-panel.opp.skin-fx-prism #boardOpp .cell.filled::before,
+  .player-panel.opp.skin-fx-prism #piecesAreaOpp .piece-cell::before,
+  #aiGhost.skin-fx-prism .piece-cell::before {
+    animation: none !important;
+  }
+
+  /* Home/shop decorative loops do not need to run while the player is in a
+     game. They still render their first/static frame. */
+  .home-bg-glow,
+  .home-deco,
+  .home-orb,
+  .skin-item[data-rarity="legendary"]::before,
+  .skin-item[data-rarity="legendary"] .skin-mini-board i.on::before,
+  .skin-item[data-rarity="legendary"] .skin-mini-board i.on::after,
+  .skin-item[data-rarity="legendary"] .skin-cube {
+    animation-play-state: paused !important;
+  }
+
+  /* Reduce the cost of huge multi-layer shadows on the two live boards while
+     keeping a visible depth shadow. */
+  #screenClassic .board-wrap,
+  #screenVersus .player-panel .board-wrap {
+    box-shadow: 0 10px 24px rgba(0,0,0,0.30), inset 0 1px 0 rgba(255,255,255,0.05) !important;
+  }
+
+  /* Preview is the highest-frequency cell styling during touch dragging.
+     Use compositor-cheap opacity/transform instead of animated filter. */
+  .cell.preview-ok { filter: none !important; }
+  .cell.preview-bad { filter: none !important; }
+
+  /* Ghost follows the finger via translate3d; tell the compositor only about
+     this single moving element. */
+  #ghost,
+  #aiGhost {
+    will-change: transform;
+  }
+
+  /* Prevent accidental text/image selection work while dragging. */
+  .piece-slot,
+  #ghost,
+  #aiGhost {
+    -webkit-user-select: none;
+    user-select: none;
+  }
+}
+
+/* ==========================================================================\n   MOBILE LEGENDARY FX — v3.9.31\n   Keep the signature legendary presentation on phones. The optimization is\n   architectural: one shared prism shimmer layer for the 8x8 board instead\n   of 64 independently animated hologram layers. Field FX remain animated.\n   ========================================================================== */
+.prism-mobile-sheen {
+  display: none;
+  position: absolute;
+  inset: -8%;
+  pointer-events: none;
+  z-index: 4;
+  border-radius: inherit;
+  background: conic-gradient(
+    from 0deg,
+    transparent 0deg,
+    rgba(255,110,220,0.05) 32deg,
+    rgba(110,220,255,0.20) 72deg,
+    rgba(255,255,255,0.18) 105deg,
+    rgba(255,210,90,0.13) 142deg,
+    rgba(150,100,255,0.20) 190deg,
+    rgba(0,245,255,0.14) 235deg,
+    transparent 285deg,
+    transparent 360deg
+  );
+  mix-blend-mode: screen;
+  opacity: 0.42;
+  transform: translateZ(0) scale(1.08);
+  backface-visibility: hidden;
+}
+
+@keyframes mobilePrismSheen {
+  from { transform: translateZ(0) scale(1.08) rotate(0deg); }
+  to   { transform: translateZ(0) scale(1.08) rotate(360deg); }
+}
+
+@media (hover: none) and (pointer: coarse) {
+  /* Shared board-level shimmer: the signature rainbow/holographic motion stays. */
+  body.skin-fx-prism #board .prism-mobile-sheen,
+  body.skin-fx-prism #boardMe .prism-mobile-sheen,
+  .player-panel.opp.skin-fx-prism #boardOpp .prism-mobile-sheen {
+    display: block;
+    animation: mobilePrismSheen 7s linear infinite;
+    will-change: transform;
+  }
+
+  /* Keep the cell hologram as a static material layer on the 8x8 board.
+     The shared layer above supplies the motion, so the phone no longer has
+     to animate up to 64 separate conic-gradient layers every frame. */
+  body.skin-fx-prism #board .cell.filled::before,
+  body.skin-fx-prism #boardMe .cell.filled::before,
+  .player-panel.opp.skin-fx-prism #boardOpp .cell.filled::before {
+    animation: none !important;
+    transform: rotate(18deg) scale(1.2);
+    will-change: auto;
+  }
+
+  /* The three tray pieces and the moving ghost keep their individual holo
+     motion — those are few elements and are part of the tactile feel. */
+  body.skin-fx-prism #piecesArea .piece-cell::before,
+  body.skin-fx-prism #piecesAreaVs .piece-cell::before,
+  body.skin-fx-prism #ghost .piece-cell::before,
+  .player-panel.opp.skin-fx-prism #piecesAreaOpp .piece-cell::before,
+  #aiGhost.skin-fx-prism .piece-cell::before {
+    animation: legendHoloSpin 7s linear infinite;
+    will-change: transform;
+  }
+
+  /* Restore the legendary field atmosphere. These are a handful of shared
+     layers per board, not one animation per cell. */
+  .board-wrap.board-fx-nebula {
+    animation: fieldLegendAura 3.2s ease-in-out infinite, legendFloat 6s ease-in-out infinite !important;
+  }
+  .board-wrap.board-fx-nebula::after {
+    animation: legendStars 8s ease-in-out infinite !important;
+  }
+
+  .board-wrap.board-fx-solar {
+    animation: fieldLegendAura 2.8s ease-in-out infinite, legendFloat 5.5s ease-in-out infinite !important;
+  }
+  .board-wrap.board-fx-solar::before {
+    animation: fieldBorderSpin 8s linear infinite !important;
+  }
+
+  .board-wrap.board-fx-quantum {
+    animation: fieldLegendAura 3s ease-in-out infinite, legendFloat 6.5s ease-in-out infinite !important;
+  }
+  .board-wrap.board-fx-quantum::before {
+    animation: fieldQuantumAura 5s ease-in-out infinite !important;
+  }
+  .board-wrap.board-fx-quantum .board::before {
+    animation: fieldQuantumSweep 6s ease-in-out infinite !important;
+  }
+  .board-wrap.board-fx-quantum .board::after {
+    animation: fieldQuantumPhase 8s ease-in-out infinite !important;
+  }
+
+  .board-wrap.board-fx-abyss {
+    animation: fieldLegendAura 3.4s ease-in-out infinite, legendFloat 7s ease-in-out infinite !important;
+  }
+  .board-wrap.board-fx-abyss::before {
+    animation: fieldAbyssFloat 12s ease-in-out infinite !important;
+  }
+  .board-wrap.board-fx-abyss .board::after {
+    animation: fieldAbyssFloat 15s ease-in-out infinite 3s !important;
+  }
+
+  .board-wrap.board-fx-prismfield {
+    animation: fieldLegendAura 3s ease-in-out infinite, legendFloat 5.8s ease-in-out infinite !important;
+  }
+  #screenClassic .board-wrap.board-fx-prismfield,
+  #screenVersus .player-panel:not(.opp) .board-wrap.board-fx-prismfield,
+  #screenVersus .player-panel.opp .board-wrap.board-fx-prismfield {
+    animation: fieldLegendAura 3s ease-in-out infinite, fieldPrismPulse 4.5s ease-in-out infinite !important;
+  }
+  #screenClassic .board-wrap.board-fx-prismfield::before,
+  #screenVersus .board-wrap.board-fx-prismfield::before {
+    animation: fieldBorderSpin 5.5s linear infinite !important;
+  }
+  #screenClassic .board-wrap.board-fx-prismfield .board,
+  #screenVersus .board-wrap.board-fx-prismfield .board {
+    animation: fieldPrismBoard 5s ease-in-out infinite !important;
+  }
+}
