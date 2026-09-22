@@ -33,14 +33,35 @@ function bindPrivateLobbyHandlers() {
         mpOppConnected = true;
         mpOppName = data.opp.name || 'Соперник';
         oppName = mpOppName;
+        if (typeof data.opp.trophies === 'number') mpOppTrophies = data.opp.trophies | 0;
         try {
-          const el = document.getElementById('lobbyOppName');
-          if (el) el.textContent = mpOppName;
+          if (data.opp.skinId) {
+            window.mpOppSkinId = data.opp.skinId;
+            if (typeof applyOppSkin === 'function') applyOppSkin(data.opp.skinId);
+          }
+          if (data.opp.boardId) {
+            window.mpOppBoardId = data.opp.boardId;
+            if (typeof applyOppBoard === 'function') applyOppBoard(data.opp.boardId);
+          }
+          if (data.opp.avatarId) window.mpOppAvatarId = data.opp.avatarId;
+          if (data.opp.avatarCustom) window.mpOppAvatarCustom = data.opp.avatarCustom;
         } catch (_) {}
       } else {
         mpOppConnected = false;
         mpOppName = null;
       }
+      // Dual ping from server snapshot
+      try {
+        if (data.role === 'host') {
+          if (typeof data.hostRtt === 'number') window._lobbyMeRtt = data.hostRtt;
+          if (typeof data.guestRtt === 'number') window._lobbyOppRtt = data.guestRtt;
+          else if (data.opp && typeof data.opp.rtt === 'number') window._lobbyOppRtt = data.opp.rtt;
+        } else {
+          if (typeof data.guestRtt === 'number') window._lobbyMeRtt = data.guestRtt;
+          if (typeof data.hostRtt === 'number') window._lobbyOppRtt = data.hostRtt;
+          else if (data.opp && typeof data.opp.rtt === 'number') window._lobbyOppRtt = data.opp.rtt;
+        }
+      } catch (_) {}
       setMpStatus(mpOppConnected
         ? ('Комната ' + mpRoomCode + ' · соперник в лобби')
         : ('Комната ' + mpRoomCode + ' · ждут игрока'));
@@ -175,6 +196,8 @@ try { bindPrivateLobbyHandlers(); } catch (_) {}
 
 function startOnlineMatchmaking() {
   try { document.body.classList.remove('vs-bots'); } catch (_) {}
+  try { clearBotMatchResidue && clearBotMatchResidue(); } catch (_) {}
+  try { currentBot = null; } catch (_) {}
   if (!checkCrossPlatformReady()) return;
   // Prefer authoritative room server when MatchClient is available
   if (typeof MatchClient !== 'undefined') {
@@ -217,6 +240,10 @@ function startOnlineMatchmaking() {
     MatchClient.joinQueue({
       name: myNickname,
       trophies: trophies | 0,
+      skinId: (typeof equippedSkinId !== 'undefined' && equippedSkinId) ? equippedSkinId : 'default',
+      boardId: (typeof equippedBoardId !== 'undefined' && equippedBoardId) ? equippedBoardId : 'field_default',
+      avatarId: (typeof myAvatarId !== 'undefined' && myAvatarId) ? myAvatarId : 'init',
+      avatarCustom: (typeof myAvatarCustom !== 'undefined' && myAvatarId === 'custom' && myAvatarCustom) ? myAvatarCustom : '',
       duration: selectedDuration,
       expandLevel: 0,
       clientId
@@ -245,10 +272,11 @@ function startOnlineMatchmaking() {
 function startMatchFlow() {
   const lobbyEl = document.getElementById('roomLobby');
   const lobbyOpen = !!(lobbyEl && lobbyEl.classList.contains('visible'));
-  const inLobbySession = !!(mpRoomCode || mpGameSource === 'lobby' || lobbyOpen);
+  // Only treat as private lobby when we actually have a room code / lobby source
+  const inLobbySession = !!(mpRoomCode || mpGameSource === 'lobby');
 
   // Private lobby (server rooms): match starts when both press Ready — not from this button
-  if (inLobbySession) {
+  if (inLobbySession && vsModeType !== 'bots') {
     try {
       setMpStatus(mpOppConnected
         ? 'Оба нажмите «Готов» в лобби'
@@ -259,15 +287,24 @@ function startMatchFlow() {
   }
 
   // Ranked search
-  if (vsModeType === 'online') {
+  if (vsModeType === 'online' && !currentBot) {
     startOnlineMatchmaking();
     return;
   }
-  // Bots
-  currentBot = BOTS.find(b => b.id === selectedBotId) || BOTS[5] || BOTS[0];
+  // Bots — always offline local match
+  try { closeRoomLobby(); } catch (_) {}
+  try { stopMatchmaking(true); } catch (_) {}
+  roomMatchMode = false;
+  window._roomMatchMode = false;
+  mpMode = false;
+  mpRoomCode = null;
+  mpGameSource = null;
+  currentBot = (typeof BOTS !== 'undefined' && BOTS)
+    ? (BOTS.find(b => b.id === selectedBotId) || BOTS[5] || BOTS[0])
+    : null;
   oppName = currentBot ? currentBot.name : 'Бот';
   vsModeType = 'bots';
-  mpMode = false;
+  try { document.body.classList.add('vs-bots'); } catch (_) {}
   beginVersusMatch();
 }
 function beginVersusMatch() {
@@ -276,11 +313,7 @@ function beginVersusMatch() {
   try {
     // Soft-clear MP without relying on session teardown
     clearMpJoinTimer();
-    /* p2p removed */
-    try { if (mpSessionLink) mpSessionLink.destroy(); } catch (_) {}
   } catch (_) {}
-  mpConn = null;
-  mpSessionLink = null;
   mpMode = false;
   mpRole = null;
   mpRoomCode = null;
@@ -289,8 +322,8 @@ function beginVersusMatch() {
   mpOppConnected = false;
   mpMatchStarting = false;
   mpFromMatchmaking = false;
-  mpPendingJoin = null;
-  mpExpectedJoinCode = null;
+  try { if (typeof mpPendingJoin !== 'undefined') mpPendingJoin = null; } catch (_) {}
+  try { if (typeof mpExpectedJoinCode !== 'undefined') mpExpectedJoinCode = null; } catch (_) {}
   try { window._matchEnded = false; window._rankedDeltaApplied = false; } catch (_) {}
   vsModeType = 'bots';
   mode = 'versus';
@@ -369,33 +402,42 @@ function beginVersusMatch() {
   renderOppPieces();
   logDeal('opp', oppPieces);
   updateBoardMetrics(boardMe);
-  // Pause clocks until intro finishes
+  // Brief ready lock — board is already drawn; clocks start after intro
   vsActive = false;
+  placingLock = true;
   if (vsTimerId) clearInterval(vsTimerId);
   if (aiInterval) { clearInterval(aiInterval); aiInterval = null; }
   const botLabel = (currentBot && currentBot.name) ? currentBot.name : 'Бот';
   const durLabel = vsDuration === 60 ? '1 мин' : vsDuration === 180 ? '3 мин' : '2 мин';
-  showMatchIntro({
-    label: 'Versus · боты',
-    title: 'Бой',
-    sub: botLabel + ' · ' + durLabel,
-    goText: 'Вперёд!',
-    ms: 1500
-  }).then(() => {
+  const unlockBotMatch = () => {
     if (mode !== 'versus') return;
     vsActive = true;
+    placingLock = false;
+    try { window._rejoinLoading = false; window._rejoinInputLock = false; } catch (_) {}
     window._matchClockEndTs = Date.now() + Math.max(0, vsTimeLeft || vsDuration || 120) * 1000;
-    startMatchWallClock(window._matchClockEndTs);
+    try { startMatchWallClock(window._matchClockEndTs); } catch (_) {}
     const base = (currentBot && currentBot.interval) || 900;
     const jitter = (currentBot && currentBot.style && currentBot.style.speedJitter) || 0.25;
     const tickMs = Math.max(400, base + Math.random() * (base * jitter));
     aiBusy = false;
+    if (aiInterval) { clearInterval(aiInterval); aiInterval = null; }
     aiInterval = setInterval(() => {
       try { aiTick(); } catch (e) { console.warn('aiTick', e); aiBusy = false; }
     }, tickMs);
-    setTimeout(() => { try { aiTick(); } catch (_) {} }, 450);
-    setTimeout(() => showBotPhrase('start'), 600);
-  });
+    setTimeout(() => { try { aiTick(); } catch (_) {} }, 200);
+    setTimeout(() => { try { showBotPhrase('start'); } catch (_) {} }, 400);
+  };
+  showMatchIntro({
+    label: 'Загрузка',
+    title: 'Почти готово…',
+    sub: botLabel + ' · ' + durLabel,
+    goText: 'Старт!',
+    ms: 1400
+  }).then(unlockBotMatch).catch(unlockBotMatch);
+  // Safety: never leave player locked if intro hangs
+  setTimeout(() => {
+    if (mode === 'versus' && vsModeType === 'bots' && !vsActive) unlockBotMatch();
+  }, 2800);
 }
 function updateTimerDisplay() {
   const m = Math.floor(vsTimeLeft/60), s = vsTimeLeft%60;
@@ -784,7 +826,9 @@ function setPlayerStuck(value) {
     showPlayerStuckBanner();
   }
   updateOppStuckBanner();
-  if (mpMode) mpSend({ type: 'stuck', stuck: !!value });
+  if (mpMode && (roomMatchMode || window._roomMatchMode) && typeof MatchClient !== 'undefined') {
+    try { MatchClient.send({ type: 'stuck', stuck: !!value }); } catch (_) {}
+  }
 }
 
 function showPlayerStuckBanner() {
@@ -981,19 +1025,72 @@ function clonePieceForLog(p) {
     used: false
   };
 }
+
+/** Convert server move log (seat a/b) into client matchLog (side me/opp). */
+function importServerMovesToMatchLog(serverMoves, mySeat) {
+  if (!Array.isArray(serverMoves) || !serverMoves.length) return false;
+  const seat = mySeat || (typeof MatchClient !== 'undefined' && MatchClient.seat) || 'a';
+  const out = [];
+  for (let i = 0; i < serverMoves.length; i++) {
+    const m = serverMoves[i];
+    if (!m || !m.type) continue;
+    const side = (m.seat === seat) ? 'me' : 'opp';
+    if (m.type === 'deal' && Array.isArray(m.pieces)) {
+      out.push({
+        type: 'deal',
+        side,
+        t: typeof m.t === 'number' ? m.t : 0,
+        pieces: m.pieces.map(p => (typeof clonePieceForLog === 'function' ? clonePieceForLog(p) : {
+          shape: (p.shape || []).map(c => Array.isArray(c) ? c.slice() : c),
+          color: (p && p.color) || '#7c5cff',
+          used: false
+        }))
+      });
+    } else if (m.type === 'place' && Array.isArray(m.shape)) {
+      out.push({
+        type: 'place',
+        side,
+        t: typeof m.t === 'number' ? m.t : 0,
+        shape: m.shape.map(c => Array.isArray(c) ? c.slice() : c),
+        color: m.color,
+        r: m.r | 0,
+        c: m.c | 0,
+        pieceIdx: (typeof m.pieceIdx === 'number') ? m.pieceIdx : -1,
+        placePts: (typeof m.placePts === 'number') ? m.placePts : 0,
+        myScore: side === 'me' ? (m.score | 0) : undefined,
+        oppScore: side === 'opp' ? (m.score | 0) : undefined,
+        legendFx: !!m.legendFx,
+        skinId: m.skinId || null
+      });
+    }
+  }
+  if (!out.length) return false;
+  try { matchLog = out; } catch (_) { return false; }
+  return true;
+}
+
 function logDeal(side, pieceArr) {
-  if (mode !== 'versus') return;
+  if (mode !== 'versus' && !(roomMatchMode || window._roomMatchMode)) return;
   if (!Array.isArray(pieceArr) || !pieceArr.length) return;
-  // Only log after the fight is live — loading-phase deals are incomplete / duplicated
-  if (!vsActive) return;
-  // Skip deals that are clearly empty placeholders (all single dummy cells) only if every piece is [[0,0]] and length 1 cell — still log real singles
   try {
     const pieces = pieceArr.map(clonePieceForLog);
-    // Reject completely empty hands
     if (!pieces.length) return;
+    const sideKey = side === 'opp' ? 'opp' : 'me';
+    // Dedupe identical consecutive deal for same side
+    try {
+      for (let i = matchLog.length - 1; i >= 0; i--) {
+        const ev = matchLog[i];
+        if (!ev || ev.type !== 'deal') continue;
+        if (ev.side !== sideKey) break;
+        const a = JSON.stringify((ev.pieces || []).map(p => [p.color, p.shape]));
+        const b = JSON.stringify(pieces.map(p => [p.color, p.shape]));
+        if (a === b) return;
+        break;
+      }
+    } catch (_) {}
     matchLog.push({
       type: 'deal',
-      side: side === 'opp' ? 'opp' : 'me',
+      side: sideKey,
       t: Math.max(0, Date.now() - (matchStartTs || Date.now())),
       pieces
     });
@@ -1046,29 +1143,38 @@ function endVersus(opts) {
     if (typeof clearDisconnectTimer === 'function') clearDisconnectTimer();
   } catch (_) {}
   if (!vsActive && document.getElementById('versusResult').classList.contains('visible')) {
-    window._matchEnded = true;
-    return;
+    // Result UI already open — skip only if history was written recently
+    try {
+      if (window._matchEnded && Array.isArray(matchHistory) && matchHistory.length
+          && (Date.now() - (matchHistory[0].date || 0)) < 120000) {
+        return;
+      }
+    } catch (_) {
+      window._matchEnded = true;
+      return;
+    }
   }
   // Prevent double end (disconnect + timer race) from applying trophies twice
   if (window._matchEnded && window._rankedDeltaApplied) {
     return;
   }
   window._matchEnded = true;
-  if (vsActive && mpMode && !opts.silent) {
-    try {
-      mpSend({
-        type: 'end',
-        reason: opts.reason || 'normal',
-        youLose: !!opts.forceWin,
-        youWin: !!opts.forceLoss,
-        // Real scores so both clients show the same numbers on forfeit/end
-        myScore: Math.max(0, score),
-        oppScore: Math.max(0, oppScore)
-      });
-      mpSend({ type: 'match_over', reason: opts.reason || 'normal' });
-    } catch (_) {}
-  }
+  // Do NOT leaveMatch here — server keeps room ~3 min for rematch; MatchClient.matchId required
   vsActive = false;
+  try {
+    // Stay in room mode until user leaves menu / starts unrelated flow
+    if (typeof MatchClient !== 'undefined' && MatchClient.matchId) {
+      roomMatchMode = true;
+      window._roomMatchMode = true;
+      postMatchOnlineEligible = true;
+    } else {
+      roomMatchMode = false;
+      window._roomMatchMode = false;
+    }
+  } catch (_) {}
+  try {
+    document.body.classList.remove('rejoin-loading', 'match-ending');
+  } catch (_) {}
   try {
     _oppPlaceAnimBusy = false;
     _pendingOppDeal = null;
@@ -1114,11 +1220,7 @@ function endVersus(opts) {
     try { mpLoading = false; } catch (_) {}
     try { mpMatchStarting = false; } catch (_) {}
     try { clearMatchLoadState(); } catch (_) {}
-    try {
-      if (mpConn) noteMpRemoteId(mpConn);
-      ensurePostMatchHostAccept();
-      /* p2p removed */
-    } catch (_) {}
+    try { /* post-match link is MatchClient / roomMatchMode only */ } catch (_) {}
   } else {
     postMatchOnlineEligible = false;
   }
@@ -1170,7 +1272,7 @@ function endVersus(opts) {
     ranked: wasRanked,
     botId: currentBot && currentBot.id, date: Date.now(),
     oppTrophies: typeof mpOppTrophies === 'number' ? mpOppTrophies : null,
-    moves: matchLog.slice(),
+    moves: (matchLog || []).slice(),
     mySkinId: equippedSkinId || 'default',
     myBoardId: equippedBoardId || 'field_default',
     oppSkinId: (typeof window.mpOppSkinId === 'string' && window.mpOppSkinId) ? window.mpOppSkinId : null,
@@ -1195,7 +1297,20 @@ function endVersus(opts) {
     difficulty: currentBot ? currentBot.name : '',
     duration: vsDuration, timeLeft: vsTimeLeft, date: Date.now(),
     reason: (opts && opts.reason) ? String(opts.reason) : 'normal',
-    moves: (typeof normalizeMatchLogDealOrder === 'function') ? normalizeMatchLogDealOrder(matchLog.slice()) : matchLog.slice()
+    moves: (function () {
+      let mv = (matchLog || []).slice();
+      try {
+        const hasDealMe = mv.some(e => e && e.type === 'deal' && e.side !== 'opp');
+        const hasDealOpp = mv.some(e => e && e.type === 'deal' && e.side === 'opp');
+        if (!hasDealMe && pieces && pieces.length && typeof clonePieceForLog === 'function') {
+          mv.unshift({ type: 'deal', side: 'me', t: 0, pieces: pieces.map(clonePieceForLog) });
+        }
+        if (!hasDealOpp && oppPieces && oppPieces.length && typeof clonePieceForLog === 'function') {
+          mv.unshift({ type: 'deal', side: 'opp', t: 0, pieces: oppPieces.map(clonePieceForLog) });
+        }
+      } catch (_) {}
+      return (typeof normalizeMatchLogDealOrder === 'function') ? normalizeMatchLogDealOrder(mv) : mv;
+    })()
   });
   // Keep last 30 matches (replays can be large)
   if (matchHistory.length > 30) matchHistory = matchHistory.slice(0, 30);
@@ -1233,7 +1348,7 @@ function endVersus(opts) {
   let titleText = draw ? 'Ничья!' : won ? 'Победа!' : 'Поражение';
   if (opts.reason === 'disconnect' && won) titleText = 'Победа · соперник отключился';
   if (opts.reason === 'disconnect' && !won) titleText = 'Поражение · отключение';
-  if (opts.reason === 'forfeit' && !won) titleText = 'Поражение · сдача';
+  if (opts.reason === 'forfeit' && !won) titleText = 'Поражение · вы сдались';
   if (opts.reason === 'forfeit' && won) titleText = 'Победа · соперник сдался';
   if (opts.reason === 'afk' && draw) titleText = 'Ничья · АФК';
   if (opts.reason === 'afk' && !draw && !won) titleText = 'Поражение · АФК';
@@ -1329,19 +1444,20 @@ function endVersus(opts) {
     }
   };
   try {
+    // Sequence: Матч окончен (freeze) → подсчёт (score duel) → окно результата
     const freezeP = showMatchEndFreeze({
       reason: (opts && opts.reason) ? String(opts.reason) : 'normal',
       timeUp: vsTimeLeft <= 0,
       timeLeft: vsTimeLeft,
       my, opp, won, draw,
-      ms: (opts && opts.reason === 'forfeit') ? 1500 : 1800
+      ms: (opts && opts.reason === 'forfeit') ? 2000 : 2600
     });
     if (freezeP && typeof freezeP.then === 'function') {
       freezeP.then(runScoreDuelThenResult).catch(runScoreDuelThenResult);
     } else {
       runScoreDuelThenResult();
     }
-    // Safety: freeze (~1.8s) + duel (~1.5s) — still show result if something hangs
+    // Safety: freeze + duel (~5s) then force result
     resultModalSafetyTimer = setTimeout(() => {
       resultModalSafetyTimer = null;
       try {
@@ -1349,7 +1465,7 @@ function endVersus(opts) {
         const r = document.getElementById('versusResult');
         if (r && !r.classList.contains('visible') && window._matchEnded) showResultModal();
       } catch (_) {}
-    }, 4800);
+    }, 7000);
   } catch (_) {
     runScoreDuelThenResult();
   }
@@ -1825,7 +1941,7 @@ function formatMatchEndReason(match) {
     return won ? 'Соперник отключился' : 'Отключение';
   }
   if (reason === 'forfeit') {
-    return won ? 'Соперник сдался' : 'Сдача';
+    return won ? 'Соперник сдался' : 'Вы сдались';
   }
   if (reason === 'afk') {
     if (draw) return 'АФК обеих сторон';
@@ -1842,9 +1958,9 @@ function hideReplayEndCard() {
     if (card) {
       card.classList.remove('visible');
       card.style.display = 'none';
+      card.style.pointerEvents = 'none';
       card.setAttribute('aria-hidden', 'true');
     }
-    // Never leave the live result modal open during replay
     document.getElementById('versusResult')?.classList.remove('visible');
   } catch (_) {}
 }
@@ -1861,7 +1977,7 @@ function showReplayResult() {
     let titleText = res === 'Ничья' ? 'Ничья!' : res === 'Победа' ? 'Победа!' : 'Поражение';
     if (match.reason === 'disconnect' && res === 'Победа') titleText = 'Победа · соперник отключился';
     if (match.reason === 'disconnect' && res === 'Поражение') titleText = 'Поражение · отключение';
-    if (match.reason === 'forfeit' && res === 'Поражение') titleText = 'Поражение · сдача';
+    if (match.reason === 'forfeit' && res === 'Поражение') titleText = 'Поражение · вы сдались';
     if (match.reason === 'forfeit' && res === 'Победа') titleText = 'Победа · соперник сдался';
     if (match.reason === 'afk' && res === 'Ничья') titleText = 'Ничья · АФК';
     if (match.reason === 'afk' && res === 'Поражение') titleText = 'Поражение · АФК';
@@ -1905,9 +2021,23 @@ function showReplayResult() {
       metaEl.textContent = parts.filter(Boolean).join(' · ');
     }
     if (card) {
-      card.style.display = 'block';
+      // Escape #screenVersus overflow:hidden — attach to body
+      try {
+        if (card.parentElement !== document.body) {
+          document.body.appendChild(card);
+        }
+      } catch (_) {}
       card.classList.add('visible');
       card.setAttribute('aria-hidden', 'false');
+      card.style.display = 'flex';
+      card.style.position = 'fixed';
+      card.style.inset = '0';
+      card.style.zIndex = '10050';
+      card.style.alignItems = 'center';
+      card.style.justifyContent = 'center';
+      card.style.pointerEvents = 'auto';
+      card.style.opacity = '1';
+      card.style.visibility = 'visible';
     }
     // Close only
     const closeBtn = document.getElementById('btnReplayEndClose');
@@ -3097,19 +3227,37 @@ function showBotPickOverlay(bot, phase) {
   const stars = document.getElementById('botPickStars');
   const label = document.getElementById('botPickLabel');
   if (!ov || !bot) return;
-  av.innerHTML = botAvatarSVG(bot, 72);
+  // Restart reel animation each tick (translateY + fade)
+  if (av) {
+    av.classList.remove('spin', 'bot-pick-flash');
+    void av.offsetWidth;
+  }
+  if (name) {
+    name.classList.remove('bot-pick-name-spin', 'bot-pick-name-final');
+    void name.offsetWidth;
+  }
+  av.innerHTML = botAvatarSVG(bot, 88);
   name.textContent = bot.name;
-  meta.textContent = `🏆 ${bot.trophies} · ${bot.title || botTierLabel(bot.trophies)}`;
-  const st = botStars[bot.id] || {};
+  const tier = (typeof botTierLabel === 'function')
+    ? botTierLabel(bot.trophies)
+    : (bot.title || '');
+  meta.innerHTML =
+    '<span class="bot-pick-cups">🏆 ' + (bot.trophies | 0) + '</span>' +
+    (tier ? ('<span class="bot-pick-tier">' + tier + '</span>') : '');
+  const st = (typeof botStars !== 'undefined' && botStars[bot.id]) ? botStars[bot.id] : {};
   stars.innerHTML = [60, 120, 180].map(sec =>
-    `<span style="opacity:${st[String(sec)] ? 1 : 0.25}">★</span>`
+    '<span style="opacity:' + (st[String(sec)] ? 1 : 0.25) + '">★</span>'
   ).join('');
   if (phase === 'spin') {
-    label.textContent = 'Выбор соперника…';
+    label.textContent = 'Прокрутка соперников…';
     av.classList.add('spin');
+    name.classList.add('bot-pick-name-spin');
   } else {
     label.textContent = 'Твой соперник';
     av.classList.remove('spin');
+    name.classList.remove('bot-pick-name-spin');
+    void name.offsetWidth;
+    name.classList.add('bot-pick-name-final');
   }
   ov.classList.add('visible');
   ov.setAttribute('aria-hidden', 'false');
@@ -3124,39 +3272,78 @@ function hideBotPickOverlay() {
 }
 function startRandomBotPick() {
   if (botPickBusy) return;
-  if (!BOTS.length) return;
+  if (!BOTS || !BOTS.length) return;
   botPickBusy = true;
-  SFX.ui();
-  hapticTap(10);
-  const sorted = [...BOTS];
+  try { SFX.ui(); } catch (_) {}
+  try { hapticTap(10); } catch (_) {}
+  // Sort by trophies so the reel "climbs" visually at times
+  const sorted = BOTS.slice().sort((a, b) => (a.trophies | 0) - (b.trophies | 0));
   let ticks = 0;
-  const totalTicks = 14 + Math.floor(Math.random() * 6);
-  let delay = 55;
+  const totalTicks = 22 + Math.floor(Math.random() * 10);
+  let delay = 35;
   const finalBot = sorted[Math.floor(Math.random() * sorted.length)];
+  let cursor = Math.floor(Math.random() * sorted.length);
+  try {
+    const ov = document.getElementById('botPickOverlay');
+    if (ov) {
+      ov.style.display = '';
+      ov.style.pointerEvents = '';
+      ov.style.opacity = '';
+      ov.classList.add('visible');
+      ov.setAttribute('aria-hidden', 'false');
+    }
+  } catch (_) {}
+
+  const highlightList = (bot) => {
+    try {
+      document.querySelectorAll('.bot-card.pick-flash').forEach(c => c.classList.remove('pick-flash'));
+      if (!bot) return;
+      const card = document.querySelector('.bot-card[data-bot="' + bot.id + '"]');
+      if (card) {
+        card.classList.add('pick-flash');
+        card.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+      }
+    } catch (_) {}
+  };
 
   const tick = () => {
     ticks++;
-    const show = ticks >= totalTicks
-      ? finalBot
-      : sorted[Math.floor(Math.random() * sorted.length)];
+    let show;
+    if (ticks >= totalTicks) {
+      show = finalBot;
+    } else {
+      // Mostly sequential reel with occasional jumps
+      cursor = (cursor + 1 + (Math.random() < 0.18 ? Math.floor(Math.random() * 5) : 0)) % sorted.length;
+      show = sorted[cursor];
+    }
     showBotPickOverlay(show, ticks >= totalTicks ? 'final' : 'spin');
+    highlightList(show);
+    try { if (ticks % 2 === 0) SFX.ui(); } catch (_) {}
     if (ticks < totalTicks) {
-      delay = Math.min(160, delay + 8);
+      // Ease out: slow near the end
+      const progress = ticks / totalTicks;
+      delay = Math.round(35 + progress * progress * 200);
       setTimeout(tick, delay);
     } else {
       selectedBotId = finalBot.id;
       currentBot = finalBot;
       renderBotList();
-      // scroll selected into view
-      const card = document.querySelector(`.bot-card[data-bot="${finalBot.id}"]`);
-      if (card) card.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
-      SFX.ui();
-      hapticTap(16);
+      highlightList(finalBot);
+      const card = document.querySelector('.bot-card[data-bot="' + finalBot.id + '"]');
+      if (card) {
+        card.classList.add('selected');
+        card.scrollIntoView({ block: 'center', behavior: 'smooth' });
+      }
+      try { SFX.ui(); } catch (_) {}
+      try { hapticTap(18); } catch (_) {}
       setTimeout(() => {
         hideBotPickOverlay();
         botPickBusy = false;
+        try {
+          document.querySelectorAll('.bot-card.pick-flash').forEach(c => c.classList.remove('pick-flash'));
+        } catch (_) {}
         showScreen('duration');
-      }, 900);
+      }, 1200);
     }
   };
   tick();
@@ -3495,8 +3682,7 @@ function confirmForfeit() {
   try {
     if (!(roomMatchMode || window._roomMatchMode) && mpMode) {
       try {
-        mpSend({ type: 'end', reason: 'forfeit', youWin: true, youLose: false, myScore: score, oppScore: oppScore });
-        mpSend({ type: 'match_over', reason: 'forfeit' });
+        try { if (typeof MatchClient !== 'undefined') MatchClient.forfeit(); } catch (_) {}
       } catch (_) {}
     }
   } catch (_) {}
@@ -3586,8 +3772,16 @@ document.getElementById('btnVsMenu')?.addEventListener('click', () => {
   // Do not clear pendingRematchOfferName if invite already queued
   const lobbyJoin = pendingJoinAfterForfeit;
   pendingJoinAfterForfeit = null;
-  // Keep online link after online match so opponent can still offer/accept rematch from menu.
-  // Destroy only when not in a post-match online session (or transferring to friend lobby).
+  // Free server match binding so "create room" is never blocked by in_match.
+  // Rematch invite can still arrive via presence/challenge path.
+  try {
+    if (typeof MatchClient !== 'undefined') {
+      MatchClient._skipAutoRejoin = true;
+      MatchClient.leaveMatch();
+      MatchClient.freeMatch && MatchClient.freeMatch();
+    }
+  } catch (_) {}
+  try { roomMatchMode = false; window._roomMatchMode = false; } catch (_) {}
   if (!vsActive && !lobbyJoin && !postMatchOnlineEligible) {
     try { destroyMp(); } catch (_) {}
   }
@@ -3709,7 +3903,7 @@ function acceptRematchInvite() {
     rematchIWant = false;
     return;
   }
-  try { mpSend({ type: 'rematch_accept', name: myNickname }); } catch (_) {}
+  try { if (typeof MatchClient !== 'undefined') MatchClient.rematchAccept(); } catch (_) {}
   startRematchMatch();
 }
 function declineRematchInvite() {
@@ -3719,7 +3913,7 @@ function declineRematchInvite() {
     if (roomMatchMode || window._roomMatchMode || (typeof MatchClient !== 'undefined' && MatchClient.matchId)) {
       MatchClient.rematchDecline();
     } else if (mpIsLinked()) {
-      mpSend({ type: 'rematch_decline', name: myNickname });
+      try { if (typeof MatchClient !== 'undefined') MatchClient.rematchDecline(); } catch (_) {}
     }
   } catch (_) {}
   leaveAfterRematchDecline();
@@ -3733,7 +3927,7 @@ document.getElementById('btnRematchDecline')?.addEventListener('click', () => {
 document.getElementById('btnRematchCancel')?.addEventListener('click', () => {
   pendingRematchOfferName = null;
   if (rematchOfferRetryTimer) { clearTimeout(rematchOfferRetryTimer); rematchOfferRetryTimer = null; }
-  try { if (mpIsLinked()) mpSend({ type: 'rematch_decline', name: myNickname }); } catch (_) {}
+  try { if (typeof MatchClient !== 'undefined') MatchClient.rematchDecline(); } catch (_) {}
   leaveAfterRematchDecline();
 });
 document.getElementById('rmBtnAccept')?.addEventListener('click', () => {
@@ -3892,11 +4086,11 @@ document.querySelectorAll('.lobby-dur').forEach(btn => {
         MatchClient.privateDuration(mpLobbyDuration, mpRoomCode);
       }
     } catch (_) {}
-    try { mpSend({ type: 'duration', duration: mpLobbyDuration }); } catch (_) {}
+    try { if (typeof MatchClient !== 'undefined') MatchClient.privateDuration(mpLobbyDuration); } catch (_) {}
     // Changing duration resets ready so both re-confirm
     if (mpReady) {
       mpReady = false;
-      mpSend({ type: 'ready', ready: false });
+      try { if (typeof MatchClient !== 'undefined') MatchClient.privateReady(false); } catch (_) {}
     }
     updateLobbyUI();
   });

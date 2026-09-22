@@ -61,7 +61,9 @@
     _wantQueue: null,
     _pending: [],
     _pingIv: null,
+    lastRtt: null,
     _reconnectTimer: null,
+    _wantClose: false,
     _openWaiters: [],
     _lastPresence: null,
 
@@ -140,6 +142,7 @@
     },
 
     connect() {
+      this._wantClose = false;
       if (this.ws && (this.ws.readyState === 0 || this.ws.readyState === 1)) return;
       const candidates = [];
       try { candidates.push(this.url()); } catch (_) {}
@@ -177,7 +180,7 @@
           try { waiters[i](true); } catch (_) {}
         }
         if (this._pingIv) clearInterval(this._pingIv);
-        this._pingIv = setInterval(() => this.send({ type: 'ping', t: Date.now() }), 8000);
+        this._pingIv = setInterval(() => this.send({ type: 'ping', t: Date.now() }), 4000);
 
         // Flush queue
         const queued = this._pending.splice(0, this._pending.length);
@@ -201,18 +204,26 @@
             }
           }
         } catch (_) {}
-        if (this.matchId && this.token) {
-          console.log('[MatchClient] auto-rejoin', this.matchId);
-          this.send({ type: 'rejoin', matchId: this.matchId, token: this.token });
+        if (this.matchId && this.token && !this._skipAutoRejoin) {
+          const now = Date.now();
+          // Rapid refresh storm: at most 1 auto-rejoin / 2.5s
+          if (!this._lastAutoRejoinAt || (now - this._lastAutoRejoinAt) > 2500) {
+            this._lastAutoRejoinAt = now;
+            console.log('[MatchClient] auto-rejoin', this.matchId);
+            this.send({ type: 'rejoin', matchId: this.matchId, token: this.token });
+          } else {
+            console.log('[MatchClient] auto-rejoin skipped (storm)');
+          }
         } else if (this._wantQueue) {
           this.send(Object.assign({ type: 'join_queue' }, this._wantQueue));
         }
+        this._skipAutoRejoin = false;
       };
       ws.onclose = () => {
         this.connected = false;
         if (this._pingIv) { clearInterval(this._pingIv); this._pingIv = null; }
         this._emit('close', {});
-        this._scheduleReconnect();
+        if (!this._wantClose) this._scheduleReconnect();
       };
       ws.onerror = () => {};
       ws.onmessage = (ev) => {
@@ -221,6 +232,14 @@
         if (!data || !data.type) return;
         if (data.type === 'hello' && data.token) {
           if (!this.matchId) this.token = data.token;
+        }
+        if (data.type === 'pong' && data.t) {
+          const rtt = Math.max(0, Date.now() - (data.t | 0));
+          // Background tab timers inflate RTT to 2–5s — ignore outliers
+          if (rtt <= 900) {
+            this.lastRtt = rtt;
+            try { this._emit('rtt', { rtt }); } catch (_) {}
+          }
         }
         if (data.type === 'match_found' || data.type === 'rejoin_ok') {
           if (data.matchId) this.matchId = data.matchId;
@@ -246,6 +265,15 @@
         }
         this._emit(data.type, data);
       };
+    },
+
+    disconnect() {
+      this._wantClose = true;
+      if (this._reconnectTimer) { clearTimeout(this._reconnectTimer); this._reconnectTimer = null; }
+      if (this._pingIv) { clearInterval(this._pingIv); this._pingIv = null; }
+      try { if (this.ws) this.ws.close(); } catch (_) {}
+      this.ws = null;
+      this.connected = false;
     },
 
     _scheduleReconnect() {
@@ -286,6 +314,10 @@
       this._wantQueue = {
         name: opts.name || 'Игрок',
         trophies: opts.trophies | 0,
+        skinId: opts.skinId || 'default',
+        boardId: opts.boardId || 'field_default',
+        avatarId: opts.avatarId || 'init',
+        avatarCustom: opts.avatarCustom || '',
         duration: opts.duration || 120,
         expandLevel: opts.expandLevel | 0,
         clientId: opts.clientId || null
@@ -322,6 +354,12 @@
         return true;
       }
       return false;
+    },
+    matchReady() {
+      const body = { type: 'match_ready' };
+      if (this.matchId) body.matchId = this.matchId;
+      if (this.token) body.token = this.token;
+      return this.send(body);
     },
     place(payload) {
       const body = Object.assign({ type: 'place' }, payload || {});
@@ -366,7 +404,15 @@
       return this.send(body);
     },
     leaveMatch() {
-      this.send({ type: 'leave_match' });
+      try { this.send({ type: 'leave_match' }); } catch (_) {}
+      try { this.send({ type: 'free_match' }); } catch (_) {}
+      this.matchId = null;
+      this.token = null;
+      this.seat = null;
+      clearMatchCreds();
+    },
+    freeMatch() {
+      try { this.send({ type: 'free_match' }); } catch (_) {}
       this.matchId = null;
       this.token = null;
       this.seat = null;
@@ -380,6 +426,10 @@
         type: 'create_private',
         name: opts.name || 'Игрок',
         trophies: opts.trophies | 0,
+        skinId: opts.skinId || 'default',
+        boardId: opts.boardId || 'field_default',
+        avatarId: opts.avatarId || 'init',
+        avatarCustom: opts.avatarCustom || '',
         duration: opts.duration || 120,
         friendCode: opts.friendCode || null
       });
@@ -392,6 +442,10 @@
         code: String(code || '').toUpperCase().replace(/[^A-Z0-9]/g, ''),
         name: opts.name || 'Игрок',
         trophies: opts.trophies | 0,
+        skinId: opts.skinId || 'default',
+        boardId: opts.boardId || 'field_default',
+        avatarId: opts.avatarId || 'init',
+        avatarCustom: opts.avatarCustom || '',
         friendCode: opts.friendCode || null
       });
     },
@@ -416,6 +470,10 @@
     },
     queryPresence(codes) {
       return this.send({ type: 'presence_query', codes: codes || [] });
+    },
+    /** Search online players by nickname or friend code (server presence). */
+    presenceSearch(q) {
+      return this.send({ type: 'presence_search', q: String(q || '').slice(0, 24) });
     },
     setActivity(activity) {
       if (this._lastPresence) this._lastPresence.activity = activity || 'online';

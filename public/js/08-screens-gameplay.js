@@ -819,14 +819,18 @@ function startClassic(forceNew) {
   updateBoardMetrics(boardEl);
   saveClassicState();
   };
-  // Short prep intro then open board
-  showMatchIntro({
-    label: 'Классика',
-    title: 'Собери поле',
-    sub: forceNew ? 'Новая партия' : 'Продолжение',
-    goText: 'Играй!',
-    ms: 450
-  }).then(run);
+  // Open board immediately — no waiting on intro
+  run();
+  // Optional brief flash (does not block input)
+  try {
+    showMatchIntro({
+      label: 'Классика',
+      title: 'Собери поле',
+      sub: forceNew ? 'Новая партия' : 'Продолжение',
+      goText: 'Играй!',
+      ms: 520
+    });
+  } catch (_) {}
 }
 function updateClassicUI() {
   scoreEl.textContent = score; bestEl.textContent = best; diamondsEl.textContent = diamonds;
@@ -861,20 +865,12 @@ function generatePieces(areaEl) {
     return;
   }
   pieces = [randomPiece(), randomPiece(), randomPiece()];
+  try { window._animateDealIn = true; window._quietPieceRender = false; } catch (_) {}
   renderPieces(areaEl);
   if (mode === 'versus' && vsActive) {
     logDeal('me', pieces);
     if (mpMode) {
-      mpSend({
-        type: 'deal',
-        pieces: pieces.map(p => {
-          let sh = (p.shape || []).map(c => c.slice());
-          try {
-            if (typeof normalize === 'function' && sh.length) sh = normalize(sh.map(c => c.slice()));
-          } catch (_) {}
-          return { shape: sh, color: p.color, used: !!p.used };
-        })
-      });
+      
     }
   }
   if (mode === 'classic') saveClassicState();
@@ -917,9 +913,16 @@ function renderPieces(areaEl) {
   const cellPx = getPieceCellPx(isVs);
   const slotPx = getPieceSlotPx(isVs);
   if (!pieces || !pieces.length) return;
+  const quiet = !!(window._quietPieceRender);
+  const animateIn = !quiet && !!(window._animateDealIn);
   pieces.forEach((p, idx) => {
     const slot = document.createElement('div');
     slot.className = 'piece-slot'; slot.dataset.idx = idx;
+    // Store shape signature so softRender can detect rejoin desync
+    try {
+      const sh = (p.shape || []).map(c => Array.isArray(c) ? (c[0] + ':' + c[1]) : String(c)).join(';');
+      slot.dataset.handSig = (p.used ? 'U' : 'A') + '|' + (p.color || '') + '|' + sh;
+    } catch (_) {}
     if (p.used) { slot.classList.add('used'); areaEl.appendChild(slot); return; }
     slot.style.width = slotPx + 'px';
     slot.style.height = slotPx + 'px';
@@ -942,14 +945,36 @@ function renderPieces(areaEl) {
       gridEl.appendChild(cell);
     }
     slot.appendChild(gridEl); areaEl.appendChild(slot);
-    // Always quiet for online/versus — no pop-in / jump on network hand updates
-    const quiet = true;
-    slot.classList.add('show');
-    slot.style.opacity = '1';
-    slot.style.transform = 'none';
-    slot.style.transition = 'none';
-    try { slot.style.animation = 'none'; } catch (_) {}
+    if (animateIn) {
+      // Smooth short pop-in for new deals (not for quiet network sync)
+      slot.classList.add('deal-in');
+      slot.style.opacity = '0';
+      slot.style.transform = 'scale(0.72) translateY(10px)';
+      const delay = idx * 45;
+      setTimeout(() => {
+        try {
+          slot.classList.add('show');
+          slot.style.opacity = '1';
+          slot.style.transform = 'scale(1) translateY(0)';
+        } catch (_) {}
+      }, 20 + delay);
+      setTimeout(() => {
+        try { slot.classList.remove('deal-in'); } catch (_) {}
+      }, 320 + delay);
+    } else {
+      // Quiet/sync path: no animation, stay interactive
+      slot.classList.add('show');
+      slot.style.opacity = '1';
+      slot.style.transform = 'none';
+      slot.style.transition = 'none';
+      try { slot.style.animation = 'none'; } catch (_) {}
+    }
     const startHandler = e => startDrag(e, idx, areaEl);
+    slot.style.pointerEvents = 'auto';
+    slot.style.touchAction = 'none';
+    try {
+      if (typeof _pieceHandSig === 'function') slot.dataset.handSig = _pieceHandSig(p);
+    } catch (_) {}
     if (window.PointerEvent) {
       slot.addEventListener('pointerdown', startHandler, { passive: false });
     } else {
@@ -957,6 +982,7 @@ function renderPieces(areaEl) {
       slot.addEventListener('mousedown', startHandler, { passive: false });
     }
   });
+  try { window._animateDealIn = false; } catch (_) {}
 }
 function markPieceUsed(idx, areaEl) {
   // Never skip marking used — locks only block NEW input, not finishing a placed piece
@@ -1072,17 +1098,28 @@ function cancelActivePieceDrag() {
   } catch (_) {}
 }
 function startDrag(e, idx, areaEl) {
-  // Room mode: never stay frozen — clear sticky locks unless overlay is actually visible
+  // Always clear sticky locks unless rejoin overlay is actually visible
   try {
-    if (roomMatchMode || window._roomMatchMode) {
-      const ov = document.getElementById('rejoinLoading');
-      const ovOn = ov && ov.classList.contains('show');
-      if (!ovOn) {
-        window._rejoinLoading = false;
-        window._rejoinInputLock = false;
-        if (placingLock && !isDragging) placingLock = false;
-        try { document.body.classList.remove('rejoin-loading'); } catch (_) {}
+    const ov = document.getElementById('rejoinLoading');
+    const ovOn = ov && (ov.classList.contains('show') || ov.classList.contains('visible'));
+    if (!ovOn) {
+      window._rejoinLoading = false;
+      window._rejoinInputLock = false;
+      try { document.body.classList.remove('rejoin-loading'); } catch (_) {}
+      if (ov) {
+        try { ov.classList.remove('show', 'visible'); ov.style.display = 'none'; } catch (_) {}
       }
+    }
+    if (placingLock && !isDragging) placingLock = false;
+    try {
+      if (!document.getElementById('matchEndFreeze')?.classList.contains('visible')) {
+        document.body.classList.remove('match-ending');
+      }
+    } catch (_) {}
+    // Live online match must be interactive
+    if (mode === 'versus' && (mpMode || roomMatchMode || window._roomMatchMode)) {
+      if (!vsActive && !window._matchEnded) vsActive = true;
+      try { vsIntroLock = false; mpMatchStarting = false; mpLoading = false; } catch (_) {}
     }
   } catch (_) {}
   if (window._rejoinLoading || window._rejoinInputLock || placingLock) return;
@@ -1097,8 +1134,7 @@ function startDrag(e, idx, areaEl) {
       playerStuck = false;
       const w = document.getElementById('stuckWait');
       if (w) w.style.display = 'none';
-      if (mpMode) mpSend({ type: 'stuck', stuck: false });
-    } else {
+      } else {
       return; // this specific piece can't place
     }
   }
@@ -1458,6 +1494,104 @@ function tryPlaceAt(x, y, forcedResult) {
   if (!pos || selectedIdx < 0 || !dragPiece) return false;
   const result = (forcedResult && forcedResult.valid) ? forcedResult : findBestPlacement(dragPiece.shape, pos.r, pos.c);
   if (!result.valid) return false;
+
+  const isServerMatch = !!(roomMatchMode || window._roomMatchMode);
+
+  // ——— Server-authoritative place (online room / ranked) ———
+  // Client only sends intent; grid/hand/score come back via place_ok.
+  if (isServerMatch) {
+    placingLock = true;
+    hapticTap(14);
+    SFX.place();
+    const color = dragPiece.color, shape = dragPiece.shape;
+    const placedIdx = selectedIdx;
+    const board = getActiveBoard();
+    let netShape = shape.map(p => p.slice());
+    try {
+      if (typeof normalize === 'function') netShape = normalize(netShape.map(p => p.slice()));
+    } catch (_) {}
+
+    // Soft local preview only (not authoritative). Rollback on place_reject.
+    const _legendNow = document.body.classList.contains('skin-fx-prism');
+    window._pendingServerPlace = {
+      pieceIdx: placedIdx,
+      r: result.baseR,
+      c: result.baseC,
+      shape: netShape.map(c => c.slice()),
+      color,
+      gridBefore: grid.map(row => row.slice()),
+      piecesBefore: (pieces || []).map(p => ({
+        shape: (p.shape || []).map(c => Array.isArray(c) ? c.slice() : c),
+        color: p.color,
+        used: !!p.used
+      })),
+      scoreBefore: score | 0,
+      legendFx: !!_legendNow,
+      skinId: _legendNow ? (document.body.dataset.skinId || (typeof equippedSkinId !== 'undefined' ? equippedSkinId : null)) : null
+    };
+    try {
+      for (const [dr, dc] of shape) {
+        const cell = board && board.children[(result.baseR + dr) * SIZE + (result.baseC + dc)];
+        if (!cell) continue;
+        cell.classList.remove('preview-ok', 'preview-bad');
+        paintCellColor(cell, color);
+        cell.classList.add('filled', 'placing');
+      }
+      if (pieces[placedIdx]) pieces[placedIdx].used = true;
+      selectedIdx = -1;
+      isDragging = false;
+      dragPiece = null;
+      try { markPieceUsed(placedIdx, getActivePiecesArea()); } catch (_) {}
+      // Legendary place sparks for the local player (online path used to skip these)
+      try {
+        const isLegendPlace = document.body.classList.contains('skin-fx-prism');
+        if (isLegendPlace && typeof spawnLegendSparks === 'function' && board) {
+          const wrap = board.parentElement;
+          const maxR = Math.max(...shape.map(s => s[0]));
+          const maxC = Math.max(...shape.map(s => s[1]));
+          const cell0 = board.children[result.baseR * SIZE + result.baseC];
+          let origin = null;
+          if (cell0 && wrap) {
+            const cr = cell0.getBoundingClientRect();
+            const wr = wrap.getBoundingClientRect();
+            origin = {
+              left: cr.left - wr.left + cr.width * (0.5 + maxC / 2),
+              top: cr.top - wr.top + cr.height * (0.5 + maxR / 2)
+            };
+          }
+          spawnLegendSparks(wrap, 6 + shape.length, document.body.dataset.skinId || equippedSkinId, origin);
+        }
+      } catch (_) {}
+    } catch (_) {}
+
+    try {
+      roomSendPlace({
+        shape: netShape,
+        color,
+        r: result.baseR,
+        c: result.baseC,
+        pieceIdx: placedIdx
+        // NO score/grid/pieces — server is sole authority
+      });
+    } catch (e) {
+      console.warn('roomSendPlace', e);
+      try { rollbackPendingServerPlace(); } catch (_) {}
+      placingLock = false;
+      return false;
+    }
+    // Safety unlock if server never answers
+    try {
+      if (window._pendingPlaceTimer) clearTimeout(window._pendingPlaceTimer);
+      window._pendingPlaceTimer = setTimeout(() => {
+        if (window._pendingServerPlace) {
+          try { MatchClient && MatchClient.sync && MatchClient.sync({}); } catch (_) {}
+        }
+        placingLock = false;
+      }, 4000);
+    } catch (_) {}
+    return true;
+  }
+
   placingLock = true;
   hapticTap(14);
   SFX.place();
@@ -1549,46 +1683,14 @@ function tryPlaceAt(x, y, forcedResult) {
     document.getElementById('myScore').textContent = score;
     try { if (typeof noteMyAction === 'function') noteMyAction(); } catch (_) {}
     try { persistLiveMatch(); } catch (_) {}
-    if (roomMatchMode || window._roomMatchMode) {
+    // Online room path already sent intent above and returned.
+    // Bots / offline still use local state only.
+    if (false && mpMode) {
       let netShape = shape.map(p => p.slice());
       try {
         if (typeof normalize === 'function') netShape = normalize(netShape.map(p => p.slice()));
       } catch (_) {}
-      try {
-        roomSendPlace({
-          shape: netShape,
-          color,
-          r: result.baseR,
-          c: result.baseC,
-          score,
-          placePts,
-          pieceIdx: (typeof placedIdx === 'number' && placedIdx >= 0) ? placedIdx : -1,
-          grid: grid,
-          pieces: pieces
-        });
-      } catch (_) {}
-    }
-    if (mpMode) {
-      let netShape = shape.map(p => p.slice());
-      try {
-        if (typeof normalize === 'function') netShape = normalize(netShape.map(p => p.slice()));
-      } catch (_) {}
-      mpSend({
-        type: 'place',
-        shape: netShape,
-        color,
-        r: result.baseR,
-        c: result.baseC,
-        score,
-        placePts,
-        // Exact tray index — opponent must not guess by shape (fixes broken opp tray / replay)
-        pieceIdx: (typeof placedIdx === 'number' && placedIdx >= 0) ? placedIdx : -1,
-        // Opponent must know our field for matching clear FX
-        boardId: equippedBoardId || null,
-        // So opponent sees legendary place sparks on their screen
-        legendFx: !!isLegendPlace,
-        skinId: isLegendPlace ? (document.body.dataset.skinId || equippedSkinId || null) : null
-      });
+      
     }
     if (aiStuck && score > oppScore) { endVersus(); return true; }
   } else updateClassicUI();
@@ -1669,17 +1771,8 @@ function tryPlaceAt(x, y, forcedResult) {
           }
         }
         if (mpMode) {
-          mpSend({ type: 'score', score });
-          mpSend({
-            type: 'clear_fx',
-            cleared,
-            chain: clearChain,
-            bonus,
-            baseBonus,
-            chainExtra,
-            rows: clearInfo.rows,
-            cols: clearInfo.cols
-          });
+          
+          
         }
         if (aiStuck && score > oppScore) { placingLock = false; endVersus(); return; }
       } else updateClassicUI();

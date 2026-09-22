@@ -1,38 +1,14 @@
 /**
- * Block Puzzle — 06-peer-liveness.js
- * Pre-start / empty-match peer liveness and lobby HUD
+ * Block Puzzle — 06-match-liveness.js (filename legacy)
+ * AFK, disconnect wait, rematch UI, private room create/join (MatchClient)
  * Shares global scope with other public/js/*.js modules (no bundler).
  */
 'use strict';
 
-// —— Pre-start / empty-match peer liveness ——
-// server "close" is delayed (esp. Opera); socket may stay "connected" after remote tab kill.
-// Rely on: dataChannel.readyState, ping/pong misses, ICE events, and hard close.
-let _emptyPeerWatchIv = null;
+// Pre-start disconnect helpers (server-authoritative rooms; server path only)
 let _lastOppPrestartAt = 0;
-let _emptyPeerWatchStartedAt = 0;
-let _prestartPingMiss = 0;
-let _prestartAwaitPongUntil = 0;
-let _emptyPcListenersBound = null;
 
-function stopEmptyMatchPeerWatch() {
-  if (_emptyPeerWatchIv) {
-    try { clearInterval(_emptyPeerWatchIv); } catch (_) {}
-    _emptyPeerWatchIv = null;
-  }
-  _prestartPingMiss = 0;
-  _prestartAwaitPongUntil = 0;
-  try {
-    const pc = _emptyPcListenersBound;
-    if (pc && pc._bpEmptyHandlers) {
-      const h = pc._bpEmptyHandlers;
-      try { pc.removeEventListener('iceconnectionstatechange', h.ice); } catch (_) {}
-      try { pc.removeEventListener('connectionstatechange', h.conn); } catch (_) {}
-      try { delete pc._bpEmptyHandlers; } catch (_) {}
-    }
-  } catch (_) {}
-  _emptyPcListenersBound = null;
-}
+
 
 function noMovesYet() {
   try {
@@ -47,6 +23,17 @@ function noMovesYet() {
 
 /** Hard cancel: empty/pre-move disconnect. Bypasses soft guards that fail in Opera. */
 function forceCancelPreMoveMatch(reason) {
+  // Server live match: never locally cancel — wait for match_end
+  try {
+    if (typeof MatchClient !== 'undefined' && MatchClient.matchId
+        && (roomMatchMode || window._roomMatchMode || vsActive)
+        && !window._matchEnded) {
+      // Only allow cancel if truly zero places on server perspective is unknown —
+      // still don't end with 0:0 UI; sync and wait
+      try { MatchClient.sync && MatchClient.sync({}); } catch (_) {}
+      return;
+    }
+  } catch (_) {}
   // Allow re-entry if previous cancel left UI stuck (Opera)
   try {
     if (window._forceCancelPreMoveLock) {
@@ -99,7 +86,7 @@ function forceCancelPreMoveMatch(reason) {
 
   try {
     if (false) {
-      try { mpSend({ type: 'match_load_abort', reason: 'opp_left_before_start' }); } catch (_) {}
+      
     }
   } catch (_) {}
   try { destroyMp(); } catch (_) {}
@@ -140,160 +127,15 @@ function forceCancelPreMoveMatch(reason) {
   window._forceCancelPreMoveLock = false;
 }
 
-function _forceAbortEmptyPeer(reason) {
-  try {
-    forceCancelPreMoveMatch(reason || 'Соперник отключился до начала матча');
-  } catch (_) {
-    try { abortPreMatchMissingPeer(reason || 'Соперник отключился до начала матча'); } catch (_2) {}
-  }
-}
 
-function _isEmptyPreStartContext() {
-  try {
-    // Even if flags are half-cleared, empty versus screen must still be watched
-    const loading = !!(typeof isMatchLoadActive === 'function' && isMatchLoadActive())
-      || !!mpLoading || !!vsIntroLock || !!mpMatchStarting;
-    const empty = (typeof noMovesYet === 'function')
-      ? noMovesYet()
-      : (typeof isEmptyMatchNoMoves === 'function' && isEmptyMatchNoMoves());
-    if (loading) return true;
-    if (vsActive && empty) return true;
-    try {
-      const vs = document.getElementById('screenVersus');
-      if (vs && vs.classList.contains('active') && empty) return true;
-    } catch (_) {}
-    if (empty && (mode === 'versus' || !!mpFromMatchmaking)) return true;
-    return false;
-  } catch (_) {
-    return false;
-  }
-}
 
-function _peerLinkLooksDead() {
-  try {
-    if (!mpConn) return true;
-    if (!mpConn.open) return true;
-    // server 1.5.x exposes socket as .dataChannel (Opera often closes this first)
-    const dc = mpConn.dataChannel || mpConn._dc || null;
-    if (dc) {
-      const rs = String(dc.readyState || '');
-      if (rs === 'closed' || rs === 'closing') return true;
-    }
-    const pc = mpConn.peerConnection;
-    if (pc) {
-      const ice = String(pc.iceConnectionState || '');
-      const cs = String(pc.connectionState || '');
-      if (ice === 'failed' || ice === 'closed' || cs === 'failed' || cs === 'closed') return true;
-    }
-  } catch (_) {}
-  return false;
-}
 
-function _bindEmptyPcListeners() {
-  try {
-    if (!mpConn) return;
-    // DataChannel close (Opera: often the only early signal)
-    try {
-      const dc = mpConn.dataChannel || mpConn._dc;
-      if (dc && !dc._bpEmptyCloseWatch) {
-        dc._bpEmptyCloseWatch = true;
-        dc.addEventListener('close', () => {
-          try {
-            if (noMovesYet() && !window._matchEnded) {
-              _forceAbortEmptyPeer('Соперник отключился до начала матча');
-            }
-          } catch (_) {}
-        });
-      }
-    } catch (_) {}
-    if (!mpConn.peerConnection) return;
-    const pc = mpConn.peerConnection;
-    if (pc._bpEmptyHandlers) return;
-    const onBad = () => {
-      try {
-        if (!noMovesYet() && !_isEmptyPreStartContext()) return;
-        const ice = String(pc.iceConnectionState || '');
-        const cs = String(pc.connectionState || '');
-        if (ice === 'failed' || ice === 'closed' || cs === 'failed' || cs === 'closed') {
-          _forceAbortEmptyPeer('Соперник отключился до начала матча');
-          return;
-        }
-        // Opera: "disconnected" can stick — abort empty match quickly
-        if ((ice === 'disconnected' || cs === 'disconnected')) {
-          setTimeout(() => {
-            try {
-              if (!noMovesYet()) return;
-              if (_peerLinkLooksDead() || String(pc.iceConnectionState || '') === 'disconnected'
-                || String(pc.connectionState || '') === 'disconnected') {
-                _forceAbortEmptyPeer('Соперник отключился до начала матча');
-              }
-            } catch (_) {}
-          }, 800);
-        }
-      } catch (_) {}
-    };
-    pc._bpEmptyHandlers = { ice: onBad, conn: onBad };
-    try { pc.addEventListener('iceconnectionstatechange', onBad); } catch (_) {}
-    try { pc.addEventListener('connectionstatechange', onBad); } catch (_) {}
-    _emptyPcListenersBound = pc;
-  } catch (_) {}
-}
 
-function startEmptyMatchPeerWatch() {
-  stopEmptyMatchPeerWatch();
-  _emptyPeerWatchStartedAt = Date.now();
-  _lastOppPrestartAt = Date.now();
-  _prestartPingMiss = 0;
-  _prestartAwaitPongUntil = 0;
-  try { _bindEmptyPcListeners(); } catch (_) {}
-  _emptyPeerWatchIv = setInterval(() => {
-    try {
-      if (!_isEmptyPreStartContext()) {
-        // Real gameplay with moves — stop
-        try {
-          const empty = (typeof noMovesYet === 'function') ? noMovesYet() : false;
-          if (!empty) stopEmptyMatchPeerWatch();
-        } catch (_) { stopEmptyMatchPeerWatch(); }
-        return;
-      }
 
-      const now = Date.now();
-      const age = now - _emptyPeerWatchStartedAt;
 
-      // Dead link (dataChannel/ICE/open) — Opera often hits this before "close"
-      if (age > 500 && _peerLinkLooksDead()) {
-        _forceAbortEmptyPeer('Соперник отключился до начала матча');
-        return;
-      }
 
-      // Ping/pong: require answer; 2 misses (~2s) → abort (works when ICE stays "connected")
-      if (false) {
-        if (_prestartAwaitPongUntil && now > _prestartAwaitPongUntil) {
-          _prestartPingMiss++;
-          _prestartAwaitPongUntil = 0;
-          if (_prestartPingMiss >= 2 && age > 1500) {
-            _forceAbortEmptyPeer('Соперник отключился до начала матча');
-            return;
-          }
-        }
-        if (!_prestartAwaitPongUntil) {
-          try {
-            mpSend({ type: 'prestart_ping', t: now, needPong: true });
-            _prestartAwaitPongUntil = now + 1000;
-          } catch (_) {}
-        }
-      } else if (age > 600) {
-        _forceAbortEmptyPeer('Соперник отключился до начала матча');
-        return;
-      }
 
-      // Absolute silence fallback
-      if (age > 3500 && (now - _lastOppPrestartAt) > 3000) {
-        _forceAbortEmptyPeer('Соперник отключился до начала матча');
-      }
-    } catch (_) {}
-  }, 300);
-}
+
 
 
 function markRejoinCalm(ms) {
@@ -401,24 +243,28 @@ function noteMyAction() {
   lastMyActionTs = Date.now();
   try { window._matchHadAnyPlace = true; } catch (_) {}
   try { stopEmptyMatchPeerWatch(); } catch (_) {}
+  // Only clear MY AFK / need-move — opponent AFK must keep showing
   if (afkBannerKind === 'me') {
     afkBannerKind = null;
-    hideDisconnectBanner();
+    try { dismissStatusToast('afk-me'); } catch (_) {}
     hideBoardDisconnectOverlay('me');
   }
+  try { dismissStatusToast('need-move'); } catch (_) {}
 }
 function noteOppAction() {
   lastOppActionTs = Date.now();
   try { window._matchHadAnyPlace = true; } catch (_) {}
   try { stopEmptyMatchPeerWatch(); } catch (_) {}
-  // Real move ends disconnect / AFK wait
+  // Real move ends disconnect wait for opponent
   if (oppDisconnected || dcDeadlineTs) {
     clearDisconnectTimer();
   }
+  // Only clear OPP AFK — my AFK must keep showing until I place
   if (afkBannerKind === 'opp') {
     afkBannerKind = null;
-    hideDisconnectBanner();
+    try { dismissStatusToast('afk'); } catch (_) {}
   }
+  try { dismissStatusToast('need-move-opp'); } catch (_) {}
 }
 
 function startAfkWatch() {
@@ -435,7 +281,7 @@ function startAfkWatch() {
       try {
         if (window._matchEnded || !vsActive || !mpMode) return;
         if (false) {
-          mpSend({ type: 'keepalive', t: Date.now() });
+          
         }
         // Persist often so refresh can auto-rejoin
         try { persistLiveMatch(); } catch (_) {}
@@ -445,19 +291,9 @@ function startAfkWatch() {
   afkCheckTimer = setInterval(() => {
     if (window._matchEnded || !vsActive || !mpMode || replayMode) return;
     try { ensurePlayableIfLive(); } catch (_) {}
-    // Server-room mode: peer is MatchClient, not server — never treat missing mpConn as AFK
+    // Server-room mode: peer is MatchClient, not server — never treat missing null as AFK
     if (roomMatchMode || window._roomMatchMode) {
-      // Soft idle only if truly no place_ok for a very long time (3 min)
-      const nowR = Date.now();
-      const myIdleR = nowR - (lastMyActionTs || nowR);
-      if (myIdleR > 180000 && !playerStuck) {
-        // still only warn via banner, do not force loss from AFK in room mode
-        try {
-          if (myIdleR > 180000 && myIdleR < 181000) {
-            showDisconnectBanner(30, 'afk-me');
-          }
-        } catch (_) {}
-      }
+      // Server owns AFK entirely — client only renders afk_warn events
       return;
     }
     // While opponent is offline / reconnecting, do not AFK-punish either side
@@ -521,7 +357,8 @@ function startAfkWatch() {
       return;
     }
 
-    // Bottom AFK warnings (not center). Skip if disconnect overlay is primary.
+    // Bottom AFK warnings. Skip if disconnect overlay is primary.
+    // Stuck / no moves is NOT AFK — freeze clocks already applied above.
     if (!oppDisconnected) {
       if (!oppNoMoves && oppIdle >= AFK_WARN_MS && oppAfkLimit > AFK_WARN_MS) {
         afkBannerKind = 'opp';
@@ -530,12 +367,16 @@ function startAfkWatch() {
       } else if (!myNoMoves && myIdle >= AFK_WARN_MS && myAfkLimit > AFK_WARN_MS) {
         afkBannerKind = 'me';
         const left = Math.ceil((myAfkLimit - myIdle) / 1000);
-        // Only bottom banner — board stays fully visible (player may be thinking)
         showDisconnectBanner(Math.max(1, left), 'afk-me');
         try { hideBoardDisconnectOverlay('me'); } catch (_) {}
-      } else if (afkBannerKind && (myNoMoves || oppNoMoves || (oppIdle < AFK_WARN_MS && myIdle < AFK_WARN_MS))) {
+      } else if (afkBannerKind === 'opp' && (oppNoMoves || oppIdle < AFK_WARN_MS)) {
+        // Opp stuck / moved — clear only opp AFK (keep stack toasts)
         afkBannerKind = null;
-        hideDisconnectBanner();
+        try { dismissStatusToast('afk'); } catch (_) {}
+      } else if (afkBannerKind === 'me' && (myNoMoves || myIdle < AFK_WARN_MS)) {
+        // Me stuck or I moved — clear only my AFK
+        afkBannerKind = null;
+        try { dismissStatusToast('afk-me'); } catch (_) {}
         try { hideBoardDisconnectOverlay('me'); } catch (_) {}
       }
     }
@@ -554,6 +395,46 @@ function stopAfkWatch() {
     }
   } catch (_) {}
 }
+
+
+/** Watchdog: sticky rejoin-loading / match-ending / locks freeze the tray. */
+function ensurePiecesInteractive() {
+  try {
+    if (!vsActive || window._matchEnded) return;
+    if (typeof isDragging !== 'undefined' && isDragging) return;
+    const ov = document.getElementById('rejoinLoading');
+    const ovOn = ov && (ov.classList.contains('show') || ov.classList.contains('visible'));
+    if (!ovOn) {
+      window._rejoinLoading = false;
+      window._rejoinInputLock = false;
+      document.body.classList.remove('rejoin-loading');
+    }
+    const mef = document.getElementById('matchEndFreeze');
+    if (!mef || !mef.classList.contains('visible')) {
+      document.body.classList.remove('match-ending');
+    }
+    if (typeof placingLock !== 'undefined' && placingLock) placingLock = false;
+    try { vsIntroLock = false; mpMatchStarting = false; mpLoading = false; } catch (_) {}
+    // Ensure slots accept input and look normal (not dimmed)
+    const area = document.getElementById('piecesAreaVs');
+    if (area) {
+      area.style.opacity = '1';
+      area.style.filter = 'none';
+      area.querySelectorAll('.piece-slot:not(.used)').forEach(s => {
+        s.style.pointerEvents = 'auto';
+        s.style.opacity = '1';
+        s.style.filter = 'none';
+        s.classList.add('show');
+        s.classList.remove('lifting');
+      });
+    }
+  } catch (_) {}
+}
+try {
+  if (!window._pieceInteractIv) {
+    window._pieceInteractIv = setInterval(ensurePiecesInteractive, 1500);
+  }
+} catch (_) {}
 
 function updateVersusNameLabels() {
   const nick = (typeof myNickname === 'string' && myNickname.trim()) ? myNickname.trim() : 'Гость';
@@ -575,34 +456,96 @@ function updateVersusNameLabels() {
   }
   const opp = document.getElementById('oppName');
   if (!opp) return;
-  if (currentBot && !mpMode) {
-    // bot path: keep bot avatar HTML if already set; ensure cups visible
+
+  const isOnline = !!(mpMode || roomMatchMode || window._roomMatchMode || vsModeType === 'online');
+  // Online always paints human opponent — never keep leftover bot avatar/name
+  if (!isOnline && currentBot) {
+    // bot path: leave bot-specific HTML (painted by bot start)
     return;
   }
+
   const nm = (oppName || mpOppName || 'Соперник').toString().slice(0, 20);
   let cups = null;
-  if (typeof mpOppTrophies === 'number') cups = mpOppTrophies;
-  else if (currentBot && typeof currentBot.trophies === 'number') cups = currentBot.trophies;
-  const avId = window.mpOppAvatarId || 'init';
+  if (isOnline && typeof mpOppTrophies === 'number') cups = mpOppTrophies;
+  else if (!isOnline && currentBot && typeof currentBot.trophies === 'number') cups = currentBot.trophies;
+  else if (typeof mpOppTrophies === 'number') cups = mpOppTrophies;
+
+  const avId = (isOnline ? (window.mpOppAvatarId || null) : null) || window.mpOppAvatarId || 'init';
   opp.classList.add('vs-opp-name', 'name');
   opp.innerHTML =
     '<span class="vs-opp-av" id="vsOppAv"></span>' +
     '<span class="vs-opp-nick" id="vsOppNick"></span>' +
     (cups != null
-      ? '<span style="opacity:0.9;font-weight:700;font-size:0.72rem;margin-left:2px;color:var(--trophy);white-space:nowrap;flex-shrink:0">🏆 ' + cups + '</span>'
+      ? '<span class="vs-opp-cups" style="opacity:0.9;font-weight:700;font-size:0.72rem;margin-left:2px;color:var(--trophy);white-space:nowrap;flex-shrink:0">🏆 ' + cups + '</span>'
       : '');
   const on = document.getElementById('vsOppNick');
   if (on) on.textContent = nm;
   const oa = document.getElementById('vsOppAv');
   if (oa) {
-    try { renderAvatarInto(oa, { avatarId: avId, nick: nm }); }
-    catch (_) { oa.textContent = (nm[0] || '?').toUpperCase(); }
+    try {
+      if (isOnline) {
+        renderAvatarInto(oa, {
+          avatarId: window.mpOppAvatarId || 'init',
+          nick: nm,
+          custom: window.mpOppAvatarCustom || null
+        });
+      } else {
+        renderAvatarInto(oa, { avatarId: avId, nick: nm });
+      }
+    } catch (_) { oa.textContent = (nm[0] || '?').toUpperCase(); }
   }
 }
 
+/** Clear bot match residue before online / ranked / private match. */
+function clearBotMatchResidue() {
+  try { currentBot = null; } catch (_) {}
+  try { document.body.classList.remove('vs-bots'); } catch (_) {}
+  try {
+    if (aiInterval) { clearInterval(aiInterval); aiInterval = null; }
+  } catch (_) {}
+  try { aiBusy = false; aiStuck = false; } catch (_) {}
+  try {
+    const speech = document.querySelector('.bot-speech');
+    if (speech) speech.classList.remove('visible');
+  } catch (_) {}
+  try {
+    const ghost = document.getElementById('aiGhost');
+    if (ghost) { ghost.style.display = 'none'; ghost.innerHTML = ''; }
+  } catch (_) {}
+  try { window.mpOppAvatarId = null; window.mpOppAvatarCustom = null; } catch (_) {}
+}
+
+
+/** Bring back the post-match result overlay after a declined / cancelled rematch. */
+function restorePostMatchResultUI() {
+  try {
+    // Do not yank user back if a new match already started
+    if (vsActive && !window._matchEnded && !rematchPending) return;
+    // Prefer staying in post-match context (versus screen)
+    try {
+      const vs = document.getElementById('screenVersus');
+      const onVersus = !!(vs && vs.classList.contains('active'));
+      if (!onVersus && typeof showScreen === 'function') showScreen('versus');
+    } catch (_) {
+      try { if (typeof showScreen === 'function') showScreen('versus'); } catch (_2) {}
+    }
+    const vr = document.getElementById('versusResult');
+    if (vr) {
+      vr.classList.add('visible');
+      try {
+        vr.style.display = '';
+        vr.style.pointerEvents = '';
+        vr.style.opacity = '';
+        vr.style.visibility = '';
+      } catch (_) {}
+      vr.setAttribute('aria-hidden', 'false');
+    }
+    try { updateRematchButtonState && updateRematchButtonState(); } catch (_) {}
+  } catch (_) {}
+}
 
 function leaveAfterRematchDecline(msg) {
-  // Only dismiss rematch UI — result modal / field review stay open
+  // Dismiss rematch wait/offer and return to result window
   rematchPending = false;
   rematchIWant = false;
   rematchTheyWant = false;
@@ -617,11 +560,13 @@ function leaveAfterRematchDecline(msg) {
     }, 280);
   });
   try { hideRmToast(true); } catch (_) {}
-  // if neither visible, still clear
   setTimeout(() => {
     hideRematchOffer();
     hideRematchWait();
-  }, 300);
+    try { restorePostMatchResultUI(); } catch (_) {}
+  }, 280);
+  // Also restore immediately so result is never blank
+  try { restorePostMatchResultUI(); } catch (_) {}
   if (msg) {
     try { showInfoToast('Реванш', msg, 'bad'); } catch (_) {}
   }
@@ -631,6 +576,22 @@ function leaveAfterRematchDecline(msg) {
 let rematchClickCount = 0;
 const REMATCH_MAX_CLICKS = 2;
 
+function updateRematchButtonState() {
+  const btnR = document.getElementById('btnVsRematch');
+  if (!btnR) return;
+  if (rematchClickCount >= REMATCH_MAX_CLICKS) {
+    btnR.disabled = true;
+    btnR.style.opacity = '0.45';
+    btnR.style.pointerEvents = 'none';
+    btnR.textContent = 'Реванш (лимит)';
+  } else {
+    btnR.disabled = false;
+    btnR.style.opacity = '';
+    btnR.style.pointerEvents = '';
+    if (btnR.textContent === 'Реванш (лимит)') btnR.textContent = 'Реванш';
+  }
+}
+
 function configurePostMatchButtons() {
   const btnR = document.getElementById('btnVsRematch');
   const btnA = document.getElementById('btnVsAgain');
@@ -639,6 +600,7 @@ function configurePostMatchButtons() {
   rematchClickCount = 0;
   btnR.disabled = false;
   btnR.style.opacity = '';
+  btnR.style.pointerEvents = '';
   // Online match: always offer «Реванш» while post-match session is eligible
   // (even if peer briefly disconnected — requestRematch checks live link)
   const ranked = !!(
@@ -669,6 +631,7 @@ function configurePostMatchButtons() {
     btnA.style.display = '';
     btnA.textContent = 'Ещё матч';
   }
+  try { updateRematchButtonState(); } catch (_) {}
 }
 
 function isScoreDuelVisible() {
@@ -701,113 +664,26 @@ const REMATCH_TOAST_SEC = 15;
 let rematchProbeResolve = null;
 let rematchProbeBusy = false;
 
-function noteMpRemoteId(conn) {
-  return;
-}
 
-/** Wire data/close for an already-open match connection (MM or room). */
-function wireMpConnLifetime(conn) {
-  if (!conn || conn._bpRematchWired) return;
-  conn._bpRematchWired = true;
-  noteMpRemoteId(conn);
-  conn.on('data', (data) => {
-    try { mpOppConnected = true; } catch (_) {}
-    /* p2p removed */
-  });
-  conn.on('close', () => {
-    try {
-      if (mpConn === conn) {
-        mpOppConnected = false;
-      }
-    } catch (_) {}
-    // No moves yet → hard cancel (Opera often only gets close, without data msgs)
-    try {
-      if (mpMode && noMovesYet() && !window._matchEnded) {
-        forceCancelPreMoveMatch('Соперник отключился до начала матча');
-        return;
-      }
-    } catch (_) {}
-    // Opponent intentionally left for a fresh ranked queue — never treat as pre-start abort
-    let peerChoseSearch = false;
-    try {
-      peerChoseSearch = !!(window._leftForRankedSearch
-        && (Date.now() - window._leftForRankedSearch) < 15000);
-    } catch (_) {}
-    let onResultScreen = false;
-    try {
-      const vr = document.getElementById('versusResult');
-      onResultScreen = !!(vr && vr.classList.contains('visible'));
-    } catch (_) {}
-    if (vsActive && mpMode) {
-      try { handleOpponentDisconnect(); } catch (_) {}
-    } else if (peerChoseSearch || onResultScreen) {
-      // Soft: peer left post-match / for new search — stay on result/menu
-      try {
-        hideRematchWait();
-        rematchPending = false;
-        rematchIWant = false;
-        vsIntroLock = false;
-        mpLoading = false;
-        mpMatchStarting = false;
-        clearMatchLoadState();
-      } catch (_) {}
-    } else if (mpMode && !vsActive && !postMatchOnlineEligible
-      && (isMatchLoadActive() || !!vsIntroLock || !!mpLoading || !!mmFound)) {
-      try { forceCancelPreMoveMatch('Соперник отключился до начала матча'); } catch (_) {}
-    } else if (postMatchOnlineEligible && !vsActive) {
-      try {
-        hideRematchWait();
-        rematchPending = false;
-        rematchIWant = false;
-      } catch (_) {}
-    }
-  });
-  // Opera: connection often dies before server "close"
-  try {
-    const attachDc = () => {
-      try {
-        const dc = conn.dataChannel || conn._dc;
-        if (!dc || dc._bpEmptyClose) return;
-        dc._bpEmptyClose = true;
-        dc.addEventListener('close', () => {
-          try {
-            if (mpMode && noMovesYet() && !window._matchEnded) {
-              forceCancelPreMoveMatch('Соперник отключился до начала матча');
-            }
-          } catch (_) {}
-        });
-      } catch (_) {}
-    };
-    attachDc();
-    // dataChannel may appear slightly after open
-    setTimeout(attachDc, 200);
-    setTimeout(attachDc, 800);
-  } catch (_) {}
-  try {
-    if (conn.open) mpOppConnected = true;
-  } catch (_) {}
-}
+
+
 
 /** Host: accept post-match reconnects on the existing peer. */
-function ensurePostMatchHostAccept() {
-  return;
-}
+
 
 /**
  * Ensure online link is alive before rematch probe.
  * If the connection dropped but both peers are still in the game, reconnect.
  */
-function ensurePostMatchLink(timeoutMs) {
-  return Promise.resolve(false);
-}
+
 
     /** True if local player cannot accept a rematch right now.
  *  Busy ONLY when: searching for a match, in a live battle, in a room lobby,
  *  or training vs bots. Result screen / menu / shop / etc. = free. */
 function isRematchBusyLocal() {
   try {
-    // 1) Live battle (online or vs bots)
-    if (vsActive) return true;
+    // 1) Live battle only (not post-match result / ended)
+    if (typeof isReallyInLiveMatch === 'function' ? isReallyInLiveMatch() : (vsActive && !window._matchEnded)) return true;
 
     // 2) Searching for a fight (ranked matchmaking)
     if (typeof mmActive !== 'undefined' && mmActive) return true;
@@ -841,6 +717,18 @@ function isRematchBusyLocal() {
 }
 
 function probeOpponentForRematch(timeoutMs) {
+  // Server-authoritative: if we still hold match credentials and socket is open, peer is reachable via room
+  try {
+    if (typeof MatchClient !== 'undefined' && MatchClient.matchId && MatchClient.connected) {
+      return Promise.resolve({ ok: true, offline: false, busy: false });
+    }
+    const creds = (typeof loadMatchCreds === 'function') ? null : null;
+  } catch (_) {}
+  try {
+    if (typeof MatchClient !== 'undefined' && MatchClient.connected) {
+      return Promise.resolve({ ok: true, offline: false, busy: false });
+    }
+  } catch (_) {}
   return Promise.resolve({ ok: false, offline: true });
 }
 
@@ -898,7 +786,10 @@ function showRmToast(fromName) {
     if (pendingRematchOfferName || rematchTheyWant) {
       pendingRematchOfferName = null;
       try {
-        if (mpIsLinked()) mpSend({ type: 'rematch_decline', name: myNickname, reason: 'timeout' });
+        if (roomMatchMode || window._roomMatchMode) {
+          if (typeof MatchClient !== 'undefined' && MatchClient.rematchDecline)
+            MatchClient.rematchDecline();
+        }
       } catch (_) {}
       rematchTheyWant = false;
     }
@@ -935,129 +826,68 @@ function hideRematchWait() {
 }
 async function requestRematch() {
   // Bot rematch: restart same bot immediately (no network)
-  if (vsModeType === 'bots' || (currentBot && !(mpMode && (roomMatchMode || false /* p2p */)))) {
-    document.getElementById('versusResult').classList.remove('visible');
-    document.getElementById('reviewBar').classList.remove('visible');
+  if (vsModeType === 'bots' || (currentBot && !(mpMode && roomMatchMode))) {
+    try { document.getElementById('versusResult').classList.remove('visible'); } catch (_) {}
+    try { document.getElementById('reviewBar').classList.remove('visible'); } catch (_) {}
     hideRematchOffer();
     hideRematchWait();
     beginVersusMatch();
     return;
   }
-  // Server room rematch
-  if (roomMatchMode || window._roomMatchMode || (typeof MatchClient !== 'undefined' && MatchClient.matchId)) {
-    if (rematchClickCount >= REMATCH_MAX_CLICKS) return;
-    rematchClickCount++;
-    rematchIWant = true;
-    rematchPending = true;
-    try {
-      document.getElementById('versusResult').classList.remove('visible');
-      document.getElementById('reviewBar').classList.remove('visible');
-    } catch (_) {}
-    try { hideRematchOffer(); } catch (_) {}
-    try { showRematchWait && showRematchWait(); } catch (_) {}
-    try { setMpStatus('Ожидаем реванш…'); } catch (_) {}
-    try {
+  // Restore match credentials from storage (endVersus / UI may have cleared roomMatchMode only)
+  try {
+    if (typeof MatchClient !== 'undefined' && !MatchClient.matchId) {
+      const mid = sessionStorage.getItem('bp_match_id') || localStorage.getItem('bp_match_id');
+      const tok = sessionStorage.getItem('bp_match_token') || localStorage.getItem('bp_match_token');
+      const seat = sessionStorage.getItem('bp_match_seat') || localStorage.getItem('bp_match_seat');
+      if (mid && tok) {
+        MatchClient.matchId = mid;
+        MatchClient.token = tok;
+        if (seat) MatchClient.seat = seat;
+      }
+    }
+  } catch (_) {}
+
+  const hasRoom = !!(roomMatchMode || window._roomMatchMode
+    || (typeof MatchClient !== 'undefined' && MatchClient.matchId));
+  if (!hasRoom) {
+    try { showInfoToast('Реванш', 'Соперник не в сети', 'bad'); } catch (_) {}
+    return;
+  }
+  if (rematchClickCount >= REMATCH_MAX_CLICKS) {
+    try { updateRematchButtonState(); } catch (_) {}
+    try { showInfoToast('Реванш', 'Лимит запросов (2)', 'bad'); } catch (_) {}
+    return;
+  }
+  rematchClickCount++;
+  try { updateRematchButtonState(); } catch (_) {}
+  rematchIWant = true;
+  rematchPending = true;
+  try {
+    document.getElementById('versusResult').classList.remove('visible');
+    document.getElementById('reviewBar').classList.remove('visible');
+  } catch (_) {}
+  try { hideRematchOffer(); } catch (_) {}
+  try { showRematchWait && showRematchWait(); } catch (_) {}
+  try { setMpStatus('Ожидаем реванш…'); } catch (_) {}
+  try {
+    if (typeof MatchClient !== 'undefined') {
+      try { MatchClient.connect && MatchClient.connect(); } catch (_) {}
       if (rematchTheyWant) MatchClient.rematchAccept();
       else MatchClient.rematchOffer();
-    } catch (_) {}
-    return;
-  }
-  if (rematchProbeBusy) return;
-  if (rematchClickCount >= REMATCH_MAX_CLICKS) {
-    const btnR = document.getElementById('btnVsRematch');
-    if (btnR) {
-      btnR.disabled = true;
-      btnR.style.opacity = '0.45';
-      btnR.textContent = 'Лимит реванша';
     }
-    return;
-  }
-  // Probe: online + not busy — only then send invite
-  rematchProbeBusy = true;
-  const btnR0 = document.getElementById('btnVsRematch');
-  const prevLabel = btnR0 ? btnR0.textContent : '';
-  try {
-    if (btnR0) {
-      btnR0.disabled = true;
-      btnR0.textContent = 'Проверка…';
-    }
-    // Re-establish connection if opponent is back but link dropped
-    try { ensurePostMatchHostAccept(); } catch (_) {}
-    if (!mpIsLinked()) {
-      const linked = await ensurePostMatchLink(4500);
-      if (!linked || !mpIsLinked()) {
-        try { showInfoToast('Реванш', 'Соперник не в сети', 'bad'); } catch (_) {}
-        return;
-      }
-    }
-    const probe = await probeOpponentForRematch(2500);
-    if (!probe || probe.offline || !probe.ok) {
-      // One more reconnect attempt then re-probe
-      let linked2 = mpIsLinked();
-      if (!linked2) linked2 = await ensurePostMatchLink(3500);
-      if (!linked2 || !mpIsLinked()) {
-        try { showInfoToast('Реванш', 'Соперник не в сети', 'bad'); } catch (_) {}
-        return;
-      }
-      const probe2 = await probeOpponentForRematch(2500);
-      if (!probe2 || probe2.offline || !probe2.ok) {
-        try { showInfoToast('Реванш', 'Соперник не в сети', 'bad'); } catch (_) {}
-        return;
-      }
-      if (probe2.busy) {
-        try { showInfoToast('Реванш', 'Соперник занят', 'bad'); } catch (_) {}
-        return;
-      }
-      // fall through using probe2 success — set probe-like path
-      rematchClickCount++;
-      rematchIWant = true;
-      rematchPending = true;
-      mpSend({ type: 'rematch_invite', name: myNickname });
-      showRematchWait();
-      if (rematchTheyWant) {
-        try { mpSend({ type: 'rematch_accept', name: myNickname }); } catch (_) {}
-        startRematchMatch();
-      }
-      return;
-    }
-    if (probe.busy) {
-      try { showInfoToast('Реванш', 'Соперник занят', 'bad'); } catch (_) {}
-      return;
-    }
-    // Link may have dropped during probe
-    if (!mpIsLinked()) {
-      try { showInfoToast('Реванш', 'Соперник не в сети', 'bad'); } catch (_) {}
-      return;
-    }
-    rematchClickCount++;
-    rematchIWant = true;
-    rematchPending = true;
-    mpSend({ type: 'rematch_invite', name: myNickname });
-    // Do not close result / review — wait overlay is on top
-    showRematchWait();
-    if (rematchTheyWant) {
-      try { mpSend({ type: 'rematch_accept', name: myNickname }); } catch (_) {}
-      startRematchMatch();
-    } else if (rematchClickCount >= REMATCH_MAX_CLICKS) {
-      if (btnR0) {
-        btnR0.disabled = true;
-        btnR0.style.opacity = '0.45';
-        btnR0.textContent = 'Лимит реванша';
-      }
-    }
-  } finally {
-    rematchProbeBusy = false;
-    if (btnR0 && rematchClickCount < REMATCH_MAX_CLICKS && !rematchPending) {
-      btnR0.disabled = false;
-      btnR0.textContent = prevLabel || 'Реванш';
-      btnR0.style.opacity = '';
-    } else if (btnR0 && rematchPending && rematchClickCount < REMATCH_MAX_CLICKS) {
-      btnR0.disabled = false;
-      btnR0.textContent = prevLabel || 'Реванш';
-      btnR0.style.opacity = '';
-    }
+  } catch (e) {
+    console.warn('requestRematch', e);
+    try { showInfoToast('Реванш', 'Не удалось отправить', 'bad'); } catch (_) {}
+    // Failed to send — return to result
+    rematchPending = false;
+    rematchIWant = false;
+    try { hideRematchWait(); } catch (_) {}
+    try { restorePostMatchResultUI(); } catch (_) {}
   }
 }
+
+
 function startRematchMatch() {
   try { bumpAchStat('rematchPlayed', 1); } catch (_) {}
   hideRematchOffer();
@@ -1082,14 +912,7 @@ function startRematchMatch() {
   mpMode = true;
   // Host re-sends start so clocks sync
   if (mpRole === 'host') {
-    mpSend({
-      type: 'start',
-      duration: vsDuration,
-      boardId: equippedBoardId,
-      skinId: equippedSkinId,
-      hostName: myNickname,
-      trophies
-    });
+    
     beginVersusMatchMp(true);
   }
   // guest waits for start message
@@ -1114,6 +937,16 @@ async function createMpRoom() {
   try { stopMatchmaking(true); } catch (_) {}
   try { closeRoomLobby(); } catch (_) {}
   const myGen = ++mpCreateGen;
+  // Leave finished/rematch room so server does not answer in_match
+  try {
+    if (typeof MatchClient !== 'undefined') {
+      MatchClient._skipAutoRejoin = true;
+      MatchClient.leaveMatch();
+      MatchClient.freeMatch && MatchClient.freeMatch();
+    }
+  } catch (_) {}
+  try { roomMatchMode = false; window._roomMatchMode = false; } catch (_) {}
+  try { postMatchOnlineEligible = false; } catch (_) {}
   // Soft reset without leavePrivate race before create
   try { if (typeof MatchClient !== 'undefined') MatchClient.leavePrivate(); } catch (_) {}
   mpPendingJoin = null;
@@ -1154,6 +987,10 @@ async function createMpRoom() {
     MatchClient.createPrivate({
       name: myNickname,
       trophies: trophies | 0,
+      skinId: (typeof equippedSkinId !== 'undefined' && equippedSkinId) ? equippedSkinId : 'default',
+      boardId: (typeof equippedBoardId !== 'undefined' && equippedBoardId) ? equippedBoardId : 'field_default',
+      avatarId: (typeof myAvatarId !== 'undefined' && myAvatarId) ? myAvatarId : 'init',
+      avatarCustom: (typeof myAvatarCustom !== 'undefined' && myAvatarId === 'custom' && myAvatarCustom) ? myAvatarCustom : '',
       duration: mpLobbyDuration || 120,
       friendCode: typeof myFriendCode !== 'undefined' ? myFriendCode : null
     });
@@ -1163,6 +1000,10 @@ async function createMpRoom() {
       MatchClient.createPrivate({
         name: myNickname,
         trophies: trophies | 0,
+        skinId: (typeof equippedSkinId !== 'undefined' && equippedSkinId) ? equippedSkinId : 'default',
+        boardId: (typeof equippedBoardId !== 'undefined' && equippedBoardId) ? equippedBoardId : 'field_default',
+        avatarId: (typeof myAvatarId !== 'undefined' && myAvatarId) ? myAvatarId : 'init',
+        avatarCustom: (typeof myAvatarCustom !== 'undefined' && myAvatarId === 'custom' && myAvatarCustom) ? myAvatarCustom : '',
         duration: mpLobbyDuration || 120,
         friendCode: typeof myFriendCode !== 'undefined' ? myFriendCode : null
       });
@@ -1216,6 +1057,10 @@ function joinMpRoom(code, opts) {
   MatchClient.joinPrivate(code, {
     name: myNickname,
     trophies: trophies | 0,
+    skinId: (typeof equippedSkinId !== 'undefined' && equippedSkinId) ? equippedSkinId : 'default',
+    boardId: (typeof equippedBoardId !== 'undefined' && equippedBoardId) ? equippedBoardId : 'field_default',
+    avatarId: (typeof myAvatarId !== 'undefined' && myAvatarId) ? myAvatarId : 'init',
+    avatarCustom: (typeof myAvatarCustom !== 'undefined' && myAvatarId === 'custom' && myAvatarCustom) ? myAvatarCustom : '',
     friendCode: typeof myFriendCode !== 'undefined' ? myFriendCode : null
   });
   setTimeout(() => {
@@ -1264,7 +1109,6 @@ function applyRemoteFriendRemove(data) {
 
 /** Deliver friend_remove to peer presence; retries while they may be online */
 function notifyFriendRemoved(theirCode) {
-  /* P2P friend_remove relay removed — MatchClient.socialSend */
   try {
     if (typeof socialSend === "function") socialSend(theirCode, "friend_remove", {});
     else if (typeof MatchClient !== "undefined") MatchClient.socialSend(theirCode, "friend_remove", {});
@@ -1308,31 +1152,76 @@ function stopLobbyPing() {
   mpPingSentAt = 0;
   mpLastRtt = null;
 }
+function _smoothLobbyRtt(sample) {
+  // Ignore tab-throttle / clock-skew outliers (often 2000–5000ms after background)
+  if (typeof sample !== 'number' || sample < 0 || sample > 900) return mpLastRtt;
+  if (typeof mpLastRtt !== 'number') {
+    mpLastRtt = sample;
+    return sample;
+  }
+  // EMA — damp spikes
+  mpLastRtt = Math.round(mpLastRtt * 0.65 + sample * 0.35);
+  return mpLastRtt;
+}
 function startLobbyPing() {
   stopLobbyPing();
-  if (!mpOppConnected) return;
   const tick = () => {
-    if (!mpIsLinked() || !mpOppConnected) return;
-    mpPingSentAt = Date.now();
-    try { mpSend({ type: 'ping', t: mpPingSentAt }); } catch (_) {}
+    try {
+      if (typeof MatchClient === 'undefined' || !MatchClient.connected) return;
+      const raw = (typeof MatchClient.lastRtt === 'number') ? MatchClient.lastRtt : null;
+      if (typeof raw === 'number') {
+        const smooth = _smoothLobbyRtt(raw);
+        if (typeof smooth === 'number') {
+          window._lobbyMeRtt = smooth;
+          try {
+            MatchClient.send({ type: 'lobby_ping', rtt: smooth | 0 });
+          } catch (_) {}
+        }
+      }
+      try { updateLobbyPingUI(); } catch (_) {}
+    } catch (_) {}
   };
   tick();
-  mpPingTimer = setInterval(tick, 2000);
+  mpPingTimer = setInterval(tick, 2500);
+  try {
+    if (typeof MatchClient !== 'undefined' && !window._lobbyRttBound) {
+      window._lobbyRttBound = true;
+      MatchClient.on('rtt', (data) => {
+        try {
+          if (data && typeof data.rtt === 'number') {
+            const smooth = _smoothLobbyRtt(data.rtt);
+            if (typeof smooth === 'number') {
+              window._lobbyMeRtt = smooth;
+              updateLobbyPingUI();
+            }
+          }
+        } catch (_) {}
+      });
+    }
+  } catch (_) {}
 }
 function updateLobbyPingUI() {
   const apply = (id, ms) => {
     const el = document.getElementById(id);
     if (!el) return;
-    if (ms == null || !mpOppConnected) {
+    if (ms == null || ms < 0) {
       el.textContent = '';
       el.className = 'lobby-ping';
       return;
     }
-    el.textContent = ms + ' мс';
-    el.className = 'lobby-ping ' + (ms < 80 ? 'good' : ms < 160 ? 'mid' : 'bad');
+    // Cap display so 3000ms spikes never show
+    const shown = Math.min(999, ms | 0);
+    el.textContent = shown + ' мс';
+    el.className = 'lobby-ping ' + (shown < 80 ? 'good' : shown < 160 ? 'mid' : 'bad');
   };
-  apply('lobbyOppPing', mpLastRtt);
-  apply('lobbyMePing', mpLastRtt);
+  const meRtt = (typeof window._lobbyMeRtt === 'number')
+    ? window._lobbyMeRtt
+    : (typeof mpLastRtt === 'number' ? mpLastRtt : null);
+  let oppRtt = (typeof window._lobbyOppRtt === 'number') ? window._lobbyOppRtt : null;
+  // Cap opp samples from server too
+  if (typeof oppRtt === 'number' && oppRtt > 900) oppRtt = Math.min(999, oppRtt);
+  apply('lobbyMePing', meRtt);
+  apply('lobbyOppPing', mpOppConnected ? oppRtt : null);
 }
 
 // Compact top-right info toast (2s, swipe to dismiss)
@@ -1538,14 +1427,45 @@ function doAcceptChallengeJoin(req) {
 let pendingJoinAfterForfeit = null;
 
 function forfeitCurrentMatchForLobby() {
-  if (!vsActive) return;
+  if (!isReallyInLiveMatch()) {
+    try { vsActive = false; } catch (_) {}
+    return;
+  }
   try {
     if (mpMode) {
-      try { mpSend({ type: 'end', reason: 'leave_for_lobby', youWin: true, youLose: false }); } catch (_) {}
+      
     }
     endVersus({ forceLoss: true, reason: 'leave_for_lobby', silent: !!mpMode });
   } catch (_) {
     try { vsActive = false; } catch (_) {}
+  }
+}
+
+
+/** True only during an actual live fight — not post-match result / rematch wait. */
+function isReallyInLiveMatch() {
+  try {
+    if (window._matchEnded) return false;
+    if (!vsActive) return false;
+    // Result modal visible → match already over
+    try {
+      const r = document.getElementById('versusResult');
+      if (r && r.classList.contains('visible')) return false;
+    } catch (_) {}
+    // Score duel / end freeze → ending, not live
+    try {
+      const mef = document.getElementById('matchEndFreeze');
+      if (mef && mef.classList.contains('visible')) return false;
+      const sd = document.getElementById('scoreDuelOverlay');
+      if (sd && sd.classList.contains('visible')) return false;
+    } catch (_) {}
+    // Review / replay
+    try {
+      if (typeof replayMode !== 'undefined' && replayMode) return false;
+    } catch (_) {}
+    return true;
+  } catch (_) {
+    return !!(typeof vsActive !== 'undefined' && vsActive && !window._matchEnded);
   }
 }
 
@@ -1570,10 +1490,23 @@ function closeLeaveMatchConfirm() {
 function acceptChallenge() {
   const req = chPending;
   if (!req || !req.room) return;
-  if (vsActive) {
+  // Only warn if a LIVE match is in progress — not after match_end / result screen
+  if (isReallyInLiveMatch()) {
     openLeaveMatchConfirm(req);
     return;
   }
+  // Stale flags after ended match — clear so join is clean
+  try {
+    vsActive = false;
+    window._matchEnded = true;
+    roomMatchMode = false;
+    window._roomMatchMode = false;
+    if (typeof MatchClient !== 'undefined') {
+      MatchClient._skipAutoRejoin = true;
+      MatchClient.leaveMatch && MatchClient.leaveMatch();
+      MatchClient.freeMatch && MatchClient.freeMatch();
+    }
+  } catch (_) {}
   chPending = null;
   hideChToast(true);
   try { renderFriendRequests(); updateFriendsSectionCounts(); } catch (_) {}
@@ -1760,6 +1693,10 @@ async function challengeFriend(friend) {
   MatchClient.createPrivate({
     name: myNickname,
     trophies: trophies | 0,
+    skinId: (typeof equippedSkinId !== 'undefined' && equippedSkinId) ? equippedSkinId : 'default',
+    boardId: (typeof equippedBoardId !== 'undefined' && equippedBoardId) ? equippedBoardId : 'field_default',
+    avatarId: (typeof myAvatarId !== 'undefined' && myAvatarId) ? myAvatarId : 'init',
+    avatarCustom: (typeof myAvatarCustom !== 'undefined' && myAvatarId === 'custom' && myAvatarCustom) ? myAvatarCustom : '',
     duration: 120,
     friendCode: myFriendCode
   });

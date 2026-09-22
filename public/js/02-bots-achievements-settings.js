@@ -668,28 +668,39 @@ function applyBoardScales() {
   document.documentElement.style.setProperty('--opp-piece', oppPiece + 'px');
   document.documentElement.style.setProperty('--opp-slot', oppSlot + 'px');
 
-  // Apply slot sizes via style on active trays (overrides fixed CSS)
-  document.querySelectorAll('#screenClassic .piece-slot').forEach(s => {
-    if (!s.classList.contains('used')) {
-      s.style.width = classicSlot + 'px';
-      s.style.height = classicSlot + 'px';
-      s.style.minWidth = classicSlot + 'px';
-    }
-  });
-  document.querySelectorAll('#screenVersus .pieces-area:not(.opp-pieces) .piece-slot').forEach(s => {
-    if (!s.classList.contains('used')) {
-      s.style.width = versusSlot + 'px';
-      s.style.height = versusSlot + 'px';
-      s.style.minWidth = versusSlot + 'px';
-    }
-  });
-  document.querySelectorAll('#screenVersus .pieces-area.opp-pieces .piece-slot').forEach(s => {
-    if (!s.classList.contains('used')) {
-      s.style.width = oppSlot + 'px';
-      s.style.height = oppSlot + 'px';
-      s.style.minWidth = oppSlot + 'px';
-    }
-  });
+  // Apply slot sizes via style on active trays (overrides fixed CSS).
+  // Only touch dimensions — never wipe/rebuild hand DOM here (that caused
+  // unstable figures in classic + bot matches on every scale/resize pass).
+  function _resizeTraySlots(selector, slotPx, cellPx) {
+    document.querySelectorAll(selector).forEach(s => {
+      if (s.classList.contains('used') || s.classList.contains('lifting')) return;
+      s.style.width = slotPx + 'px';
+      s.style.height = slotPx + 'px';
+      s.style.minWidth = slotPx + 'px';
+      // Scale inner piece-grid cells without full rebuild
+      try {
+        const grid = s.querySelector('.piece-grid');
+        if (grid && cellPx > 0) {
+          const cols = grid.style.gridTemplateColumns;
+          if (cols && cols.indexOf('repeat') !== -1) {
+            const m = cols.match(/repeat\((\d+)/);
+            if (m) {
+              grid.style.gridTemplateColumns = `repeat(${m[1]},${cellPx}px)`;
+              grid.style.gridTemplateRows = grid.style.gridTemplateRows.replace(/[\d.]+px/g, cellPx + 'px') ||
+                `repeat(${m[1]},${cellPx}px)`;
+            }
+          }
+          grid.querySelectorAll('.piece-cell').forEach(pc => {
+            pc.style.width = cellPx + 'px';
+            pc.style.height = cellPx + 'px';
+          });
+        }
+      } catch (_) {}
+    });
+  }
+  _resizeTraySlots('#screenClassic .piece-slot', classicSlot, classicPiece);
+  _resizeTraySlots('#screenVersus .pieces-area:not(.opp-pieces) .piece-slot', versusSlot, versusPiece);
+  _resizeTraySlots('#screenVersus .pieces-area.opp-pieces .piece-slot', oppSlot, oppPiece);
 
   renderScalePreviews();
   try {
@@ -699,8 +710,7 @@ function applyBoardScales() {
       if (typeof boardOpp !== 'undefined' && boardOpp) updateBoardMetrics(boardOpp);
     }
   } catch (_) {}
-  // Re-render trays so cell pixels match new scale
-  // CRITICAL: during replay never use live pieces/oppPieces — that wipes the match log hands
+  // Replay only: rebuild trays from match log. Live hands stay stable.
   try {
     if (typeof replayMode !== 'undefined' && replayMode) {
       if (typeof renderReplayTray === 'function') {
@@ -708,22 +718,6 @@ function applyBoardScales() {
         const oppA = document.getElementById('piecesAreaOpp');
         if (meA && typeof replayMePieces !== 'undefined') renderReplayTray(meA, replayMePieces, false, false);
         if (oppA && typeof replayOppPieces !== 'undefined') renderReplayTray(oppA, replayOppPieces, true, false);
-      }
-    } else {
-      if (typeof renderPieces === 'function' && typeof pieces !== 'undefined' && pieces && pieces.length) {
-        const area = (typeof mode !== 'undefined' && mode === 'versus')
-          ? document.getElementById('piecesAreaVs')
-          : document.getElementById('piecesArea');
-        if (area && document.querySelector('.screen.active') &&
-            (document.getElementById('screenClassic')?.classList.contains('active') ||
-             document.getElementById('screenVersus')?.classList.contains('active'))) {
-          renderPieces(area);
-        }
-      }
-      if (typeof renderOppPieces === 'function' && typeof oppPieces !== 'undefined' && oppPieces && oppPieces.length) {
-        if (document.getElementById('screenVersus')?.classList.contains('active')) {
-          renderOppPieces();
-        }
       }
     }
   } catch (_) {}

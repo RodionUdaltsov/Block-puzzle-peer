@@ -21,7 +21,8 @@ const {
   randomPiece, dealThree, canPlaceOn, clearLinesOnGrid, bonusFor, chainBonusFor,
   serializePieces, findAllPlacements, sideHasPlayable,
   MIN_PLACE_INTERVAL_MS, PLACE_BURST_WINDOW_MS, PLACE_BURST_MAX,
-  DC_LIMIT_MS, AFK_WARN_MS, AFK_LIMIT_MS
+  DC_LIMIT_MS, AFK_WARN_MS, AFK_LIMIT_MS,
+  DETACH_GRACE_MS, MATCH_START_GRACE_MS, AFK_WARN_BROADCAST_MS
 } = R;
 
 const PORT = Number(process.env.PORT) || 9000;
@@ -34,9 +35,14 @@ function persistRoom(room) {
   if (!store || !room) return;
   try {
     const ttl = room.status === 'ended' ? ROOM_TTL_ENDED : ROOM_TTL_LIVE;
-    const left = room.status === 'live'
-      ? Math.max(30, Math.ceil((room.clockEndTs - Date.now()) / 1000) + 60)
-      : ROOM_TTL_ENDED;
+    let left = ROOM_TTL_LIVE;
+    if (room.status === 'live' && room.clockEndTs) {
+      left = Math.max(30, Math.ceil((room.clockEndTs - Date.now()) / 1000) + 60);
+    } else if (room.status === 'loading') {
+      left = ROOM_TTL_LIVE;
+    } else {
+      left = ROOM_TTL_ENDED;
+    }
     const useTtl = room.status === 'ended' ? ROOM_TTL_ENDED : Math.min(ttl, left);
     store.saveRoom(room.id, room.toJSON(), useTtl).catch(() => {});
     for (const token of Object.keys(room.players || {})) {
@@ -103,6 +109,52 @@ function uid(prefix) {
   return prefix + '_' + crypto.randomBytes(8).toString('hex');
 }
 
+function sanitizeCosmetics(data) {
+  data = data || {};
+  const skinId = data.skinId ? String(data.skinId).slice(0, 32) : 'default';
+  const boardId = data.boardId ? String(data.boardId).slice(0, 32) : 'field_default';
+  const avatarId = data.avatarId ? String(data.avatarId).slice(0, 32) : 'init';
+  // Custom avatar: allow short data-URL / http(s) only, hard size cap
+  let avatarCustom = '';
+  if (data.avatarCustom && typeof data.avatarCustom === 'string') {
+    const s = data.avatarCustom.slice(0, 120000);
+    if (/^(data:image\/(png|jpeg|jpg|webp|gif);base64,|https?:\/\/)/i.test(s)) {
+      avatarCustom = s;
+    }
+  }
+  return { skinId, boardId, avatarId, avatarCustom };
+}
+
+/** Piece color palettes — must match public/js/01-cosmetics.js SKIN_CATALOG */
+const SKIN_PALETTES = {
+  default: ['#00d4aa','#7c5cff','#ff5c7a','#ffb347','#4fc3f7','#ff6bcb','#a8e063','#ff8a65'],
+  ocean: ['#00c2ff','#0077b6','#48cae4','#90e0ef','#023e8a','#0096c7','#ade8f4','#5ee7ff'],
+  forest: ['#2d6a4f','#40916c','#52b788','#95d5b2','#d8f3dc','#b7e4c7','#74c69d','#ffb703'],
+  mono: ['#e8eaed','#cfd8e3','#9aa0a6','#8b9bb0','#d7dee8','#b0b8c4','#6b7280','#a1a1aa'],
+  sunset: ['#ff6b35','#f7c59f','#ef476f','#ffd166','#ff8fab','#ff9f1c','#e36414','#c9184a'],
+  neon: ['#39ff14','#ff00ff','#00f5ff','#ffe600','#ff3d81','#7b61ff','#00ffc6','#ff9f1c'],
+  candy: ['#ff8fab','#ffc2d1','#bde0fe','#a2d2ff','#cdb4db','#ffd6a5','#fdffb6','#caffbf'],
+  ice: ['#e0f7ff','#a5f3fc','#67e8f9','#22d3ee','#0891b2','#7dd3fc','#bae6fd','#38bdf8'],
+  lava: ['#ff4500','#ff6a00','#ff8c00','#ffd166','#c1121f','#e85d04','#faa307','#9d0208'],
+  royal: ['#7b2cbf','#c77dff','#ffd700','#5a189a','#4cc9f0','#f72585','#4361ee','#f4a261'],
+  aurora: ['#00f5d4','#00bbf9','#9b5de5','#f15bb5','#fee440','#80ed99','#56cfe1','#7209b7'],
+  sakura: ['#ffb7c5','#ff8fab','#ffc2d1','#fb6f92','#ffccd5','#e5989b','#ff99ac','#f7a1c4'],
+  cyber: ['#0aff99','#00ffc8','#7b2ff7','#f72585','#3a0ca3','#4cc9f0','#b8f2e6','#ff006e'],
+  midnight: ['#1b263b','#415a77','#778da9','#e0e1dd','#0d1b2a','#7c5cff','#5ee7ff','#c9ada7'],
+  gold: ['#ffd700','#ffc300','#ffb703','#f4a261','#e9c46a','#daa520','#ffdb58','#ffe566'],
+  toxic: ['#39ff14','#b8ff3c','#ccff00','#76ff03','#1b5e20','#00e676','#aeea00','#64dd17']
+};
+function paletteForSkin(skinId) {
+  const id = skinId ? String(skinId) : 'default';
+  return SKIN_PALETTES[id] || SKIN_PALETTES.default;
+}
+function dealForSeat(st) {
+  return dealThree(paletteForSkin(st && st.skinId));
+}
+
+
+
+
 function queueKey(duration, trophies) {
   const bucket = Math.floor(Math.max(0, trophies) / 50) * 50;
   return 'd' + duration + '-b' + bucket;
@@ -124,8 +176,10 @@ class MatchRoom {
     this.duration = duration || 120;
     this.size = 8;
     this.createdAt = Date.now();
-    this.clockEndTs = Date.now() + this.duration * 1000;
-    this.status = 'live'; // live | ended
+    // Clock starts only after both clients report ready (status loading → live)
+    this.clockEndTs = 0;
+    this.status = 'loading'; // loading | live | ended
+    this.ready = { a: false, b: false };
     this.endedReason = null;
 
     this.players = {
@@ -142,39 +196,61 @@ class MatchRoom {
       a: {
         score: 0,
         grid: emptyGrid(this.size),
-        pieces: dealThree(),
+        pieces: dealThree(paletteForSkin(p1.skinId)),
         clearChain: 0,
         stuck: false,
         lastPlaceAt: 0,
         placeTimes: [],
         name: p1.name || 'Игрок',
         trophies: p1.trophies | 0,
+        skinId: p1.skinId ? String(p1.skinId).slice(0, 32) : 'default',
+        boardId: p1.boardId ? String(p1.boardId).slice(0, 32) : 'field_default',
+        avatarId: p1.avatarId ? String(p1.avatarId).slice(0, 32) : 'init',
+        avatarCustom: (p1.avatarCustom && typeof p1.avatarCustom === 'string') ? String(p1.avatarCustom).slice(0, 120000) : '',
         online: true,
         lastSeen: Date.now(),
         lastActionAt: Date.now(),
         offlineSince: 0,
         dcDeadlineTs: 0,
-        afkWarned: false
+        afkWarned: false,
+        rejoinPendingMove: false
       },
       b: {
         score: 0,
         grid: emptyGrid(this.size),
-        pieces: dealThree(),
+        pieces: dealThree(paletteForSkin(p2.skinId)),
         clearChain: 0,
         stuck: false,
         lastPlaceAt: 0,
         placeTimes: [],
         name: p2.name || 'Игрок',
         trophies: p2.trophies | 0,
+        skinId: p2.skinId ? String(p2.skinId).slice(0, 32) : 'default',
+        boardId: p2.boardId ? String(p2.boardId).slice(0, 32) : 'field_default',
+        avatarId: p2.avatarId ? String(p2.avatarId).slice(0, 32) : 'init',
+        avatarCustom: (p2.avatarCustom && typeof p2.avatarCustom === 'string') ? String(p2.avatarCustom).slice(0, 120000) : '',
         online: true,
         lastSeen: Date.now(),
         lastActionAt: Date.now(),
         offlineSince: 0,
         dcDeadlineTs: 0,
-        afkWarned: false
+        afkWarned: false,
+        rejoinPendingMove: false
       },
       moves: []
     };
+    // Opening deals for both seats — needed for client replay history
+    try {
+      const t0 = 0;
+      this.state.moves.push({
+        type: 'deal', seat: 'a', t: t0,
+        pieces: serializePieces(this.state.a.pieces)
+      });
+      this.state.moves.push({
+        type: 'deal', seat: 'b', t: t0,
+        pieces: serializePieces(this.state.b.pieces)
+      });
+    } catch (_) {}
 
     rooms.set(this.id, this);
     this._clockTimer = setInterval(() => this._tick(), 1000);
@@ -203,12 +279,17 @@ class MatchRoom {
       placeTimes: (st.placeTimes || []).slice(-20),
       name: st.name,
       trophies: st.trophies | 0,
+      skinId: st.skinId || 'default',
+      boardId: st.boardId || 'field_default',
+      avatarId: st.avatarId || 'init',
+      avatarCustom: st.avatarCustom || '',
       online: false, // after restore nobody is connected yet
       lastSeen: st.lastSeen | 0,
       lastActionAt: st.lastActionAt | 0,
       offlineSince: st.offlineSince | 0,
       dcDeadlineTs: st.dcDeadlineTs | 0,
-      afkWarned: !!st.afkWarned
+      afkWarned: !!st.afkWarned,
+      rejoinPendingMove: !!st.rejoinPendingMove
     });
     return {
       id: this.id,
@@ -217,6 +298,7 @@ class MatchRoom {
       createdAt: this.createdAt,
       clockEndTs: this.clockEndTs,
       status: this.status,
+      ready: this.ready ? { a: !!this.ready.a, b: !!this.ready.b } : { a: false, b: false },
       endedReason: this.endedReason,
       source: this.source || 'ranked',
       privateCode: this.privateCode || null,
@@ -244,12 +326,20 @@ class MatchRoom {
       token: tokA,
       name: (data.state.a && data.state.a.name) || 'Игрок',
       trophies: (data.state.a && data.state.a.trophies) | 0,
+      skinId: (data.state.a && data.state.a.skinId) || 'default',
+      boardId: (data.state.a && data.state.a.boardId) || 'field_default',
+      avatarId: (data.state.a && data.state.a.avatarId) || 'init',
+      avatarCustom: (data.state.a && data.state.a.avatarCustom) || '',
       ws: null
     };
     const p2 = {
       token: tokB,
       name: (data.state.b && data.state.b.name) || 'Игрок',
       trophies: (data.state.b && data.state.b.trophies) | 0,
+      skinId: (data.state.b && data.state.b.skinId) || 'default',
+      boardId: (data.state.b && data.state.b.boardId) || 'field_default',
+      avatarId: (data.state.b && data.state.b.avatarId) || 'init',
+      avatarCustom: (data.state.b && data.state.b.avatarCustom) || '',
       ws: null
     };
     // Build without constructor side-effects: manual init
@@ -258,8 +348,13 @@ class MatchRoom {
     room.duration = data.duration || 120;
     room.size = data.size || 8;
     room.createdAt = data.createdAt || Date.now();
-    room.clockEndTs = data.clockEndTs || (Date.now() + room.duration * 1000);
-    room.status = data.status === 'ended' ? 'ended' : 'live';
+    room.clockEndTs = data.clockEndTs || 0;
+    if (data.status === 'ended') room.status = 'ended';
+    else if (data.status === 'loading' || !room.clockEndTs) room.status = 'loading';
+    else room.status = 'live';
+    room.ready = (data.ready && typeof data.ready === 'object')
+      ? { a: !!data.ready.a, b: !!data.ready.b }
+      : { a: false, b: false };
     room.endedReason = data.endedReason || null;
     room.source = data.source || 'ranked';
     room.privateCode = data.privateCode || null;
@@ -278,19 +373,24 @@ class MatchRoom {
           shape: (p.shape || []).map(c => c.slice()),
           color: p.color,
           used: !!p.used
-        })) : dealThree(),
+        })) : dealThree(paletteForSkin(st.skinId)),
         clearChain: st.clearChain | 0,
         stuck: !!st.stuck,
         lastPlaceAt: st.lastPlaceAt | 0,
         placeTimes: Array.isArray(st.placeTimes) ? st.placeTimes.slice() : [],
         name: st.name || 'Игрок',
         trophies: st.trophies | 0,
+        skinId: st.skinId || 'default',
+        boardId: st.boardId || 'field_default',
+        avatarId: st.avatarId || 'init',
+        avatarCustom: st.avatarCustom || '',
         online: false,
         lastSeen: st.lastSeen | 0,
         lastActionAt: st.lastActionAt || Date.now(),
         offlineSince: st.offlineSince || Date.now(),
         dcDeadlineTs: st.dcDeadlineTs | 0,
-        afkWarned: !!st.afkWarned
+        afkWarned: !!st.afkWarned,
+      rejoinPendingMove: !!st.rejoinPendingMove
       };
     };
     room.state = {
@@ -352,17 +452,33 @@ class MatchRoom {
       try {
         p.ws._matchId = null; // prevent stale close from detaching us
         p.ws._token = null;
-        p.ws.close();
+        try { p.ws.close(); } catch (_) {}
       } catch (_) {}
     }
     p.ws = ws;
     p.online = true;
     p.lastSeen = Date.now();
     const st = this.state[p.seat];
+    // Cancel pending soft-detach (refresh within grace)
+    try {
+      if (st._detachTimer) {
+        clearTimeout(st._detachTimer);
+        st._detachTimer = null;
+      }
+      st._detachPending = false;
+    } catch (_) {}
     st.online = true;
     st.lastSeen = Date.now();
     st.offlineSince = 0;
+    const nowA = Date.now();
+    // Full clear of DC on successful rejoin — do NOT keep timer running.
+    // Rapid refresh must not accumulate disconnect forfeit.
     st.dcDeadlineTs = 0;
+    st.rejoinPendingMove = false;
+    // AFK grace: treat rejoin as activity so false AFK does not fire immediately
+    st.lastActionAt = nowA;
+    st.afkWarned = false;
+    st._lastAfkWarnAt = 0;
     ws._matchId = this.id;
     ws._token = token;
     this.broadcast({
@@ -373,8 +489,10 @@ class MatchRoom {
       vsTimeLeft: this.timeLeft(),
       dcDeadlineTs: 0,
       dcRemaining: 0,
-      idleMs: Date.now() - (st.lastActionAt || Date.now()),
-      awaitingMove: true
+      rejoinPendingMove: false,
+      idleMs: 0,
+      awaitingMove: false,
+      reason: 'online'
     }, token);
     // Tell rejoiner the opponent's current online status (broadcast above skips self)
     try {
@@ -402,33 +520,88 @@ class MatchRoom {
 
   detach(token, closedWs) {
     const p = this.players[token];
-    if (!p || this.status !== 'live') return;
+    if (!p) return;
+    if (this.status === 'loading') {
+      // Peer left before start — void the match, no AFK/history
+      try {
+        if (closedWs && p.ws && p.ws !== closedWs) return;
+        if (closedWs && p.ws === closedWs) p.ws = null;
+        else if (!closedWs) p.ws = null;
+      } catch (_) {}
+      this.cancelLoading('peer_left');
+      return;
+    }
+    if (this.status !== 'live') return;
     // Ignore stale close: a newer socket already re-attached
     if (closedWs && p.ws && p.ws !== closedWs) {
       return;
     }
-    p.ws = null;
+    // Socket gone, but do NOT mark offline / start DC yet — grace for refresh storms
+    if (closedWs && p.ws === closedWs) {
+      p.ws = null;
+    } else if (!closedWs) {
+      p.ws = null;
+    }
+    const st = this.state[p.seat];
+    const seat = p.seat;
+    // Cancel prior pending detach
+    try {
+      if (st._detachTimer) {
+        clearTimeout(st._detachTimer);
+        st._detachTimer = null;
+      }
+    } catch (_) {}
+    st._detachPending = true;
+    st._detachAt = Date.now();
+    const grace = (typeof DETACH_GRACE_MS === 'number') ? DETACH_GRACE_MS : 5000;
+    st._detachTimer = setTimeout(() => {
+      try {
+        this._confirmDetach(token, seat);
+      } catch (e) {
+        console.warn('confirmDetach', e && e.message);
+      }
+    }, grace);
+  }
+
+  /** Apply offline + DC timer only after grace — cancelled if player re-attaches. */
+  _confirmDetach(token, seat) {
+    const p = this.players[token];
+    if (!p || this.status !== 'live') return;
+    // Re-attached with a live socket → abort
+    if (p.ws && p.ws.readyState === 1) {
+      const st = this.state[p.seat];
+      if (st) {
+        st._detachPending = false;
+        st._detachTimer = null;
+      }
+      return;
+    }
+    const st = this.state[p.seat];
+    if (!st) return;
+    st._detachTimer = null;
+    st._detachPending = false;
+
     p.online = false;
     p.lastSeen = Date.now();
-    const st = this.state[p.seat];
     st.online = false;
     st.lastSeen = Date.now();
     const now = Date.now();
     st.offlineSince = now;
 
-    // Disconnect grace: min(60s, remaining match time)
-    // If already under AFK (idle >= AFK_WARN), continue AFK deadline — no full 60s
-    const idle = now - (st.lastActionAt || now);
+    // Track flaps
+    st.detachCount = (st.detachCount || 0) + 1;
+    st.lastDetachAt = now;
+
+    // Always wait full 60s (or remaining match time if shorter) — never shorter for flaps
     const matchLeftMs = Math.max(0, this.clockEndTs - now);
-    let dcMs;
-    if (idle >= AFK_WARN_MS) {
-      const afkEnd = (st.lastActionAt || now) + AFK_LIMIT_MS;
-      dcMs = Math.max(0, Math.min(afkEnd - now, matchLeftMs));
-      if (dcMs < 1000 && matchLeftMs > 0) dcMs = Math.min(1000, matchLeftMs);
-    } else {
-      dcMs = Math.min(DC_LIMIT_MS, matchLeftMs);
-    }
+    let dcMs = DC_LIMIT_MS;
+    if (matchLeftMs > 0 && matchLeftMs < dcMs) dcMs = matchLeftMs;
+    // Minimum 5s so tiny clock remainder still allows a brief rejoin
+    if (dcMs < 5000 && matchLeftMs >= 5000) dcMs = 5000;
+    if (dcMs < 1000) dcMs = Math.max(1000, matchLeftMs);
     st.dcDeadlineTs = now + dcMs;
+    st.offlineSince = now;
+    st.rejoinPendingMove = false;
 
     this.broadcast({
       type: 'player_status',
@@ -444,6 +617,9 @@ class MatchRoom {
   }
 
   timeLeft() {
+    if (!this.clockEndTs || this.status === 'loading') {
+      return this.duration || 120;
+    }
     return Math.max(0, Math.ceil((this.clockEndTs - Date.now()) / 1000));
   }
 
@@ -469,6 +645,11 @@ class MatchRoom {
         grid: cloneGrid(this.state[me].grid),
         pieces: serializePieces(this.state[me].pieces),
         name: this.state[me].name,
+        trophies: this.state[me].trophies | 0,
+        skinId: this.state[me].skinId || 'default',
+        boardId: this.state[me].boardId || 'field_default',
+        avatarId: this.state[me].avatarId || 'init',
+        avatarCustom: this.state[me].avatarCustom || '',
         online: this.state[me].online
       },
       opp: {
@@ -476,7 +657,11 @@ class MatchRoom {
         grid: cloneGrid(this.state[opp].grid),
         pieces: serializePieces(this.state[opp].pieces),
         name: this.state[opp].name,
-        trophies: this.state[opp].trophies,
+        trophies: this.state[opp].trophies | 0,
+        skinId: this.state[opp].skinId || 'default',
+        boardId: this.state[opp].boardId || 'field_default',
+        avatarId: this.state[opp].avatarId || 'init',
+        avatarCustom: this.state[opp].avatarCustom || '',
         online: this.state[opp].online
       },
       moves: this.state.moves.slice(-80)
@@ -577,8 +762,21 @@ class MatchRoom {
     st.afkWarned = false;
     st.offlineSince = 0;
     st.dcDeadlineTs = 0;
+    st.rejoinPendingMove = false;
     st.placeTimes.push(now);
     st.stuck = false;
+    // Clear disconnect/AFK UI for both clients
+    try {
+      this.broadcast({
+        type: 'player_status',
+        seat: seat,
+        online: true,
+        rejoinPendingMove: false,
+        dcDeadlineTs: 0,
+        dcRemaining: 0,
+        reason: 'active'
+      });
+    } catch (_) {}
 
     const placePts = shape.length * 10;
     let scoreDelta = placePts;
@@ -600,7 +798,7 @@ class MatchRoom {
     // Auto-deal when hand exhausted
     let newDeal = null;
     if (st.pieces.every(pc => pc && pc.used)) {
-      st.pieces = dealThree();
+      st.pieces = dealForSeat(st);
       newDeal = serializePieces(st.pieces);
     }
 
@@ -619,6 +817,18 @@ class MatchRoom {
       chain: st.clearChain,
       score: st.score
     });
+    if (newDeal) {
+      this.state.moves.push({
+        type: 'deal',
+        seat,
+        t: Date.now() - this.createdAt,
+        pieces: newDeal.map(p => ({
+          shape: (p.shape || []).map(c => Array.isArray(c) ? c.slice() : c),
+          color: p.color,
+          used: !!p.used
+        }))
+      });
+    }
     if (this.state.moves.length > 200) this.state.moves = this.state.moves.slice(-120);
 
     const oppToken = this.seatOf[this.otherSeat(seat)];
@@ -645,7 +855,10 @@ class MatchRoom {
       meGrid: cloneGrid(oppSt.grid),
       mePieces: serializePieces(oppSt.pieces),
       vsTimeLeft: vsTimeLeft,
-      clockEndTs: clockEndTs
+      clockEndTs: clockEndTs,
+      skinId: st.skinId || 'default',
+      boardId: st.boardId || 'field_default',
+      legendFx: !!(st.skinId && st.skinId !== 'default')
     });
     if (newDeal) {
       this.send(oppToken, {
@@ -663,6 +876,11 @@ class MatchRoom {
       cleared: cleared,
       bonus: bonus,
       chain: st.clearChain,
+      r: r,
+      c: c,
+      pieceIdx: pieceIdx,
+      shape: shape.map(function (x) { return x.slice(); }),
+      color: color,
       grid: cloneGrid(st.grid),
       pieces: serializePieces(st.pieces),
       deal: newDeal,
@@ -708,9 +926,14 @@ class MatchRoom {
 
     const aScore = this.state.a.score | 0;
     const bScore = this.state.b.score | 0;
+    // Only true "false" counts — null (empty hand / deal pending) is NOT stuck
     const aStuck = aPlay === false;
     const bStuck = bPlay === false;
+    const movesN = (this.state.moves && this.state.moves.length) || 0;
+    if (movesN === 0) return; // never stuck-end before any place
 
+    // Game must not end while either player can still place and time remains.
+    const timeLeft = this.timeLeft();
     // Both truly stuck → end by score
     if (aStuck && bStuck) {
       let winner = null;
@@ -719,12 +942,14 @@ class MatchRoom {
       this.end('stuck', winner);
       return;
     }
-    // One stuck and behind → immediate loss
-    if (aStuck && aScore < bScore) {
+    // One stuck and behind: only end if the other still has moves OR little time left
+    // If leader is also unable to improve... already handled by both stuck.
+    // If behind player stuck and leader can play → leader will keep playing; behind already lost ability.
+    if (aStuck && aScore < bScore && (bPlay === true || timeLeft <= 3)) {
       this.end('stuck', 'b');
       return;
     }
-    if (bStuck && bScore < aScore) {
+    if (bStuck && bScore < aScore && (aPlay === true || timeLeft <= 3)) {
       this.end('stuck', 'a');
       return;
     }
@@ -732,14 +957,14 @@ class MatchRoom {
 
   /** Client-requested deal is ignored in room mode — server owns the RNG. */
   applyDeal(token, data) {
-    if (this.status !== 'live') return;
+    if (this.status !== 'live' && this.status !== 'loading') return;
     const p = this.players[token];
     if (!p) return;
     const seat = p.seat;
     const st = this.state[seat];
     // If hand fully used, deal a new set (server RNG)
     if (!st.pieces || !st.pieces.length || st.pieces.every(pc => pc && pc.used)) {
-      st.pieces = dealThree();
+      st.pieces = dealForSeat(st);
     }
     this.send(token, {
       type: 'deal',
@@ -750,14 +975,95 @@ class MatchRoom {
   }
 
   applySync(token, data) {
-    if (this.status !== 'live') return;
+    if (this.status !== 'live' && this.status !== 'loading') return;
     const p = this.players[token];
     if (!p) return;
     // Rejoin / soft resync only: push authoritative snapshot, ignore client scores/grids
     this.send(token, this.snapshotFor(token));
   }
 
+  /** Client finished loading boards/assets — when both ready, start the clock. */
+  markReady(token) {
+    if (this.status !== 'loading') {
+      // Already live or ended — echo current clock so client can sync
+      if (this.status === 'live') {
+        this.send(token, {
+          type: 'match_go',
+          matchId: this.id,
+          clockEndTs: this.clockEndTs,
+          vsTimeLeft: this.timeLeft(),
+          duration: this.duration
+        });
+      }
+      return;
+    }
+    const p = this.players[token];
+    if (!p) return;
+    if (!this.ready) this.ready = { a: false, b: false };
+    this.ready[p.seat] = true;
+    this.send(token, { type: 'match_ready_ack', seat: p.seat, matchId: this.id });
+    // Notify peer that opponent is loaded
+    const otherTok = this.seatOf[this.otherSeat(p.seat)];
+    if (otherTok) {
+      this.send(otherTok, {
+        type: 'match_peer_ready',
+        seat: p.seat,
+        matchId: this.id
+      });
+    }
+    if (this.ready.a && this.ready.b) {
+      this.goLive();
+    }
+    persistRoom(this);
+  }
+
+  /** Both players loaded — start wall clock and unlock play. */
+  goLive() {
+    if (this.status !== 'loading') return;
+    this.status = 'live';
+    // Intro buffer: clients show «Загрузка» → «Старт!» before play; clock includes that delay
+    // so remaining time after intro equals full match duration.
+    const INTRO_MS = 1800;
+    this.clockEndTs = Date.now() + INTRO_MS + (this.duration || 120) * 1000;
+    if (!this.ready) this.ready = { a: true, b: true };
+    else { this.ready.a = true; this.ready.b = true; }
+    this.broadcast({
+      type: 'match_go',
+      matchId: this.id,
+      clockEndTs: this.clockEndTs,
+      vsTimeLeft: this.timeLeft(),
+      duration: this.duration,
+      introMs: INTRO_MS
+    });
+    persistRoom(this);
+  }
+
+  /** Cancel match during loading (peer left / timeout) — no ranked penalty. */
+  cancelLoading(reason) {
+    if (this.status !== 'loading') return;
+    this.status = 'ended';
+    this.endedReason = reason || 'void';
+    if (this._clockTimer) {
+      clearInterval(this._clockTimer);
+      this._clockTimer = null;
+    }
+    this.broadcast({
+      type: 'match_end',
+      reason: 'void',
+      winnerSeat: null,
+      clockEndTs: 0,
+      matchId: this.id,
+      void: true,
+      preStart: true
+    });
+    persistRoom(this);
+  }
+
   forfeit(token) {
+    if (this.status === 'loading') {
+      this.cancelLoading('forfeit_prestart');
+      return;
+    }
     if (this.status !== 'live') return;
     const p = this.players[token];
     if (!p) return;
@@ -781,10 +1087,30 @@ class MatchRoom {
       winnerSeat: winnerSeat || null,
       clockEndTs: this.clockEndTs,
       matchId: this.id,
-      a: { score: this.state.a.score, name: this.state.a.name },
-      b: { score: this.state.b.score, name: this.state.b.name }
+      moves: (this.state.moves || []).slice(-160),
+      moveCount: (this.state.moves && this.state.moves.length) || 0,
+      a: {
+        score: this.state.a.score | 0,
+        name: this.state.a.name,
+        skinId: this.state.a.skinId || 'default',
+        boardId: this.state.a.boardId || 'field_default'
+      },
+      b: {
+        score: this.state.b.score | 0,
+        name: this.state.b.name,
+        skinId: this.state.b.skinId || 'default',
+        boardId: this.state.b.boardId || 'field_default'
+      }
     };
+    // Deliver to both even if one socket is flaky — try twice
     this.broadcast(payload);
+    try {
+      setTimeout(() => {
+        try {
+          if (this.status === 'ended') this.broadcast(payload);
+        } catch (_) {}
+      }, 300);
+    } catch (_) {}
     persistRoom(this);
     // Keep room for rejoin + rematch window
     const id = this.id;
@@ -855,13 +1181,17 @@ class MatchRoom {
       return;
     }
     const duration = this.duration || 120;
-    // Remove old room id mapping after starting new one
     const oldId = this.id;
+    // Carry cosmetics into the new room so skins/avatars load immediately
     const p1 = {
       token: tokA,
       ws: pa.ws,
       name: this.state.a.name,
       trophies: this.state.a.trophies | 0,
+      skinId: this.state.a.skinId || 'default',
+      boardId: this.state.a.boardId || 'field_default',
+      avatarId: this.state.a.avatarId || 'init',
+      avatarCustom: this.state.a.avatarCustom || '',
       duration: duration
     };
     const p2 = {
@@ -869,17 +1199,53 @@ class MatchRoom {
       ws: pb.ws,
       name: this.state.b.name,
       trophies: this.state.b.trophies | 0,
+      skinId: this.state.b.skinId || 'default',
+      boardId: this.state.b.boardId || 'field_default',
+      avatarId: this.state.b.avatarId || 'init',
+      avatarCustom: this.state.b.avatarCustom || '',
       duration: duration
     };
+    // Stop old clock before swapping rooms
+    try {
+      if (this._clockTimer) { clearInterval(this._clockTimer); this._clockTimer = null; }
+    } catch (_) {}
     rooms.delete(oldId);
     forgetRoom(oldId, [tokA, tokB]);
-    startRoom(p1, p2, { source: this.source || 'ranked', code: this.privateCode || null });
+    const room = startRoom(p1, p2, { source: this.source || 'ranked', code: this.privateCode || null });
+    // Bind new match id on sockets
+    try {
+      if (pa.ws) { pa.ws._matchId = room.id; pa.ws._token = tokA; }
+      if (pb.ws) { pb.ws._matchId = room.id; pb.ws._token = tokB; }
+    } catch (_) {}
   }
 
   _tick() {
-    if (this.status !== 'live') return;
     const now = Date.now();
+    // Loading phase: wait for both ready, force-start after timeout
+    if (this.status === 'loading') {
+      const loadAge = now - (this.createdAt || now);
+      const LOAD_TIMEOUT_MS = 20000;
+      if (loadAge >= LOAD_TIMEOUT_MS) {
+        // One or both never ready — if at least one is connected, force go;
+        // if neither, cancel.
+        const aOnline = !!(this.players[this.seatOf.a] && this.players[this.seatOf.a].ws);
+        const bOnline = !!(this.players[this.seatOf.b] && this.players[this.seatOf.b].ws);
+        if (aOnline && bOnline) {
+          this.goLive();
+        } else {
+          this.cancelLoading('load_timeout');
+        }
+      }
+      return;
+    }
+    if (this.status !== 'live') return;
     const left = this.timeLeft();
+    const matchAge = this.clockEndTs
+      ? (now - (this.clockEndTs - (this.duration || 120) * 1000))
+      : (now - (this.createdAt || now));
+    const startGrace = (typeof MATCH_START_GRACE_MS === 'number') ? MATCH_START_GRACE_MS : 12000;
+    const movesN = (this.state.moves && this.state.moves.length) || 0;
+
     if (left <= 0) {
       const a = this.state.a.score | 0;
       const b = this.state.b.score | 0;
@@ -890,62 +1256,128 @@ class MatchRoom {
       return;
     }
 
-    // Disconnect forfeit + AFK forfeit (server-authoritative)
+    // Auto-deal empty hands (never treat as stuck)
+    for (const seat of ['a', 'b']) {
+      const st = this.state[seat];
+      if (!st || !st.pieces) continue;
+      if (st.pieces.length && st.pieces.every(pc => pc && pc.used)) {
+        st.pieces = dealForSeat(st);
+        try {
+          const tok = this.seatOf[seat];
+          this.send(tok, {
+            type: 'deal',
+            pieces: serializePieces(st.pieces),
+            vsTimeLeft: left,
+            clockEndTs: this.clockEndTs
+          });
+        } catch (_) {}
+      }
+    }
+
     for (const seat of ['a', 'b']) {
       const st = this.state[seat];
       if (!st) continue;
+      const oppSeat = seat === 'a' ? 'b' : 'a';
+      const oppSt = this.state[oppSeat];
 
-      // Offline: technical loss when dcDeadlineTs passes
-      if (!st.online && st.dcDeadlineTs > 0 && now >= st.dcDeadlineTs) {
-        const loser = seat;
-        const winner = seat === 'a' ? 'b' : 'a';
-        this.end('disconnect', winner);
+      // Pending soft-detach: still treated as online for AFK/DC
+      if (st._detachPending && !st.online) {
+        // not yet confirmed offline
+      }
+
+      // ——— Disconnect rules (strict) ———
+      // Offline → wait DC_LIMIT (60s). Rejoin clears timer + restores state via snapshot.
+      // Both offline → each has own 60s from their offlineSince. First timer to expire loses.
+      // If both timers expire in the same tick / simultaneous leave → score comparison.
+      // Connection flaps during DETACH_GRACE do not start the timer.
+      const underDc = !!(st.dcDeadlineTs > 0 && !st.online && !st._detachPending);
+      if (underDc && now >= st.dcDeadlineTs) {
+        // Collect who else is past deadline this tick
+        const aSt = this.state.a;
+        const bSt = this.state.b;
+        const aPast = !!(aSt && !aSt.online && !aSt._detachPending && aSt.dcDeadlineTs > 0 && now >= aSt.dcDeadlineTs);
+        const bPast = !!(bSt && !bSt.online && !bSt._detachPending && bSt.dcDeadlineTs > 0 && now >= bSt.dcDeadlineTs);
+
+        // No real play yet → void cancel (not a scored draw)
+        if (movesN === 0) {
+          this.end('void', null);
+          return;
+        }
+
+        if (aPast && bPast) {
+          // Both timed out — simultaneous / mutual leave → by score
+          const aSc = aSt.score | 0;
+          const bSc = bSt.score | 0;
+          let winner = null;
+          if (aSc > bSc) winner = 'a';
+          else if (bSc > aSc) winner = 'b';
+          this.end('disconnect', winner);
+          return;
+        }
+
+        // Only this seat timed out → opponent wins
+        this.end('disconnect', oppSeat);
         return;
       }
 
-      // Online but idle: AFK warn / loss (only if online — offline uses dc path)
-      if (st.online) {
-        const idle = now - (st.lastActionAt || now);
-        if (idle >= AFK_LIMIT_MS) {
-          const winner = seat === 'a' ? 'b' : 'a';
-          this.end('afk', winner);
-          return;
-        }
-        if (idle >= AFK_WARN_MS && !st.afkWarned) {
-          st.afkWarned = true;
-          const token = this.seatOf[seat];
-          const remain = Math.max(1, Math.ceil((AFK_LIMIT_MS - idle) / 1000));
-          this.send(token, {
-            type: 'afk_warn',
-            seat: seat,
-            remaining: remain,
-            vsTimeLeft: left,
-            clockEndTs: this.clockEndTs
-          });
-          // Tell opponent too
-          const oppTok = this.seatOf[seat === 'a' ? 'b' : 'a'];
-          this.send(oppTok, {
-            type: 'afk_warn',
-            seat: seat,
-            remaining: remain,
-            vsTimeLeft: left,
-            clockEndTs: this.clockEndTs
-          });
+      // AFK — online only, after start grace, with playable hand
+      const trulyOnline = !!(st.online && !st._detachPending);
+      if (trulyOnline && !(st.dcDeadlineTs > now) && !st.stuck && matchAge >= startGrace) {
+        const playable = sideHasPlayable(st.grid, st.pieces);
+        if (playable === false || playable === null) {
+          st.lastActionAt = now;
+          st.afkWarned = false;
+        } else {
+          const idle = now - (st.lastActionAt || now);
+          if (idle >= AFK_LIMIT_MS) {
+            // Don't AFK-end if opponent is offline (give them DC path instead)
+            if (oppSt && !oppSt.online) {
+              st.lastActionAt = now; // freeze while opp offline
+            } else if (movesN === 0) {
+              // Nobody placed yet — soft reset, not a forfeit
+              st.lastActionAt = now;
+              st.afkWarned = false;
+            } else {
+              this.end('afk', oppSeat);
+              return;
+            }
+          } else if (idle >= AFK_WARN_MS) {
+            st.afkWarned = true;
+            const remain = Math.max(1, Math.ceil((AFK_LIMIT_MS - idle) / 1000));
+            const minGap = (typeof AFK_WARN_BROADCAST_MS === 'number') ? AFK_WARN_BROADCAST_MS : 2000;
+            if (!st._lastAfkWarnAt || (now - st._lastAfkWarnAt) >= minGap) {
+              st._lastAfkWarnAt = now;
+              this.broadcast({
+                type: 'afk_warn',
+                seat: seat,
+                remaining: remain,
+                vsTimeLeft: left,
+                clockEndTs: this.clockEndTs
+              });
+            }
+          } else if (st.afkWarned && idle < AFK_WARN_MS) {
+            st.afkWarned = false;
+          }
         }
       }
 
-      // Offline countdown broadcast every second for UI
-      if (!st.online && st.dcDeadlineTs > 0) {
+      if (underDc) {
         const dcRem = Math.max(0, Math.ceil((st.dcDeadlineTs - now) / 1000));
-        this.broadcast({
-          type: 'player_status',
-          seat: seat,
-          online: false,
-          clockEndTs: this.clockEndTs,
-          vsTimeLeft: left,
-          dcDeadlineTs: st.dcDeadlineTs,
-          dcRemaining: dcRem
-        });
+        // Throttle status spam: every 2s
+        if (!st._lastDcBroadcastAt || (now - st._lastDcBroadcastAt) >= 2000) {
+          st._lastDcBroadcastAt = now;
+          this.broadcast({
+            type: 'player_status',
+            seat: seat,
+            online: false,
+            rejoinPendingMove: false,
+            clockEndTs: this.clockEndTs,
+            vsTimeLeft: left,
+            dcDeadlineTs: st.dcDeadlineTs,
+            dcRemaining: dcRem,
+            reason: 'disconnect'
+          });
+        }
       }
     }
 
@@ -954,7 +1386,10 @@ class MatchRoom {
       vsTimeLeft: left,
       clockEndTs: this.clockEndTs
     });
-    this.evaluateStuck();
+    // Stuck evaluation only after start grace and at least one real place
+    if (matchAge >= startGrace && movesN > 0) {
+      this.evaluateStuck();
+    }
   }
 }
 
@@ -1033,8 +1468,9 @@ function startRoom(p1, p2, meta) {
       matchId: room.id,
       token,
       duration: room.duration,
-      clockEndTs: room.clockEndTs,
-      vsTimeLeft: room.timeLeft(),
+      clockEndTs: room.clockEndTs || 0,
+      vsTimeLeft: room.duration,
+      loading: true,
       me,
       opp,
       seat: snap.seat,
@@ -1084,6 +1520,8 @@ function leavePrivateLobby(token) {
 
 function lobbySnapshot(lobby, role) {
   const opp = role === 'host' ? lobby.guest : lobby.host;
+  const host = lobby.host;
+  const guest = lobby.guest;
   return {
     type: 'private_lobby',
     code: lobby.code,
@@ -1091,10 +1529,19 @@ function lobbySnapshot(lobby, role) {
     duration: lobby.duration,
     hostReady: !!lobby.hostReady,
     guestReady: !!lobby.guestReady,
+    hostName: host ? (host.name || 'Хост') : null,
+    hostRtt: host && typeof host.rtt === 'number' ? host.rtt : null,
+    guestRtt: guest && typeof guest.rtt === 'number' ? guest.rtt : null,
     opp: opp ? {
       name: opp.name,
       trophies: opp.trophies | 0,
-      friendCode: opp.friendCode || null
+      skinId: opp.skinId || 'default',
+      boardId: opp.boardId || 'field_default',
+      avatarId: opp.avatarId || 'init',
+      avatarCustom: opp.avatarCustom || '',
+      friendCode: opp.friendCode || null,
+      rtt: typeof opp.rtt === 'number' ? opp.rtt : null,
+      isHost: role === 'guest'
     } : null
   };
 }
@@ -1109,6 +1556,10 @@ function tryStartPrivate(lobby) {
     ws: lobby.host.ws,
     name: lobby.host.name,
     trophies: lobby.host.trophies | 0,
+    skinId: lobby.host.skinId || 'default',
+    boardId: lobby.host.boardId || 'field_default',
+    avatarId: lobby.host.avatarId || 'init',
+    avatarCustom: lobby.host.avatarCustom || '',
     duration: lobby.duration
   };
   const p2 = {
@@ -1116,6 +1567,10 @@ function tryStartPrivate(lobby) {
     ws: lobby.guest.ws,
     name: lobby.guest.name,
     trophies: lobby.guest.trophies | 0,
+    skinId: lobby.guest.skinId || 'default',
+    boardId: lobby.guest.boardId || 'field_default',
+    avatarId: lobby.guest.avatarId || 'init',
+    avatarCustom: lobby.guest.avatarCustom || '',
     duration: lobby.duration
   };
   // Bind duration onto both
@@ -1201,7 +1656,7 @@ function resolveMatchCtx(ws, data) {
   const token = (data && data.token) ? String(data.token) : (ws._token || null);
   if (!matchId || !token) return null;
   const room = rooms.get(matchId);
-  if (!room || room.status !== 'live') return null;
+  if (!room || (room.status !== 'live' && room.status !== 'loading')) return null;
   if (!room.getPlayer(token)) return null;
   // Soft re-bind if socket lost binding (common after refresh race)
   if (ws._matchId !== matchId || ws._token !== token || room.players[token].ws !== ws) {
@@ -1237,6 +1692,10 @@ wss.on('connection', (ws) => {
         token: ws._token, ws,
         name: String(data.name || 'Игрок').slice(0, 24),
         trophies: Math.max(0, data.trophies | 0),
+        skinId: data.skinId ? String(data.skinId).slice(0, 32) : 'default',
+        boardId: data.boardId ? String(data.boardId).slice(0, 32) : 'field_default',
+        avatarId: data.avatarId ? String(data.avatarId).slice(0, 32) : 'init',
+        avatarCustom: (data.avatarCustom && typeof data.avatarCustom === 'string') ? String(data.avatarCustom).slice(0, 120000) : '',
         duration: (data.duration === 60 || data.duration === 180) ? data.duration : 120,
         expandLevel: Math.min(3, Math.max(0, data.expandLevel | 0)),
         clientId: data.clientId ? String(data.clientId).slice(0, 64) : null
@@ -1262,6 +1721,10 @@ wss.on('connection', (ws) => {
         token: ws._token, ws,
         name: String(data.name || 'Игрок').slice(0, 24),
         trophies: Math.max(0, data.trophies | 0),
+        skinId: data.skinId ? String(data.skinId).slice(0, 32) : 'default',
+        boardId: data.boardId ? String(data.boardId).slice(0, 32) : 'field_default',
+        avatarId: data.avatarId ? String(data.avatarId).slice(0, 32) : 'init',
+        avatarCustom: (data.avatarCustom && typeof data.avatarCustom === 'string') ? String(data.avatarCustom).slice(0, 120000) : '',
         duration: (data.duration === 60 || data.duration === 180) ? data.duration : 120,
         expandLevel: Math.min(3, Math.max(0, data.expandLevel | 0)),
         clientId: data.clientId ? String(data.clientId).slice(0, 64) : null
@@ -1311,7 +1774,7 @@ wss.on('connection', (ws) => {
           try {
             const st = r.state[r.getPlayer(token).seat];
             if (!st.pieces || !st.pieces.length || st.pieces.every(function (pc) { return pc && pc.used; })) {
-              st.pieces = dealThree();
+              st.pieces = dealForSeat(st);
             }
           } catch (_) {}
           const snap2 = r.snapshotFor(token);
@@ -1353,7 +1816,7 @@ wss.on('connection', (ws) => {
       try {
         const st = room.state[room.getPlayer(token).seat];
         if (!st.pieces || !st.pieces.length || st.pieces.every(function (pc) { return pc && pc.used; })) {
-          st.pieces = dealThree();
+          st.pieces = dealForSeat(st);
         }
       } catch (_) {}
       const snap = room.snapshotFor(token);
@@ -1397,10 +1860,17 @@ wss.on('connection', (ws) => {
     if (type === 'create_private') {
       dequeueToken(ws._token);
       leavePrivateLobby(ws._token);
+      // Always leave any previous match (live or ended rematch) — user explicitly wants a room
       if (ws._matchId && rooms.has(ws._matchId)) {
-        send(ws, { type: 'private_error', reason: 'in_match' });
-        return;
+        const room = rooms.get(ws._matchId);
+        try {
+          if (room && room.status === 'live') {
+            // Soft leave — detach without blocking room creation
+            try { room.detach(ws._token); } catch (_) {}
+          }
+        } catch (_) {}
       }
+      ws._matchId = null;
       let code = genPrivateCode();
       let guard = 0;
       while (privateLobbies.has(code) && guard++ < 20) code = genPrivateCode();
@@ -1411,6 +1881,10 @@ wss.on('connection', (ws) => {
           token: ws._token, ws,
           name: String(data.name || 'Игрок').slice(0, 24),
           trophies: Math.max(0, data.trophies | 0),
+          skinId: data.skinId ? String(data.skinId).slice(0, 32) : 'default',
+          boardId: data.boardId ? String(data.boardId).slice(0, 32) : 'field_default',
+          avatarId: data.avatarId ? String(data.avatarId).slice(0, 32) : 'init',
+          avatarCustom: (data.avatarCustom && typeof data.avatarCustom === 'string') ? String(data.avatarCustom).slice(0, 120000) : '',
           friendCode: data.friendCode ? String(data.friendCode).slice(0, 16) : null
         },
         guest: null
@@ -1424,9 +1898,14 @@ wss.on('connection', (ws) => {
       dequeueToken(ws._token);
       leavePrivateLobby(ws._token);
       if (ws._matchId && rooms.has(ws._matchId)) {
-        send(ws, { type: 'private_error', reason: 'in_match' });
-        return;
+        const room = rooms.get(ws._matchId);
+        try {
+          if (room && room.status === 'live') {
+            try { room.detach(ws._token); } catch (_) {}
+          }
+        } catch (_) {}
       }
+      ws._matchId = null;
       const code = String(data.code || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
       const lobby = privateLobbies.get(code);
       if (!lobby || !lobby.host) {
@@ -1447,6 +1926,10 @@ wss.on('connection', (ws) => {
         token: ws._token, ws,
         name: String(data.name || 'Игрок').slice(0, 24),
         trophies: Math.max(0, data.trophies | 0),
+        skinId: data.skinId ? String(data.skinId).slice(0, 32) : 'default',
+        boardId: data.boardId ? String(data.boardId).slice(0, 32) : 'field_default',
+        avatarId: data.avatarId ? String(data.avatarId).slice(0, 32) : 'init',
+        avatarCustom: (data.avatarCustom && typeof data.avatarCustom === 'string') ? String(data.avatarCustom).slice(0, 120000) : '',
         friendCode: data.friendCode ? String(data.friendCode).slice(0, 16) : null
       };
       ws._privateCode = code;
@@ -1540,6 +2023,40 @@ wss.on('connection', (ws) => {
       send(ws, { type: 'presence_state', friends: result });
       return;
     }
+    if (type === 'presence_search') {
+      const raw = String(data.q || data.query || '').trim();
+      const q = raw.toUpperCase().replace(/[^A-Z0-9А-ЯЁ\s\-_]/gi, '').slice(0, 24);
+      const results = [];
+      if (q.length >= 1) {
+        const qCode = q.replace(/[^A-Z0-9]/g, '');
+        const qName = raw.toLowerCase().slice(0, 24);
+        for (const [code, p] of presence) {
+          if (!p || !p.ws || p.ws.readyState !== 1) continue;
+          if (ws._friendCode && code === ws._friendCode) continue; // self
+          const name = String(p.name || '');
+          const nameL = name.toLowerCase();
+          const codeHit = qCode.length >= 2 && code.indexOf(qCode) === 0;
+          const nameHit = qName.length >= 2 && (nameL.indexOf(qName) !== -1);
+          if (!codeHit && !nameHit) continue;
+          results.push({
+            code,
+            name: name.slice(0, 24) || code,
+            trophies: p.trophies | 0,
+            activity: String(p.activity || 'online').slice(0, 32)
+          });
+          if (results.length >= 20) break;
+        }
+        // Prefer exact code match first
+        results.sort((a, b) => {
+          const ae = a.code === qCode ? 0 : 1;
+          const be = b.code === qCode ? 0 : 1;
+          if (ae !== be) return ae - be;
+          return (b.trophies | 0) - (a.trophies | 0);
+        });
+      }
+      send(ws, { type: 'presence_search_result', q: raw.slice(0, 24), results });
+      return;
+    }
     if (type === 'presence_activity') {
       if (ws._friendCode && presence.has(ws._friendCode)) {
         const p = presence.get(ws._friendCode);
@@ -1589,6 +2106,15 @@ wss.on('connection', (ws) => {
         return;
       }
       send(ws, { type: 'social_result', ok: false, reason: 'offline', to });
+      return;
+    }
+    if (type === 'match_ready') {
+      const ctx = resolveMatchCtx(ws, data);
+      if (!ctx) {
+        send(ws, { type: 'match_ready_ack', ok: false, reason: 'no_match' });
+        return;
+      }
+      ctx.room.markReady(ctx.token);
       return;
     }
     if (type === 'place') {
@@ -1655,9 +2181,42 @@ wss.on('connection', (ws) => {
       }
       return;
     }
+    if (type === 'lobby_ping') {
+      const code = ws._privateCode;
+      if (!code || !privateLobbies.has(code)) return;
+      const lobby = privateLobbies.get(code);
+      const rtt = Math.max(0, Math.min(900, (data.rtt | 0))); // clamp tab-throttle spikes
+      if (lobby.host && lobby.host.token === ws._token) lobby.host.rtt = rtt;
+      else if (lobby.guest && lobby.guest.token === ws._token) lobby.guest.rtt = rtt;
+      // Push updated lobby to both so each sees both pings + host
+      try {
+        if (lobby.host && lobby.host.ws && lobby.host.ws.readyState === 1) {
+          send(lobby.host.ws, lobbySnapshot(lobby, 'host'));
+        }
+        if (lobby.guest && lobby.guest.ws && lobby.guest.ws.readyState === 1) {
+          send(lobby.guest.ws, lobbySnapshot(lobby, 'guest'));
+        }
+      } catch (_) {}
+      return;
+    }
+    if (type === 'free_match') {
+      // Client left rematch UI / went to menu — free socket without DC forfeit if already ended
+      const mid = ws._matchId;
+      const room = mid ? rooms.get(mid) : null;
+      if (room && room.status === 'live') {
+        try { room.detach(ws._token); } catch (_) {}
+      }
+      ws._matchId = null;
+      return;
+    }
     if (type === 'leave_match') {
-      const room = rooms.get(ws._matchId);
-      if (room) room.detach(ws._token);
+      const mid = ws._matchId;
+      const room = mid ? rooms.get(mid) : null;
+      if (room && room.status === 'live') {
+        try { room.detach(ws._token); } catch (_) {}
+      }
+      // Always free socket from ended/rematch rooms so create_private works
+      ws._matchId = null;
       return;
     }
   });

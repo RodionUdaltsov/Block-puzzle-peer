@@ -70,9 +70,18 @@ function goDurationFromOnline() {
 }
 function goDifficulty() {
   try { destroyMp(); } catch (_) {}
+  try { closeRoomLobby(); } catch (_) {}
+  try { stopMatchmaking(true); } catch (_) {}
   mpMode = false;
+  mpRoomCode = null;
+  mpGameSource = null;
+  mpFromMatchmaking = false;
+  roomMatchMode = false;
+  window._roomMatchMode = false;
+  postMatchOnlineEligible = false;
   vsModeType = 'bots';
   currentBot = null;
+  try { document.body.classList.add('vs-bots'); } catch (_) {}
   renderBotList();
   showScreen('difficulty');
 }
@@ -90,7 +99,6 @@ let mmActive = false;
 /** Ranked via authoritative server room (WebSocket MatchClient) */
 let roomMatchMode = false;
 window._roomMatchMode = false;
-let mmSessionLink = null; /* p2p unused */
 let mmFound = false;
 let mmHostMode = false;
 let mmDotsTimer = null;
@@ -160,8 +168,6 @@ function stopMatchmaking(silent) {
     if (!mmFound && typeof MatchClient !== 'undefined') MatchClient.leaveQueue();
   } catch (_) {}
   if (!mmFound) {
-    /* p2p removed */
-    mmSessionLink = null; /* p2p unused */
   }
   if (!silent) setMpStatus('');
 }
@@ -222,11 +228,15 @@ function unlockRoomPlay() {
   try {
     window._rejoinLoading = false;
     window._rejoinInputLock = false;
+    window._mpRejoiningMatch = false;
     placingLock = false;
     isDragging = false;
     selectedIdx = -1;
     dragPiece = null;
     activeDragPointerId = null;
+    try { vsIntroLock = false; } catch (_) {}
+    try { mpMatchStarting = false; } catch (_) {}
+    try { mpLoading = false; } catch (_) {}
   } catch (_) {}
   try {
     document.body.classList.remove('rejoin-loading');
@@ -234,10 +244,17 @@ function unlockRoomPlay() {
     if (el) el.classList.remove('show');
   } catch (_) {}
   try {
-    document.querySelectorAll('#piecesAreaVs .piece-slot.lifting').forEach(s => {
+    document.body.classList.remove('match-ending');
+    document.querySelectorAll('#piecesAreaVs .piece-slot.lifting, #piecesAreaVs .piece-slot').forEach(s => {
       s.classList.remove('lifting');
-      s.style.visibility = '';
-      s.style.opacity = '';
+      if (!s.classList.contains('used')) {
+        s.classList.add('show');
+        s.style.visibility = '';
+        s.style.opacity = '1';
+        s.style.pointerEvents = 'auto';
+        s.style.touchAction = 'none';
+        s.style.filter = '';
+      }
     });
   } catch (_) {}
   try { hideGhost && hideGhost(); } catch (_) {}
@@ -245,11 +262,14 @@ function unlockRoomPlay() {
 
 function applyRoomState(data) {
   if (!data) return;
-  try { unlockRoomPlay(); } catch (_) {}
+  const stillLoading = !!(window._matchAwaitingGo || mpLoading || mpMatchStarting);
+  if (!stillLoading) {
+    try { unlockRoomPlay(); } catch (_) {}
+  }
   try {
     roomMatchMode = true;
     window._roomMatchMode = true;
-    vsActive = true;
+    if (!stillLoading) vsActive = true;
     mpMode = true;
     mode = 'versus';
   } catch (_) {}
@@ -299,7 +319,11 @@ function applyRoomState(data) {
   }
   function handSig(arr) {
     try {
-      return (arr || []).map(p => (p && p.used ? 'U' : 'A') + (p && p.color ? p.color : '') + ((p && p.shape) ? p.shape.length : 0)).join(',');
+      return (arr || []).map(p => {
+        if (!p) return 'X';
+        const sh = (p.shape || []).map(c => Array.isArray(c) ? (c[0] + ':' + c[1]) : String(c)).join(';');
+        return (p.used ? 'U' : 'A') + '|' + (p.color || '') + '|' + sh;
+      }).join(',');
     } catch (_) { return ''; }
   }
 
@@ -313,7 +337,17 @@ function applyRoomState(data) {
       }
       if (Array.isArray(me.pieces) && !dragging) {
         const next = adoptHand(me.pieces);
-        if (handSig(next) !== handSig(pieces)) { pieces = next; myHandChanged = true; }
+        const localU = (pieces || []).filter(p => p && !p.used).length;
+        const remoteU = next.filter(p => p && !p.used).length;
+        // Only adopt on real deal / unused-count change — never cosmetic reshuffle (causes lag + unpickable)
+        const force = !!(data.deal || data._forceHand || data._rejoin);
+        if (force || localU !== remoteU || localU === 0) {
+          if (handSig(next) !== handSig(pieces)) {
+            if (!(localU > 0 && remoteU === 0 && !force)) {
+              pieces = next; myHandChanged = true;
+            }
+          }
+        }
       }
     }
     if (typeof data.score === 'number' && !data.me && (data.score | 0) !== (score | 0)) { score = data.score | 0; scoresChanged = true; }
@@ -323,12 +357,22 @@ function applyRoomState(data) {
     }
     if (Array.isArray(data.pieces) && !data.me && !dragging) {
       const next = adoptHand(data.pieces);
-      if (handSig(next) !== handSig(pieces)) { pieces = next; myHandChanged = true; }
+      const localU = (pieces || []).filter(p => p && !p.used).length;
+      const remoteU = next.filter(p => p && !p.used).length;
+      const force = !!(data.deal || data._forceHand || data._rejoin);
+      if (force || localU !== remoteU || localU === 0) {
+        if (handSig(next) !== handSig(pieces)) {
+          if (!(localU > 0 && remoteU === 0 && !force)) {
+            pieces = next; myHandChanged = true;
+          }
+        }
+      }
     }
-    // New deal always wins (hand was empty)
+    // New deal always wins (hand was empty / refreshed)
     if (Array.isArray(data.deal) && data.deal.length) {
       pieces = adoptHand(data.deal);
       myHandChanged = true;
+      try { window._animateDealIn = true; } catch (_) {}
     }
     // place_ok / opp_place aliases
     if (typeof data.meScore === 'number' && (data.meScore | 0) !== (score | 0)) { score = data.meScore | 0; scoresChanged = true; }
@@ -338,31 +382,68 @@ function applyRoomState(data) {
     }
     if (Array.isArray(data.mePieces) && !dragging) {
       const next = adoptHand(data.mePieces);
-      if (handSig(next) !== handSig(pieces)) { pieces = next; myHandChanged = true; }
+      if (handSig(next) !== handSig(pieces)) {
+        const localU = (pieces || []).filter(p => p && !p.used).length;
+        const remoteU = next.filter(p => p && !p.used).length;
+        if (!(localU > 0 && remoteU === 0 && !data.deal)) {
+          pieces = next; myHandChanged = true;
+        }
+      }
     }
   } catch (_) {}
 
   try {
+    // Opp place animation owns the tray — never thrash opp hand mid-anim / from sync storms
+    const oppAnimBusy = !!(typeof _oppPlaceAnimBusy !== 'undefined' && _oppPlaceAnimBusy);
+    const fromSync = !!data._fromSync;
+
     if (opp) {
       if (typeof opp.score === 'number' && (opp.score | 0) !== (oppScore | 0)) { oppScore = opp.score | 0; scoresChanged = true; }
-      if (Array.isArray(opp.grid)) {
+      if (Array.isArray(opp.grid) && !oppAnimBusy) {
         const next = opp.grid.map(row => (row || []).slice());
         if (gridSig(next) !== gridSig(oppGrid)) { oppGrid = next; oppBoardChanged = true; }
       }
-      if (Array.isArray(opp.pieces)) {
+      if (Array.isArray(opp.pieces) && !oppAnimBusy) {
         const next = adoptHand(opp.pieces);
-        if (handSig(next) !== handSig(oppPieces)) { oppPieces = next; oppHandChanged = true; }
+        if (handSig(next) !== handSig(oppPieces)) {
+          // On sync: only adopt if unused count differs (real deal / place), not cosmetic reshuffles
+          const localU = (oppPieces || []).filter(p => p && !p.used).length;
+          const remoteU = next.filter(p => p && !p.used).length;
+          if (!fromSync || localU !== remoteU || localU === 0) {
+            oppPieces = next; oppHandChanged = true;
+          }
+        }
       }
       if (opp.name) { mpOppName = opp.name; oppName = opp.name; }
+      if (typeof opp.trophies === 'number') mpOppTrophies = opp.trophies | 0;
+      // Mutual cosmetics: skin / board / avatar from server state
+      if (opp.skinId && opp.skinId !== window.mpOppSkinId && typeof applyOppSkin === 'function') {
+        window.mpOppSkinId = opp.skinId;
+        try { applyOppSkin(opp.skinId); } catch (_) {}
+      }
+      if (opp.boardId && opp.boardId !== window.mpOppBoardId && typeof applyOppBoard === 'function') {
+        window.mpOppBoardId = opp.boardId;
+        try { applyOppBoard(opp.boardId); } catch (_) {}
+      }
+      if (opp.avatarId) {
+        window.mpOppAvatarId = opp.avatarId;
+        if (opp.avatarCustom) window.mpOppAvatarCustom = opp.avatarCustom;
+      }
     }
     if (typeof data.oppScore === 'number' && (data.oppScore | 0) !== (oppScore | 0)) { oppScore = data.oppScore | 0; scoresChanged = true; }
-    if (Array.isArray(data.oppGrid)) {
+    if (Array.isArray(data.oppGrid) && !oppAnimBusy) {
       const next = data.oppGrid.map(row => (row || []).slice());
       if (gridSig(next) !== gridSig(oppGrid)) { oppGrid = next; oppBoardChanged = true; }
     }
-    if (Array.isArray(data.oppPieces)) {
+    if (Array.isArray(data.oppPieces) && !oppAnimBusy) {
       const next = adoptHand(data.oppPieces);
-      if (handSig(next) !== handSig(oppPieces)) { oppPieces = next; oppHandChanged = true; }
+      if (handSig(next) !== handSig(oppPieces)) {
+        const localU = (oppPieces || []).filter(p => p && !p.used).length;
+        const remoteU = next.filter(p => p && !p.used).length;
+        if (!fromSync || localU !== remoteU || localU === 0) {
+          oppPieces = next; oppHandChanged = true;
+        }
+      }
     }
     // opp_place: mover board is data.grid, mover pieces data.pieces
     if (Array.isArray(data.grid) && data.meGrid == null && data.me == null && data.oppGrid == null) {
@@ -375,41 +456,72 @@ function applyRoomState(data) {
     if (!dragging) placingLock = false;
     window._rejoinLoading = false;
     window._rejoinInputLock = false;
+    // Critical: sticky body.rejoin-loading sets pointer-events:none on ALL versus UI
+    try {
+      const ov = document.getElementById('rejoinLoading');
+      const ovOn = ov && (ov.classList.contains('show') || ov.classList.contains('visible'));
+      if (!ovOn) {
+        document.body.classList.remove('rejoin-loading');
+        try { if (ov) { ov.classList.remove('show', 'visible'); ov.style.display = 'none'; } } catch (_) {}
+      }
+    } catch (_) {}
+    try {
+      if (!document.getElementById('matchEndFreeze')?.classList.contains('visible')) {
+        document.body.classList.remove('match-ending');
+      }
+    } catch (_) {}
   } catch (_) {}
 
-  // Soft differential renders — avoid full DOM wipe (fixes jump / flicker)
-  try {
-    if (myBoardChanged && typeof boardMe !== 'undefined' && boardMe) {
-      if (typeof softRenderGrid === 'function') softRenderGrid(grid, boardMe);
-      else renderGrid(grid, boardMe);
-    }
-    if (oppBoardChanged && typeof boardOpp !== 'undefined' && boardOpp) {
-      if (typeof softRenderGrid === 'function') softRenderGrid(oppGrid, boardOpp);
-      else renderGrid(oppGrid, boardOpp);
-    }
-  } catch (_) {}
-  try {
-    if (myHandChanged && !dragging) {
-      const area = document.getElementById('piecesAreaVs');
-      if (area) {
-        if (typeof softRenderPieces === 'function') softRenderPieces(area);
-        else if (typeof renderPieces === 'function') renderPieces(area);
+  // Soft differential renders — skip while intro overlay owns the screen
+  const paintFrozen = !!(window._paintFrozen || window._matchIntroSeqRunning || window._matchStartPhase);
+  if (!paintFrozen) {
+    try {
+      if (myBoardChanged && typeof boardMe !== 'undefined' && boardMe) {
+        if (typeof softRenderGrid === 'function') softRenderGrid(grid, boardMe);
+        else renderGrid(grid, boardMe);
       }
-    }
-    if (oppHandChanged) {
-      if (typeof softRenderOppPieces === 'function') softRenderOppPieces();
-      else if (typeof renderOppPieces === 'function') renderOppPieces();
-    }
-  } catch (_) {}
+      if (oppBoardChanged && typeof boardOpp !== 'undefined' && boardOpp) {
+        if (typeof softRenderGrid === 'function') softRenderGrid(oppGrid, boardOpp);
+        else renderGrid(oppGrid, boardOpp);
+      }
+    } catch (_) {}
+    try {
+      if (myHandChanged && !dragging) {
+        const area = document.getElementById('piecesAreaVs');
+        if (area) {
+          if (window._animateDealIn && typeof renderPieces === 'function') {
+            window._quietPieceRender = false;
+            renderPieces(area);
+            window._animateDealIn = false;
+          } else if (typeof softRenderPieces === 'function') softRenderPieces(area);
+          else if (typeof renderPieces === 'function') renderPieces(area);
+        }
+      }
+      if (oppHandChanged && !oppAnimBusy) {
+        try { window._quietPieceRender = true; } catch (_) {}
+        if (typeof softRenderOppPieces === 'function') softRenderOppPieces();
+        else if (typeof renderOppPieces === 'function') renderOppPieces();
+        try { window._quietPieceRender = false; } catch (_) {}
+      }
+    } catch (_) {}
+    try {
+      if (scoresChanged) {
+        const myEl = document.getElementById('myScore');
+        const oppEl = document.getElementById('oppScore');
+        if (myEl) myEl.textContent = String(score);
+        if (oppEl) oppEl.textContent = String(oppScore);
+      }
+    } catch (_) {}
+  }
+  // Always keep logical scores in sync even when paint is frozen
   try {
-    if (scoresChanged) {
-      const myEl = document.getElementById('myScore');
-      const oppEl = document.getElementById('oppScore');
-      if (myEl) myEl.textContent = String(score);
-      if (oppEl) oppEl.textContent = String(oppScore);
+    if (paintFrozen && scoresChanged) {
+      /* DOM update deferred until after «Старт!» */
     }
   } catch (_) {}
-  try { updateTimerDisplay && updateTimerDisplay(); } catch (_) {}
-  try { ensureMatchClockRunning && ensureMatchClockRunning(); } catch (_) {}
+  if (!paintFrozen) {
+    try { updateTimerDisplay && updateTimerDisplay(); } catch (_) {}
+    try { ensureMatchClockRunning && ensureMatchClockRunning(); } catch (_) {}
+  }
 }
 

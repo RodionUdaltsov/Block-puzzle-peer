@@ -310,8 +310,6 @@ let frSessionReady = false;
 let frIncoming = []; // { code, name, trophies, conn, ts }
 let frSearchBusy = false;
 let frActiveToast = null; // current toast request
-let frOutgoingConn = null;
-let frOutgoingSession = null;
 let frOutgoingTimer = null;
 /** Outgoing friend requests awaiting accept/decline: { code, name, ts } */
 let frOutgoingPending = [];
@@ -326,33 +324,59 @@ let myActivity = 'menu';
 function activityLabel(act) {
   const a = String(act || '').toLowerCase();
   if (a === 'classic') return 'Классика';
-  if (a === 'versus_bots' || a === 'training') return 'Тренировка';
-  if (a === 'versus' || a === 'online' || a === 'match') return 'Соревнование';
+  if (a === 'versus_bots' || a === 'training' || a === 'bots') return 'Играет с ботом';
+  if (a === 'ranked' || a === 'queue' || a === 'matchmaking') return 'Поиск матча';
+  if (a === 'lobby' || a === 'room' || a === 'private') return 'В лобби';
+  if (a === 'versus' || a === 'online' || a === 'match' || a === 'live') return 'В матче';
   if (a === 'shop' || a === 'inventory') return 'Магазин';
   if (a === 'settings') return 'Настройки';
-  if (a === 'friends') return 'Друзья';
+  if (a === 'friends') return 'В друзьях';
   if (a === 'history') return 'История';
   if (a === 'achievements') return 'Достижения';
-  if (a === 'difficulty' || a === 'duration' || a === 'comptype') return 'Соревнование';
-  return 'В меню';
+  if (a === 'difficulty' || a === 'duration' || a === 'comptype') return 'Выбор режима';
+  if (a === 'menu') return 'В меню';
+  if (a === 'offline') return 'Не в сети';
+  return 'В сети';
 }
 function detectMyActivity() {
   try {
+    // Live match / lobby take priority over which screen class is active
+    if (typeof mmActive !== 'undefined' && mmActive) {
+      myActivity = 'ranked';
+      return myActivity;
+    }
+    if ((typeof roomMatchMode !== 'undefined' && roomMatchMode) || window._roomMatchMode) {
+      if (typeof vsActive !== 'undefined' && vsActive) {
+        myActivity = 'match';
+        return myActivity;
+      }
+      myActivity = 'lobby';
+      return myActivity;
+    }
+    if (typeof mpRoomCode !== 'undefined' && mpRoomCode) {
+      myActivity = 'lobby';
+      return myActivity;
+    }
+    const lobbyEl = document.getElementById('roomLobby');
+    if (lobbyEl && lobbyEl.classList.contains('visible')) {
+      myActivity = 'lobby';
+      return myActivity;
+    }
     const active = document.querySelector('.screen.active');
     const id = (active && active.id) || '';
     const raw = id.replace(/^screen/, '');
     const map = {
       Menu: 'menu', Classic: 'classic', Versus: 'versus', Settings: 'settings',
       Match: 'match', Friends: 'friends', History: 'history', Achievements: 'achievements',
-      CompType: 'compType', Difficulty: 'difficulty', Duration: 'duration',
+      CompType: 'comptype', Difficulty: 'difficulty', Duration: 'duration',
       Shop: 'shop', Inventory: 'inventory'
     };
     let act = map[raw] || 'menu';
     if (act === 'versus') {
       if (vsModeType === 'bots' || currentBot) act = 'versus_bots';
-      else if (vsModeType === 'online' || mpMode) act = 'versus';
+      else if (vsModeType === 'online' || mpMode) act = 'match';
     }
-    if (act === 'match') act = 'match';
+    if (act === 'match' && (vsModeType === 'bots' || currentBot)) act = 'versus_bots';
     myActivity = act;
     return act;
   } catch (_) {
@@ -471,13 +495,7 @@ function cancelOutgoingRequest(code) {
   );
   const finish = () => {
     removeOutgoingPending(code);
-    try {
-      if (frOutgoingConn) frOutgoingConn.close();
-      if (frOutgoingSession) frOutgoingSession.destroy();
-    } catch (_) {}
-    frOutgoingConn = null;
-    frOutgoingSession = null;
-    if (frOutgoingTimer) { clearTimeout(frOutgoingTimer); frOutgoingTimer = null; }
+if (frOutgoingTimer) { clearTimeout(frOutgoingTimer); frOutgoingTimer = null; }
     frSearchBusy = false;
     notifyFriendReqCancel(code);
     setFriendAddStatus('Заявка отменена', 'ok');
@@ -489,12 +507,13 @@ function cancelOutgoingRequest(code) {
   } else {
     finish();
   }
+  try { refreshFriendFindCards(); } catch (_) {}
 }
 
 function updateFriendsSectionCounts() {
   let reqN = (frIncoming ? frIncoming.length : 0) + (frOutgoingPending ? frOutgoingPending.length : 0);
   try {
-    if (mpPendingJoin && mpRoomCode) reqN += 1;
+    if (null && mpRoomCode) reqN += 1;
     if (typeof chPending !== 'undefined' && chPending && chPending.room) reqN += 1;
   } catch (_) {}
   const reqCount = document.getElementById('friendsReqCount');
@@ -653,6 +672,7 @@ function applyIncomingFriendAccept(data) {
   try { renderFriends(!!(added || wasPending)); } catch (_) {}
   try { renderOutgoingPending(false); } catch (_) {}
   try { updateFriendsSectionCounts(); } catch (_) {}
+  try { refreshFriendFindCards(); } catch (_) {}
   if (wasPending || added) {
     try {
       setFriendAddStatus('✓ ' + theirName + ' принял(а) заявку!', 'ok');
@@ -672,9 +692,10 @@ function applyIncomingFriendDecline(data) {
   }
   try { renderOutgoingPending(false); } catch (_) {}
   try { updateFriendsSectionCounts(); } catch (_) {}
+  try { refreshFriendFindCards(); } catch (_) {}
 }
 
-    function ensureFriendPresence() {
+function ensureFriendPresence() {
   if (typeof MatchClient === 'undefined' || !myFriendCode) return;
   try {
     MatchClient.registerPresence({
@@ -990,11 +1011,11 @@ function renderFriendRequests() {
   const list = document.getElementById('friendReqList');
   if (!list) return;
   try {
-    if (mpPendingJoin) {
-      const roomDead = !mpRoomCode || !mpSessionLink || (mpSessionLink && mpSessionLink.destroyed);
+    if (null) {
+      const roomDead = !mpRoomCode && !(typeof MatchClient !== "undefined" && MatchClient.matchId);
       const full = !!mpOppConnected || !!vsActive;
       if (roomDead || full) {
-        const pend = mpPendingJoin;
+        const pend = null;
         mpPendingJoin = null;
         try { hideRjToast(false); } catch (_) {}
         try {
@@ -1023,8 +1044,8 @@ function renderFriendRequests() {
       </div>
     </div>`);
   });
-  if (mpPendingJoin && mpRoomCode) {
-    const r = mpPendingJoin;
+  if (null && mpRoomCode) {
+    const r = null;
     const initials = (r.name || r.code || '?').slice(0, 2).toUpperCase();
     const cups = r.trophies != null ? ` · 🏆 ${r.trophies}` : '';
     parts.push(`<div class="friend-req-card lobby-join-card" data-join="1">
@@ -1072,8 +1093,8 @@ function renderFriendRequests() {
   });
   const ja = document.getElementById('frJoinAcc');
   const jd = document.getElementById('frJoinDec');
-  if (ja) ja.addEventListener('click', () => { try { acceptPendingJoin(); } catch (_) {} });
-  if (jd) jd.addEventListener('click', () => { try { declinePendingJoin('declined'); } catch (_) {} });
+  if (ja) ja.addEventListener('click', () => {  });
+  if (jd) jd.addEventListener('click', () => {  });
   const ca = document.getElementById('frChAcc');
   const cd = document.getElementById('frChDec');
   if (ca) ca.addEventListener('click', () => { try { acceptChallenge(); } catch (_) {} });
@@ -1193,8 +1214,9 @@ function scheduleFriendsPresence() {
     const inv = document.getElementById('lobbyInviteModal');
     if ((scr && scr.classList.contains('active')) || (inv && inv.classList.contains('visible'))) {
       try { refreshFriendsPresence(); } catch (_) {}
+      try { broadcastMyActivity(true); } catch (_) {}
     }
-  }, 10000);
+  }, 3000);
 }
 
 let activityBroadcastTimer = null;
@@ -1204,24 +1226,14 @@ function broadcastMyActivity(force) {
     const act = detectMyActivity();
     if (!force && act === lastBroadcastActivity) return;
     lastBroadcastActivity = act;
-    if (!friends || !friends.length || true /* no client mesh */) return;
-    // Push activity to friends we already know are online (cheap sequential)
-    const targets = friends.filter(f => getFriendPresence(f.code) === 'online').slice(0, 12);
-    if (!targets.length) return;
-    let i = 0;
-    const step = () => {
-      if (i >= targets.length) return;
-      const f = targets[i++];
-      deliverSocialMessage(f.code, {
-        type: 'activity_update',
-        activity: act,
-        name: myNickname,
-        trophies: typeof trophies === 'number' ? trophies : 0
-      }, { timeoutMs: 4500 }).finally(() => {
-        setTimeout(step, 120);
-      });
-    };
-    step();
+    // Authoritative: update server presence so friends see us via presence_query
+    if (typeof MatchClient !== 'undefined') {
+      try { ensureFriendPresence(); } catch (_) {}
+      try {
+        if (typeof MatchClient.setActivity === 'function') MatchClient.setActivity(act);
+        else MatchClient.send({ type: 'presence_activity', activity: act });
+      } catch (_) {}
+    }
   } catch (_) {}
 }
 function scheduleActivityBroadcast() {
@@ -1337,20 +1349,13 @@ function renderFriends(highlightNew) {
 
 function cleanupOutgoingSearch() {
   if (frOutgoingTimer) { clearTimeout(frOutgoingTimer); frOutgoingTimer = null; }
-  try { if (frOutgoingConn) frOutgoingConn.close(); } catch (_) {}
-  try { if (frOutgoingSession) frOutgoingSession.destroy(); } catch (_) {}
-  frOutgoingConn = null;
-  frOutgoingSession = null;
   frSearchBusy = false;
 }
 
-function addFriendByCode(code) {
+function sendFriendRequestToCode(code, displayName) {
   code = normalizeFriendCode(code);
-  const input = document.getElementById('friendCodeInput');
-  if (input) input.value = code;
-
-  if (code.length !== 6) {
-    setFriendAddStatus('Код должен быть из 6 символов (A–Z, 2–9)', 'err');
+  if (!code || code.length !== 6) {
+    setFriendAddStatus('Нужен код из 6 символов', 'err');
     return;
   }
   if (code === myFriendCode) {
@@ -1372,26 +1377,29 @@ function addFriendByCode(code) {
   }
   if (!checkCrossPlatformReady()) return;
   if (frSearchBusy) {
-    setFriendAddStatus('Подождите, проверяем предыдущий код…', 'wait');
+    setFriendAddStatus('Подождите…', 'wait');
     return;
   }
 
   frSearchBusy = true;
-  setFriendAddStatus('Проверяем код…', 'wait');
+  setFriendAddStatus('Отправляем заявку…', 'wait');
   try { SFX.ui(); } catch (_) {}
   try { ensureFriendPresence(); } catch (_) {}
 
-  // Register outgoing pending optimistically; remove if offline
   try {
     if (!frOutgoingPending.some(p => p.code === code)) {
-      frOutgoingPending.unshift({ code, name: null, ts: Date.now() });
+      frOutgoingPending.unshift({
+        code,
+        name: (displayName || '').toString().trim().slice(0, 20) || null,
+        ts: Date.now()
+      });
       saveOutgoingPending();
       renderOutgoingPending(true);
+    } else if (displayName) {
+      updateOutgoingPendingName(code, displayName);
     }
   } catch (_) {}
 
-  // Ensure we are registered in presence before sending
-  try { ensureFriendPresence(); } catch (_) {}
   deliverSocialMessage(code, {
     type: 'friend_req',
     code: myFriendCode,
@@ -1400,14 +1408,93 @@ function addFriendByCode(code) {
   }, { timeoutMs: 10000 }).then((ok) => {
     frSearchBusy = false;
     if (!ok) {
-      // Keep pending locally — code format was valid; friend may come online later
       setFriendAddStatus('Заявка сохранена. Друг получит её, когда зайдёт в игру', 'ok');
       try { renderOutgoingPending(false); } catch (_) {}
+      try { refreshFriendFindCards(); } catch (_) {}
       return;
     }
     setFriendAddStatus('Заявка отправлена — ждём ответа', 'ok');
     try { renderOutgoingPending(false); } catch (_) {}
+    try { refreshFriendFindCards(); } catch (_) {}
   });
+}
+
+/** Add by 6-char code OR resolve online nickname via presence_search */
+function addFriendByCode(raw) {
+  const input = document.getElementById('friendCodeInput');
+  const typed = String(raw != null ? raw : (input && input.value) || '').trim();
+  if (input) input.value = typed;
+
+  if (!typed) {
+    setFriendAddStatus('Введи код (6 символов) или ник онлайн-игрока', 'err');
+    return;
+  }
+
+  const asCode = normalizeFriendCode(typed);
+  // Exact friend code path
+  if (asCode.length === 6 && asCode === typed.toUpperCase().replace(/[^A-Z0-9]/g, '')) {
+    sendFriendRequestToCode(asCode);
+    return;
+  }
+
+  // Nickname path — need server presence search
+  if (typed.length < 2) {
+    setFriendAddStatus('Ник слишком короткий (минимум 2 символа)', 'err');
+    return;
+  }
+  if (typeof MatchClient === 'undefined') {
+    setFriendAddStatus('Сервер недоступен. Обнови страницу.', 'err');
+    return;
+  }
+  if (frSearchBusy) {
+    setFriendAddStatus('Подождите…', 'wait');
+    return;
+  }
+  frSearchBusy = true;
+  setFriendAddStatus('Ищем «' + typed.slice(0, 20) + '» онлайн…', 'wait');
+  try { ensureFriendPresence(); } catch (_) {}
+  try { MatchClient.connect(); } catch (_) {}
+
+  let settled = false;
+  const finish = (ok) => {
+    if (settled) return;
+    settled = true;
+    frSearchBusy = false;
+    try { MatchClient.off('presence_search_result', onRes); } catch (_) {}
+  };
+  const onRes = (data) => {
+    if (!data || settled) return;
+    // Accept any search response while we're busy resolving a nick
+    const results = Array.isArray(data.results) ? data.results : [];
+    const q = typed.toLowerCase();
+    const exact = results.filter(r => String(r.name || '').toLowerCase() === q);
+    const pool = exact.length ? exact : results;
+    if (!pool.length) {
+      finish(false);
+      setFriendAddStatus('Никого с таким ником сейчас нет в сети. Попробуй код друга.', 'err');
+      return;
+    }
+    if (pool.length > 1 && exact.length !== 1) {
+      finish(false);
+      setFriendAddStatus('Несколько игроков — уточни ник или используй код', 'wait');
+      // Show them in find list
+      try { renderFriendFindResults(pool, typed); } catch (_) {}
+      return;
+    }
+    const pick = pool[0];
+    finish(true);
+    const code = normalizeFriendCode(pick.code);
+    if (input) input.value = code;
+    sendFriendRequestToCode(code, pick.name);
+  };
+  try { MatchClient.on('presence_search_result', onRes); } catch (_) {}
+  try { MatchClient.presenceSearch(typed); } catch (_) {}
+  setTimeout(() => {
+    if (!settled) {
+      finish(false);
+      setFriendAddStatus('Поиск не ответил. Проверь связь или введи код.', 'err');
+    }
+  }, 8000);
 }
 
 function animateRemoveOutgoing(code, after) {
@@ -1439,6 +1526,178 @@ function animateRemoveOutgoing(code, after) {
   });
 })();
 
+
+
+/* ── Find online players (uses friendSearchInput — one search field) ───── */
+let _friendFindTimer = null;
+let _friendFindLastQ = '';
+/** Last successful presence_search results (kept when input is cleared). */
+let _friendFindCache = [];
+
+function activityFindLabel(act) {
+  const a = String(act || 'online');
+  if (a === 'match' || a === 'versus' || a === 'ranked') return 'В матче';
+  if (a === 'lobby' || a === 'room') return 'В комнате';
+  if (a === 'menu' || a === 'online') return 'В меню';
+  return a;
+}
+
+function refreshFriendFindCards() {
+  if (!_friendFindCache || !_friendFindCache.length) return;
+  renderFriendFindResults(_friendFindCache, _friendFindLastQ, { keepEmpty: true });
+}
+
+function renderFriendFindResults(results, q, opts) {
+  opts = opts || {};
+  const list = document.getElementById('friendFindList');
+  const empty = document.getElementById('friendFindEmpty');
+  if (!list) return;
+  results = Array.isArray(results) ? results : [];
+  if (results.length) _friendFindCache = results.slice();
+
+  list.innerHTML = '';
+  if (!results.length) {
+    if (empty && !opts.keepEmpty) {
+      empty.style.display = '';
+      empty.textContent = q
+        ? ('Никого не нашли по «' + String(q).slice(0, 20) + '». Игрок должен быть онлайн.')
+        : '';
+      if (!q) empty.style.display = 'none';
+    }
+    return;
+  }
+  if (empty) empty.style.display = 'none';
+
+  for (const r of results) {
+    const code = normalizeFriendCode(r.code || '');
+    if (!code) continue;
+    const name = String(r.name || code).slice(0, 20);
+    const isSelf = code === myFriendCode;
+    const isFriend = !isSelf && friends.some(f => f.code === code);
+    const pending = !isFriend && frOutgoingPending.some(p => p.code === code);
+    const card = document.createElement('div');
+    card.className = 'friend-find-card' + (isFriend ? ' is-friend' : '');
+    card.dataset.code = code;
+
+    const av = document.createElement('div');
+    av.className = 'ff-av';
+    av.textContent = (name.charAt(0) || '?').toUpperCase();
+
+    const meta = document.createElement('div');
+    meta.className = 'ff-meta';
+    const nm = document.createElement('div');
+    nm.className = 'ff-name';
+    nm.textContent = name;
+    const sub = document.createElement('div');
+    sub.className = 'ff-sub';
+    const parts = [code];
+    if (typeof r.trophies === 'number') parts.push('🏆 ' + (r.trophies | 0));
+    parts.push(activityFindLabel(r.activity));
+    sub.textContent = parts.join(' · ');
+    meta.appendChild(nm);
+    meta.appendChild(sub);
+
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'primary ff-add';
+    if (isSelf) {
+      btn.textContent = 'Это ты';
+      btn.disabled = true;
+    } else if (isFriend) {
+      btn.textContent = 'В друзьях';
+      btn.disabled = true;
+      card.classList.add('is-friend');
+    } else if (pending) {
+      btn.textContent = 'Отправлено';
+      btn.disabled = true;
+    } else {
+      btn.textContent = 'Добавить';
+      btn.addEventListener('click', () => {
+        try {
+          const codeInput = document.getElementById('friendCodeInput');
+          if (codeInput) codeInput.value = code;
+        } catch (_) {}
+        addFriendByCode(code);
+        // Optimistic: pending until accept/decline
+        try {
+          if (!frOutgoingPending.some(p => p.code === code)) {
+            frOutgoingPending.unshift({ code, name: name, ts: Date.now() });
+            saveOutgoingPending();
+          } else {
+            updateOutgoingPendingName(code, name);
+          }
+        } catch (_) {}
+        btn.textContent = 'Отправлено';
+        btn.disabled = true;
+        try { renderOutgoingPending(false); } catch (_) {}
+      });
+    }
+    card.appendChild(av);
+    card.appendChild(meta);
+    card.appendChild(btn);
+    list.appendChild(card);
+  }
+}
+
+function runFriendFind(q) {
+  q = String(q || '').trim();
+  _friendFindLastQ = q;
+  const empty = document.getElementById('friendFindEmpty');
+  if (!q || q.length < 2) {
+    // Do NOT clear cards — keep last results (names stay after wiping input)
+    if (empty) empty.style.display = 'none';
+    return;
+  }
+  if (typeof MatchClient === 'undefined') {
+    if (empty) {
+      empty.style.display = '';
+      empty.textContent = 'Нет связи с сервером';
+    }
+    return;
+  }
+  if (empty) {
+    empty.style.display = '';
+    empty.textContent = 'Ищем…';
+  }
+  try { ensureFriendPresence(); } catch (_) {}
+  try { MatchClient.connect(); } catch (_) {}
+  try { MatchClient.presenceSearch(q); } catch (_) {}
+}
+
+function bindFriendFindUI() {
+  if (window._friendFindBound) return;
+  window._friendFindBound = true;
+  // Single search field under "Друзья" also drives online presence search
+  const input = document.getElementById('friendSearchInput');
+  if (input) {
+    input.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        runFriendFind(input.value);
+      }
+    });
+    input.addEventListener('input', () => {
+      if (_friendFindTimer) clearTimeout(_friendFindTimer);
+      const q = input.value;
+      // Local friends list filter is handled elsewhere; here only online search
+      _friendFindTimer = setTimeout(() => {
+        if (String(q).trim().length >= 2) runFriendFind(q);
+        // empty input: keep cached results, only hide "searching" hint
+      }, 400);
+    });
+  }
+  if (typeof MatchClient !== 'undefined') {
+    MatchClient.on('presence_search_result', (data) => {
+      try {
+        if (!data) return;
+        renderFriendFindResults(data.results || [], data.q || _friendFindLastQ);
+      } catch (e) { console.warn('presence_search_result', e); }
+    });
+  }
+}
+
+try { bindFriendFindUI(); } catch (_) {}
+
 // Start presence when possible (WebSocket, no server)
 setTimeout(() => {
   try { checkCrossPlatformReady(); } catch (_) {}
@@ -1456,19 +1715,8 @@ document.addEventListener('visibilitychange', () => {
     try {
       if (mpMode && !window._matchEnded && (typeof isPreStartOrEmptyMatchLeave === 'function')
         && isPreStartOrEmptyMatchLeave()) {
-        try {
-          mpSend({ type: 'match_load_abort', reason: 'opp_left_before_start' });
-        } catch (_) {}
-        try {
-          mpSend({
-            type: 'leaving',
-            preStart: true,
-            score: 0,
-            oppScore: 0,
-            vsTimeLeft: vsTimeLeft,
-            leftAt: Date.now()
-          });
-        } catch (_) {}
+        
+        
       }
     } catch (_) {}
   } else {
@@ -1490,6 +1738,28 @@ const LIVE_MATCH_KEY = 'bp_live_match';
 function persistLiveMatch(opts) {
   try {
     opts = opts || {};
+    // Server-authoritative matches: do NOT store grid/hand/score locally.
+    // Rejoin uses MatchClient credentials + server snapshot only.
+    const serverMatch = !!(
+      (typeof roomMatchMode !== 'undefined' && roomMatchMode)
+      || window._roomMatchMode
+      || (typeof MatchClient !== 'undefined' && MatchClient.matchId)
+    );
+    if (serverMatch && !opts.forceLeave && !opts.force) {
+      // Keep only a tiny pointer so UI knows a match existed — no board state
+      try {
+        const thin = {
+          v: 2,
+          serverAuth: true,
+          matchId: (typeof MatchClient !== 'undefined' && MatchClient.matchId) || null,
+          seat: (typeof MatchClient !== 'undefined' && MatchClient.seat) || null,
+          ts: Date.now()
+        };
+        // Intentionally omit grid/pieces/score/moves
+        localStorage.setItem(LIVE_MATCH_KEY, JSON.stringify(thin));
+      } catch (_) {}
+      return;
+    }
     const resultUp = (() => {
       try {
         const r = document.getElementById('versusResult');
@@ -1524,7 +1794,7 @@ function persistLiveMatch(opts) {
       role: mpRole,
       room: mpRoomCode,
       remoteSessionId: mpRemoteSessionId,
-      selfSessionId: (mpSessionLink && !mpSessionLink.destroyed && mpSessionLink.id) ? mpSessionLink.id : null,
+      selfSessionId: (typeof MatchClient !== "undefined" && MatchClient.matchId) ? MatchClient.matchId : null,
       fromMM: !!mpFromMatchmaking,
       score: score,
       oppScore: oppScore,
@@ -1618,6 +1888,11 @@ function clearLiveMatch() {
 /** Sync vsTimeLeft from wall-clock end; start 1s tick. Time runs even if opponent is gone. */
 function startMatchWallClock(endTs) {
   try {
+    // Do not start the clock while waiting for match_go / loading overlay
+    if (window._matchAwaitingGo || mpLoading) {
+      try { updateTimerDisplay(); } catch (_) {}
+      return;
+    }
     if (typeof endTs === 'number' && endTs > 0) {
       window._matchClockEndTs = endTs;
     } else if (!(typeof window._matchClockEndTs === 'number' && window._matchClockEndTs > 0)) {
@@ -1631,6 +1906,15 @@ function startMatchWallClock(endTs) {
       vsTimeLeft = Math.max(0, Math.ceil((window._matchClockEndTs - Date.now()) / 1000));
       try { updateTimerDisplay(); } catch (_) {}
       if (vsTimeLeft <= 0) {
+        // Server-authoritative online/room: ONLY server may end the match.
+        // Local endVersus here caused one client "Ничья 0:0" while the other kept playing.
+        try {
+          if (roomMatchMode || window._roomMatchMode
+              || (typeof MatchClient !== 'undefined' && MatchClient.matchId)) {
+            try { MatchClient.sync && MatchClient.sync({}); } catch (_) {}
+            return;
+          }
+        } catch (_) {}
         try { endVersus(); } catch (_) {}
       }
     }, 250);
@@ -1753,7 +2037,6 @@ function probeAndCleanLiveMatch() {
   const snap = readLiveMatch();
   if (!snap) { try { hideMatchRejoinPanel(); } catch (_) {} return false; }
   if (vsActive || window._mpRejoiningMatch) return true;
-  /* P2P probe removed — MatchClient rejoin handles live matches */
   return true;
 }
 /** True when no one has placed a piece and scores are still 0-0. */
@@ -1791,23 +2074,12 @@ function notifyLeavingMatch() {
   if (preLive) {
     // Fire both signals repeatedly — Opera may drop the first packet on tab close
     const blast = () => {
-      try {
-        mpSend({ type: 'match_load_abort', reason: 'opp_left_before_start' });
-      } catch (_) {}
-      try {
-        mpSend({
-          type: 'leaving',
-          preStart: true,
-          score: 0,
-          oppScore: 0,
-          vsTimeLeft: vsTimeLeft,
-          leftAt: Date.now()
-        });
-      } catch (_) {}
+      
+      
     };
     try { blast(); } catch (_) {}
     try { blast(); } catch (_) {}
-    try { if (false) mpConn.close(); } catch (_) {}
+    
     // After boards were prepared / "Старт!" shown — record local forfeit so history is not empty
     try {
       const bound = (_matchLoad && _matchLoad.meBound && _matchLoad.oppBound)
@@ -1867,16 +2139,8 @@ function notifyLeavingMatch() {
   try { myDcAt = Date.now(); } catch (_) {}
   try { bothAwayMode = !!(oppDcAt > 0); } catch (_) {}
   try { persistLiveMatch({ forceLeave: true }); } catch (_) {}
-  try {
-    mpSend({
-      type: 'leaving',
-      score: score,
-      oppScore: oppScore,
-      vsTimeLeft: vsTimeLeft,
-      leftAt: myDcAt || Date.now()
-    });
-  } catch (_) {}
-  try { if (false) mpConn.close(); } catch (_) {}
+  
+  
   // Force flush storage for mobile webviews
   try { localStorage.setItem(LIVE_MATCH_KEY, localStorage.getItem(LIVE_MATCH_KEY) || ''); } catch (_) {}
 }
@@ -2025,12 +2289,10 @@ function finishRejoinLoading() {
  */
 /** While rejoin panel is open, stay reachable so opponent «Сдаться» arrives as quiet win. */
 function startRejoinPanelListen(snap) {
-  /* P2P rejoin panel listen removed — use MatchClient.rejoin */
   return;
 }
 
 function enterSoloRejoinWait(snap, existingPeer) {
-  /* P2P solo rejoin removed */
   try {
     if (typeof MatchClient !== "undefined" && MatchClient.matchId) {
       MatchClient.rejoin(MatchClient.matchId, MatchClient.token);

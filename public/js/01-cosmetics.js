@@ -152,11 +152,26 @@ function applyEquippedSkin() {
 /** Apply opponent's equipped skin FX so gradient / shimmer / combo particles
  *  are visible on their board for the local player (and vice versa on their client). */
 function applyOppSkin(skinId) {
-  const panel = document.querySelector('.player-panel.opp');
-  if (!panel) return;
-  const skin = getSkinById(skinId || 'default');
+  const id = skinId || window.mpOppSkinId || 'default';
+  try { window.mpOppSkinId = id; } catch (_) {}
+  const skin = getSkinById(id);
   const rar = skin.rarity || 'common';
   const fx = skinFxClass(rar);
+  // Prefer vs panel; fall back to any .player-panel.opp
+  const panel = document.querySelector('#screenVersus .player-panel.opp')
+    || document.querySelector('.player-panel.opp');
+  if (!panel) {
+    // Screen not mounted yet — retry shortly (match loading → versus)
+    try {
+      if (!window._oppSkinRetry) {
+        window._oppSkinRetry = setTimeout(() => {
+          window._oppSkinRetry = null;
+          try { applyOppSkin(window.mpOppSkinId); } catch (_) {}
+        }, 200);
+      }
+    } catch (_) {}
+    return;
+  }
   panel.classList.remove('skin-fx-matte', 'skin-fx-gloss', 'skin-fx-prism', 'skin-fx-rare');
   panel.classList.add(fx);
   if (rar === 'rare') panel.classList.add('skin-fx-rare');
@@ -164,7 +179,7 @@ function applyOppSkin(skinId) {
     panel.dataset.oppSkin = skin.id || 'default';
     panel.dataset.oppRarity = rar;
   } catch (_) {}
-  // Set CSS vars for legend palette on the panel
+  // CSS vars for legend particle palette
   const pal = {
     gold: ['#ffd700','#fff3a0','#ffb703','#ffe566'],
     cyber: ['#0aff99','#00f5ff','#7b2ff7','#ff006e'],
@@ -176,10 +191,24 @@ function applyOppSkin(skinId) {
     panel.style.setProperty('--legend-b', p[1]);
     panel.style.setProperty('--legend-c', p[2]);
     panel.style.setProperty('--legend-d', p[3]);
+  } else {
+    try {
+      panel.style.removeProperty('--legend-a');
+      panel.style.removeProperty('--legend-b');
+      panel.style.removeProperty('--legend-c');
+      panel.style.removeProperty('--legend-d');
+    } catch (_) {}
   }
+  // Re-paint opp board/hand so FX classes attach to live cells
   try {
-    if (typeof boardOpp !== 'undefined' && boardOpp && typeof oppGrid !== 'undefined')
-      renderGrid(oppGrid, boardOpp);
+    if (typeof boardOpp !== 'undefined' && boardOpp && typeof oppGrid !== 'undefined') {
+      if (typeof softRenderGrid === 'function') softRenderGrid(oppGrid, boardOpp);
+      else if (typeof renderGrid === 'function') renderGrid(oppGrid, boardOpp);
+    }
+  } catch (_) {}
+  try {
+    if (typeof softRenderOppPieces === 'function') softRenderOppPieces();
+    else if (typeof renderOppPieces === 'function') renderOppPieces();
   } catch (_) {}
 }
 function clearOppSkin() {
@@ -253,8 +282,19 @@ function applyOppBoard(boardId) {
   const id = boardId || window.mpOppBoardId || 'field_default';
   const board = (typeof getBoardById === 'function') ? getBoardById(id) : null;
   try { window.mpOppBoardId = (board && board.id) || id; } catch (_) {}
-  const panel = document.querySelector('.player-panel.opp');
-  if (!panel) return;
+  const panel = document.querySelector('#screenVersus .player-panel.opp')
+    || document.querySelector('.player-panel.opp');
+  if (!panel) {
+    try {
+      if (!window._oppBoardRetry) {
+        window._oppBoardRetry = setTimeout(() => {
+          window._oppBoardRetry = null;
+          try { applyOppBoard(window.mpOppBoardId); } catch (_) {}
+        }, 200);
+      }
+    } catch (_) {}
+    return;
+  }
   try {
     panel.dataset.oppBoard = (board && board.id) || id;
     panel.dataset.oppBoardRarity = (board && board.rarity) || 'common';

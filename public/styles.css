@@ -445,8 +445,25 @@
     #screenVersus .pieces-area.opp-pieces .piece-cell { width: var(--opp-piece, 10px); height: var(--opp-piece, 10px); }
     #screenVersus .opp-pieces-label { margin-top: 2px; margin-bottom: 0; font-size: 0.6rem; }
     #screenVersus .status-banner {
-      margin: 2px auto; padding: 4px 10px; font-size: 0.7rem;
+      margin: 4px auto 2px;
+      padding: 6px 12px;
+      font-size: 0.72rem;
       flex-shrink: 0;
+      position: relative;
+      z-index: 5;
+      pointer-events: none; /* never block piece placement */
+      order: 0;
+    }
+    /* Keep AFK / need-move / disconnect toasts in the document flow under the boards,
+       never as floating overlays on the field */
+    #screenVersus #disconnectBanner,
+    #screenVersus #stuckWait,
+    #screenVersus #oppStuckWait {
+      position: relative !important;
+      inset: auto !important;
+      transform: none !important;
+      max-width: min(92vw, 360px);
+      width: 100%;
     }
     #screenVersus #vsFooter { display: none; }
     #screenClassic {
@@ -4036,7 +4053,7 @@
       100% { transform: scale(1.1); opacity: 1; }
     }
 
-    /* —— Match end freeze: pause so players see the game stopped —— */
+    /* —— Match end freeze: clear "Матч окончен" card + score count —— */
     #matchEndFreeze {
       position: fixed;
       inset: 0;
@@ -4045,26 +4062,24 @@
       align-items: center;
       justify-content: center;
       flex-direction: column;
-      background: transparent;
+      background: rgba(6, 8, 14, 0.55);
       pointer-events: auto;
       opacity: 0;
-      transition: opacity 0.45s ease;
+      transition: opacity 0.4s ease;
+      backdrop-filter: blur(6px);
+      -webkit-backdrop-filter: blur(6px);
     }
     #matchEndFreeze.visible {
       display: flex;
       opacity: 1;
     }
-    /* Soft full-screen wash — no card, board stays visible underneath */
     #matchEndFreeze .mef-flash {
       position: absolute;
       inset: 0;
       background:
-        radial-gradient(ellipse 90% 70% at 50% 42%, rgba(8, 10, 16, 0.28), transparent 72%),
-        radial-gradient(ellipse 60% 45% at 50% 55%, rgba(0, 212, 170, 0.1), transparent 65%),
-        linear-gradient(180deg, rgba(8, 10, 14, 0.35) 0%, rgba(8, 10, 14, 0.15) 40%, rgba(8, 10, 14, 0.45) 100%);
-      backdrop-filter: blur(3px);
-      -webkit-backdrop-filter: blur(3px);
-      animation: mefWashIn 0.7s ease both;
+        radial-gradient(ellipse 80% 60% at 50% 40%, rgba(0, 212, 170, 0.12), transparent 70%),
+        radial-gradient(ellipse 60% 50% at 50% 60%, rgba(124, 92, 255, 0.1), transparent 70%);
+      animation: mefWashIn 0.55s ease both;
       pointer-events: none;
     }
     #matchEndFreeze.mef-time .mef-flash {
@@ -4094,13 +4109,17 @@
       position: relative;
       z-index: 2;
       text-align: center;
-      padding: 12px 20px;
-      max-width: min(94vw, 420px);
-      background: none;
-      border: none;
-      border-radius: 0;
-      box-shadow: none;
-      animation: mefCoreIn 0.75s cubic-bezier(0.16, 1, 0.3, 1) both;
+      padding: 28px 28px 24px;
+      max-width: min(94vw, 380px);
+      width: 100%;
+      background: linear-gradient(165deg, rgba(28, 32, 48, 0.96), rgba(14, 16, 26, 0.96));
+      border: 1px solid rgba(124, 92, 255, 0.35);
+      border-radius: 22px;
+      box-shadow:
+        0 24px 64px rgba(0, 0, 0, 0.55),
+        0 0 40px rgba(0, 212, 170, 0.12),
+        inset 0 1px 0 rgba(255, 255, 255, 0.06);
+      animation: mefCoreIn 0.55s cubic-bezier(0.16, 1, 0.3, 1) both;
     }
     @keyframes mefCoreIn {
       from { opacity: 0; transform: translateY(22px) scale(0.96); filter: blur(8px); }
@@ -6550,15 +6569,26 @@
     }
     .piece-slot.show { opacity: 1; transform: scale(1) translateY(0); }
 
-    /* Quiet hand updates (rejoin / multiplayer) — no pop/jump */
-    body.quiet-hands .piece-slot,
-    #screenVersus .piece-slot.show {
+    /* Quiet hand updates (rejoin / multiplayer) — no pop/jump, except deal-in */
+    body.quiet-hands .piece-slot:not(.deal-in),
+    #screenVersus .piece-slot.show:not(.deal-in) {
       transition: none !important;
       animation: none !important;
     }
-    #screenVersus .piece-slot.show {
+    #screenVersus .piece-slot.show:not(.deal-in) {
       opacity: 1;
       transform: none;
+    }
+    /* Short smooth appearance of cubes in hand on new deal */
+    .piece-slot.deal-in {
+      transition:
+        opacity 0.28s cubic-bezier(0.22, 1, 0.36, 1),
+        transform 0.28s cubic-bezier(0.22, 1.15, 0.36, 1) !important;
+      will-change: opacity, transform;
+    }
+    @keyframes pieceDealIn {
+      from { opacity: 0; transform: scale(0.72) translateY(10px); }
+      to   { opacity: 1; transform: scale(1) translateY(0); }
     }
 
     /* While dragging: tray copy must fully disappear (ghost is the only visible piece) */
@@ -7242,10 +7272,9 @@
     body.rejoin-loading #rejoinLoading * {
       pointer-events: auto !important;
     }
-    /* Extra hard lock on tray slots while syncing */
+    /* Extra hard lock on tray slots while syncing — no permanent dim look */
     body.rejoin-loading #screenVersus .piece-slot {
       pointer-events: none !important;
-      filter: grayscale(0.35) brightness(0.85);
     }
     /* Disconnect overlay — centered on opponent board */
     .board-dc-overlay {
@@ -7830,87 +7859,147 @@
       color: var(--text);
       font-weight: 700;
     }
-    /* Inline replay end card (part of board area, not modal) */
+    /* Replay result — compact centered panel (dimmer + card) */
     .replay-end-card {
-      display: none;
-      position: relative;
-      width: 100%;
-      max-width: 420px;
-      margin: 8px auto 6px;
-      padding: 14px 16px 12px;
-      box-sizing: border-box;
-      background: rgba(16, 22, 32, 0.94);
-      border: 1px solid var(--border);
-      border-radius: 16px;
+      display: none !important;
+      position: fixed !important;
+      inset: 0 !important;
+      width: 100% !important;
+      max-width: none !important;
+      height: 100% !important;
+      margin: 0 !important;
+      padding: max(12px, env(safe-area-inset-top)) max(12px, env(safe-area-inset-right))
+               max(12px, env(safe-area-inset-bottom)) max(12px, env(safe-area-inset-left)) !important;
+      box-sizing: border-box !important;
+      background: rgba(0, 0, 0, 0.58) !important;
+      backdrop-filter: blur(6px);
+      -webkit-backdrop-filter: blur(6px);
+      border: none !important;
+      border-radius: 0 !important;
       text-align: center;
-      z-index: 45;
-      box-shadow: 0 10px 28px rgba(0,0,0,0.35);
-      animation: replayEndIn 0.28s ease;
+      z-index: 10050 !important;
+      box-shadow: none !important;
+      transform: none !important;
+      align-items: center;
+      justify-content: center;
+      overflow: hidden;
+      animation: replayEndFade 0.22s ease;
     }
-    body.replay-ui .replay-end-card.visible {
-      display: block;
+    body.replay-ui .replay-end-card.visible,
+    .replay-end-card.visible {
+      display: flex !important;
     }
-    @keyframes replayEndIn {
-      from { opacity: 0; transform: translateY(8px); }
-      to { opacity: 1; transform: translateY(0); }
+    .replay-end-card::before {
+      content: none !important;
+      display: none !important;
+    }
+    .replay-end-panel {
+      position: relative;
+      z-index: 1;
+      width: min(300px, calc(100vw - 28px));
+      max-width: 300px;
+      box-sizing: border-box;
+      padding: 18px 16px 15px;
+      background: rgba(16, 22, 32, 0.98);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      box-shadow: 0 12px 36px rgba(0,0,0,0.5);
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 0;
+    }
+    @keyframes replayEndFade {
+      from { opacity: 0; }
+      to { opacity: 1; }
     }
     .replay-end-close {
       position: absolute;
-      top: 8px;
-      right: 8px;
-      width: 32px;
-      height: 32px;
-      border-radius: 10px;
+      top: 6px;
+      right: 6px;
+      width: 22px;
+      height: 22px;
+      border-radius: 7px;
       border: 1px solid var(--border);
-      background: rgba(255,255,255,0.06);
-      color: var(--text);
-      font-size: 0.95rem;
+      background: rgba(255,255,255,0.05);
+      color: var(--text-dim);
+      font-size: 0.72rem;
       cursor: pointer;
       line-height: 1;
       padding: 0;
+      z-index: 2;
+      display: flex;
+      align-items: center;
+      justify-content: center;
     }
     .replay-end-close:active { transform: scale(0.96); }
     .replay-end-title {
-      font-size: 1.15rem;
+      font-size: 1.08rem;
       font-weight: 800;
-      margin: 2px 28px 10px;
+      margin: 0 26px 10px 6px;
+      line-height: 1.25;
+      max-width: 100%;
+      box-sizing: border-box;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
       background: linear-gradient(90deg, var(--accent), var(--accent2));
       -webkit-background-clip: text;
       background-clip: text;
       color: transparent;
+      -webkit-text-fill-color: transparent;
     }
     .replay-end-scores {
       display: flex;
       align-items: center;
       justify-content: center;
-      gap: 12px;
-      margin-bottom: 8px;
+      gap: 10px;
+      margin: 0 0 8px;
+      width: 100%;
+      box-sizing: border-box;
     }
     .replay-end-side {
       display: flex;
       flex-direction: column;
-      gap: 2px;
-      min-width: 72px;
+      gap: 1px;
+      min-width: 0;
+      flex: 1;
+      max-width: 42%;
+      overflow: hidden;
     }
     .replay-end-who {
-      font-size: 0.72rem;
+      font-size: 0.68rem;
       color: var(--text-dim);
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      max-width: 100%;
     }
     .replay-end-pts {
-      font-size: 1.45rem;
+      font-size: 1.3rem;
       font-weight: 800;
       font-variant-numeric: tabular-nums;
+      line-height: 1.15;
     }
     .replay-end-sep {
-      font-size: 1.1rem;
+      font-size: 1rem;
       color: var(--text-dim);
       font-weight: 700;
-      padding-bottom: 10px;
+      padding-bottom: 8px;
+      flex-shrink: 0;
     }
     .replay-end-meta {
-      font-size: 0.78rem;
+      font-size: 0.72rem;
       color: var(--text-dim);
       line-height: 1.35;
+      max-width: 100%;
+      width: 100%;
+      box-sizing: border-box;
+      padding: 0 4px;
+      overflow: hidden;
+      word-break: break-word;
+      overflow-wrap: anywhere;
     }
     /* Soft board fade when seeking */
     #screenVersus.replay-seeking .board-wrap {
@@ -8808,6 +8897,87 @@
       color: var(--text-dim);
       font-weight: 500;
     }
+    /* Find online players (server presence search) */
+    #screenFriends .friend-find-row {
+      display: flex;
+      gap: 8px;
+      margin: 8px 0 10px;
+      align-items: stretch;
+    }
+    #screenFriends .friend-find-row input {
+      flex: 1;
+      min-width: 0;
+      padding: 11px 14px;
+      border-radius: 12px;
+      border: 1px solid var(--border);
+      background: var(--surface2);
+      color: var(--text);
+      font-size: 0.95rem;
+      font-weight: 600;
+    }
+    #screenFriends .friend-find-row input:focus {
+      outline: none;
+      border-color: var(--accent);
+    }
+    #screenFriends .friend-find-row .primary {
+      flex-shrink: 0;
+      padding: 0 16px;
+      white-space: nowrap;
+    }
+    #screenFriends .friend-find-list {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      margin-bottom: 6px;
+    }
+    #screenFriends .friend-find-card {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 10px 12px;
+      border-radius: 14px;
+      background: var(--surface2);
+      border: 1px solid var(--border);
+    }
+    #screenFriends .friend-find-card .ff-av {
+      width: 40px;
+      height: 40px;
+      border-radius: 12px;
+      background: linear-gradient(135deg, var(--accent), var(--accent2, #7c5cff));
+      color: #fff;
+      font-weight: 800;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 0.95rem;
+      flex-shrink: 0;
+    }
+    #screenFriends .friend-find-card .ff-meta {
+      flex: 1;
+      min-width: 0;
+    }
+    #screenFriends .friend-find-card .ff-name {
+      font-weight: 800;
+      font-size: 0.95rem;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    #screenFriends .friend-find-card .ff-sub {
+      font-size: 0.78rem;
+      opacity: 0.7;
+      margin-top: 2px;
+    }
+    #screenFriends .friend-find-card .ff-add {
+      flex-shrink: 0;
+      padding: 8px 12px;
+      font-size: 0.85rem;
+    }
+    #screenFriends .friend-find-card.is-friend .ff-add {
+      opacity: 0.55;
+      pointer-events: none;
+    }
+
     /* Friend list / request animations — no max-height collapse (avoids scrollbar flash) */
     .friend-card, .friend-req-card, .lobby-invite-item {
       transition:
@@ -11190,4 +11360,338 @@ body.touch-ui .screen.active {
   .cell.placing {
     animation-duration: 0.85s;
   }
+}
+
+
+/* ===== Status toast stack (AFK + disconnect can show together) ===== */
+.status-toast-stack {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  max-width: min(92vw, 360px);
+  margin: 6px auto 4px;
+  flex-shrink: 0;
+  pointer-events: none;
+  z-index: 6;
+  position: relative;
+}
+.status-toast-stack .status-toast {
+  width: 100%;
+  margin: 0;
+  opacity: 0;
+  transform: translateY(6px);
+  transition: opacity 0.22s ease, transform 0.22s ease;
+}
+.status-toast-stack .status-toast.show {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+/* Lobby host badge + ping */
+.lobby-host-badge {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 1px 7px;
+  border-radius: 999px;
+  font-size: 0.65rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #0b1a16;
+  background: linear-gradient(135deg, var(--accent), #5eead4);
+  vertical-align: middle;
+}
+.lobby-ping {
+  margin-left: 8px;
+  font-size: 0.72rem;
+  font-weight: 600;
+  opacity: 0.85;
+}
+.lobby-ping.good { color: #34d399; }
+.lobby-ping.mid { color: #fbbf24; }
+.lobby-ping.bad { color: #fb7185; }
+
+/* Deal-in cubes — short smooth pop */
+.piece-slot.deal-in {
+  transition:
+    opacity 0.28s cubic-bezier(0.22, 1, 0.36, 1),
+    transform 0.28s cubic-bezier(0.22, 1.15, 0.36, 1) !important;
+}
+
+/* Stronger match-end freeze */
+#matchEndFreeze {
+  transition: opacity 0.35s ease, visibility 0.35s ease;
+}
+#matchEndFreeze.show {
+  opacity: 1;
+  visibility: visible;
+}
+#matchEndFreeze .mef-core {
+  animation: mefCoreIn 0.45s cubic-bezier(0.22, 1.15, 0.36, 1) both;
+}
+#versusResult.visible {
+  animation: resultModalIn 0.4s cubic-bezier(0.22, 1.1, 0.36, 1) both;
+}
+@keyframes resultModalIn {
+  from { opacity: 0; transform: scale(0.94) translateY(12px); }
+  to   { opacity: 1; transform: scale(1) translateY(0); }
+}
+
+/* Random bot pick — more dramatic spin */
+.bot-pick-avatar.spin {
+  animation: botPickSpin 0.14s linear infinite !important;
+}
+.bot-pick-overlay.visible .bot-pick-card {
+  animation: botPickCardIn 0.3s cubic-bezier(0.22, 1.15, 0.36, 1) both;
+}
+@keyframes botPickCardIn {
+  from { opacity: 0; transform: scale(0.9) translateY(10px); }
+  to   { opacity: 1; transform: scale(1) translateY(0); }
+}
+
+.bot-card.pick-flash {
+  border-color: var(--accent2) !important;
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent2) 45%, transparent), 0 8px 24px rgba(124,92,255,0.25);
+  transform: scale(1.02);
+  transition: transform 0.12s ease, box-shadow 0.12s ease, border-color 0.12s ease;
+}
+
+
+/* Bot random reel polish */
+.bot-pick-avatar {
+  width: 96px; height: 96px;
+  margin: 8px auto 12px;
+  border-radius: 22px;
+  overflow: hidden;
+  box-shadow: 0 8px 28px rgba(0,0,0,0.35), 0 0 0 2px rgba(124,92,255,0.35);
+}
+.bot-pick-avatar.bot-pick-flash {
+  animation: botPickFlash 0.12s ease;
+}
+@keyframes botPickFlash {
+  from { transform: scale(0.86); filter: brightness(1.35); }
+  to   { transform: scale(1); filter: brightness(1); }
+}
+.bot-pick-name-spin {
+  letter-spacing: 0.02em;
+  opacity: 0.92;
+}
+.bot-pick-name-final {
+  animation: botPickNameFinal 0.45s cubic-bezier(0.22,1.2,0.36,1) both;
+  color: var(--accent);
+}
+@keyframes botPickNameFinal {
+  from { transform: scale(0.9); opacity: 0.5; }
+  to   { transform: scale(1); opacity: 1; }
+}
+.bot-pick-meta {
+  display: flex;
+  gap: 10px;
+  justify-content: center;
+  align-items: center;
+  flex-wrap: wrap;
+  margin-top: 6px;
+}
+.bot-pick-cups {
+  font-weight: 800;
+  color: var(--trophy);
+}
+.bot-pick-tier {
+  font-size: 0.78rem;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--accent2) 22%, transparent);
+  border: 1px solid color-mix(in srgb, var(--accent2) 40%, transparent);
+  color: #c4b5fd;
+}
+
+#mefScores {
+  display: flex;
+  gap: 10px;
+  justify-content: center;
+  align-items: baseline;
+  margin-top: 14px;
+  font-size: 1.6rem;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+}
+#mefScores .mef-sc.me { color: var(--accent); }
+#mefScores .mef-sc.opp { color: var(--accent2); }
+#mefScores .mef-colon { opacity: 0.5; }
+
+
+/* Bot pick — reel animation (not just hard swaps) */
+.bot-pick-card {
+  position: relative;
+  overflow: hidden;
+}
+.bot-pick-avatar {
+  transition: transform 0.18s cubic-bezier(0.22, 1.2, 0.36, 1), opacity 0.18s ease, filter 0.18s ease;
+}
+.bot-pick-avatar.spin {
+  animation: botPickSpinReel 0.35s cubic-bezier(0.22, 1, 0.36, 1);
+}
+@keyframes botPickSpinReel {
+  0%   { transform: translateY(18px) scale(0.88); opacity: 0.35; filter: blur(2px); }
+  55%  { transform: translateY(-4px) scale(1.04); opacity: 1; filter: blur(0); }
+  100% { transform: translateY(0) scale(1); opacity: 1; filter: blur(0); }
+}
+.bot-pick-name {
+  transition: transform 0.2s ease, opacity 0.2s ease;
+}
+.bot-pick-name.bot-pick-name-spin {
+  animation: botPickNameSlide 0.28s cubic-bezier(0.22, 1, 0.36, 1);
+}
+@keyframes botPickNameSlide {
+  0%   { transform: translateY(10px); opacity: 0.3; }
+  100% { transform: translateY(0); opacity: 1; }
+}
+.bot-pick-meta {
+  transition: opacity 0.2s ease;
+}
+
+
+/* Force interactive own hand during live versus */
+#screenVersus.active .pieces-area:not(.opp-pieces) .piece-slot.show:not(.used) {
+  pointer-events: auto !important;
+  touch-action: none;
+  cursor: grab;
+  filter: none !important;
+  opacity: 1 !important;
+}
+
+
+/* Live tray full brightness — never look "locked" during play */
+#screenVersus.active:not(.match-ending) .pieces-area:not(.opp-pieces),
+body:not(.match-ending):not(.rejoin-loading) #screenVersus.active .pieces-area:not(.opp-pieces) {
+  opacity: 1 !important;
+  filter: none !important;
+}
+body:not(.match-ending):not(.rejoin-loading) #screenVersus.active .pieces-area:not(.opp-pieces) .piece-slot.show:not(.used) {
+  opacity: 1 !important;
+  filter: none !important;
+  pointer-events: auto !important;
+}
+
+
+/* AFK toast: stable label, only seconds change — no blink */
+.status-toast-stack .status-toast.show {
+  opacity: 1 !important;
+  transform: none !important;
+  transition: none;
+}
+.status-toast .st-label,
+.status-toast .st-sec {
+  display: inline;
+}
+
+/* ===== Versus result modal — compact & contained ===== */
+#versusResult {
+  padding: max(12px, env(safe-area-inset-top)) max(12px, env(safe-area-inset-right))
+           max(12px, env(safe-area-inset-bottom)) max(12px, env(safe-area-inset-left));
+  overflow-x: hidden;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  box-sizing: border-box;
+}
+#versusResult .modal {
+  max-width: min(300px, calc(100vw - 32px));
+  width: 100%;
+  padding: 18px 16px 14px;
+  border-radius: 16px;
+  box-sizing: border-box;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0;
+}
+#versusResult .modal h2,
+#versusResult #vsTitle {
+  font-size: 1.2rem;
+  margin: 0 0 6px;
+  line-height: 1.2;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+#versusResult .vs-result {
+  display: flex;
+  justify-content: space-around;
+  width: 100%;
+  margin: 6px 0 10px;
+  font-size: 0.85rem;
+  gap: 8px;
+  box-sizing: border-box;
+}
+#versusResult .vs-result .side {
+  text-align: center;
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+}
+#versusResult .vs-result .side > div:first-child {
+  font-size: 0.78rem;
+  color: var(--text-dim);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 100%;
+}
+#versusResult .vs-result .side .s {
+  font-size: 1.35rem;
+  font-weight: 800;
+  line-height: 1.15;
+  margin-top: 2px;
+}
+#versusResult .trophy-delta,
+#versusResult #vsTrophyDelta {
+  font-size: 1.1rem;
+  font-weight: 700;
+  margin: 0 0 8px;
+  line-height: 1.2;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+#versusResult #vsTimeLeftInfo {
+  font-size: 0.75rem !important;
+  color: var(--text-dim);
+  margin: 0 0 10px !important;
+  line-height: 1.3;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+#versusResult .modal > button {
+  width: 100%;
+  margin: 0 0 6px !important;
+  padding: 10px 12px;
+  font-size: 0.9rem;
+  border-radius: 12px;
+  box-sizing: border-box;
+  max-width: 100%;
+}
+#versusResult .modal > button:last-child {
+  margin-bottom: 0 !important;
+}
+/* Tame entrance animations so content stays inside the card */
+#versusResult.visible .modal {
+  animation: vsResultModalIn 0.4s cubic-bezier(0.22, 1.1, 0.36, 1) both;
+}
+#versusResult.visible #vsTitle {
+  animation: vsTitlePop 0.45s cubic-bezier(0.22, 1.15, 0.36, 1) 0.05s both;
+}
+#versusResult.visible .vs-result,
+#versusResult.visible .trophy-delta,
+#versusResult.visible #vsTrophyDelta,
+#versusResult.visible .modal > button {
+  animation: none;
+  opacity: 1;
+  transform: none;
+  filter: none;
 }

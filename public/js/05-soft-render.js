@@ -5,6 +5,7 @@
  */
 'use strict';
 
+
 function softRenderGrid(g, boardEl) {
   if (!boardEl || !g) return;
   try {
@@ -24,11 +25,15 @@ function softRenderGrid(g, boardEl) {
           for (let k = 0; k < clearingSet.length; k++) {
             if (cell.classList.contains(clearingSet[k])) { isClearing = true; break; }
           }
-          const was = cell.classList.contains('filled') || cell.classList.contains('has-block') || isClearing;
+          const isPlacing = cell.classList.contains('placing');
+          const was = cell.classList.contains('filled') || cell.classList.contains('has-block') || isClearing || isPlacing;
           if (filled && !was) {
             cell.classList.add('filled');
             try { paintCellColor(cell, val); } catch (_) {}
           } else if (!filled && was) {
+            // Let in-flight CLEAR finish. Placing on a now-empty cell must
+            // clear (line clear after place) — do not freeze placing forever.
+            if (isClearing) continue;
             // Full cleanup — incomplete wipe left painted squares until next place
             try {
               cell.style.setProperty('transition', 'none', 'important');
@@ -55,8 +60,8 @@ function softRenderGrid(g, boardEl) {
               } catch (_) {}
             });
           } else if (filled) {
-            // Don't thrash mid-clear animation
-            if (isClearing) continue;
+            // Don't thrash mid-clear or mid-place animation (player + opp)
+            if (isClearing || isPlacing) continue;
             try { paintCellColor(cell, val); } catch (_) {}
             if (!cell.classList.contains('filled')) cell.classList.add('filled');
           }
@@ -82,6 +87,13 @@ function softRenderPieces(areaEl) {
         const p = pieces[i];
         const slot = slots[i];
         if (!slot) { needsFull = true; break; }
+        // Shape mismatch (rejoin desync) → full rebuild so pieces stay pickable
+        const domSig = slot.dataset && slot.dataset.handSig;
+        const pSig = _pieceHandSig(p);
+        if (domSig && pSig && domSig !== pSig && !p.used) {
+          needsFull = true;
+          break;
+        }
         const usedDom = slot.classList.contains('used');
         if (!!p.used !== usedDom) {
           if (p.used) {
@@ -100,12 +112,18 @@ function softRenderPieces(areaEl) {
         }
       }
       if (!needsFull) {
-        // Ensure visible unused slots stay interactive
+        // Ensure visible unused slots stay interactive (clear stuck lifting)
         slots.forEach(s => {
           if (!s.classList.contains('used')) {
+            s.classList.remove('lifting');
             s.classList.add('show');
             s.style.opacity = '1';
-            s.style.pointerEvents = '';
+            s.style.visibility = '';
+            s.style.pointerEvents = 'auto';
+            s.style.touchAction = 'none';
+            s.style.width = '';
+            s.style.minWidth = '';
+            s.style.filter = '';
           }
         });
         return;
@@ -113,13 +131,20 @@ function softRenderPieces(areaEl) {
     }
   } catch (_) {}
   try {
-    // Quiet full rebuild: skip staggered fade-in
+    // Quiet full rebuild: skip staggered fade-in (sync/rejoin)
     window._quietPieceRender = true;
     renderPieces(areaEl);
     window._quietPieceRender = false;
   } catch (_) {
     try { window._quietPieceRender = false; } catch (_2) {}
   }
+}
+function _pieceHandSig(p) {
+  try {
+    if (!p) return 'X';
+    const sh = (p.shape || []).map(c => Array.isArray(c) ? (c[0] + ':' + c[1]) : String(c)).join(';');
+    return (p.used ? 'U' : 'A') + '|' + (p.color || '') + '|' + sh;
+  } catch (_) { return 'X'; }
 }
 function softRenderOppPieces() {
   try {
@@ -129,6 +154,8 @@ function softRenderOppPieces() {
       try { recoverHandsFromMatchLog(); } catch (_) {}
     }
     if (!oppPieces || !oppPieces.length) return;
+    // Mid place-anim: never rebuild opp tray
+    try { if (typeof _oppPlaceAnimBusy !== 'undefined' && _oppPlaceAnimBusy) return; } catch (_) {}
     const slots = area.querySelectorAll('.piece-slot');
     if (slots.length === oppPieces.length) {
       let needsFull = false;
@@ -136,16 +163,31 @@ function softRenderOppPieces() {
         const p = oppPieces[i];
         const slot = slots[i];
         if (!slot) { needsFull = true; break; }
-        if (!!p.used !== slot.classList.contains('used')) {
-          needsFull = true;
-          break;
+        const usedDom = slot.classList.contains('used');
+        if (!!p.used !== usedDom) {
+          if (p.used) {
+            // Soft collapse — no full rebuild (prevents jump)
+            slot.classList.add('used');
+            slot.classList.remove('show', 'lifting');
+            try {
+              slot.style.width = '0';
+              slot.style.minWidth = '0';
+              slot.style.opacity = '0';
+              slot.innerHTML = '';
+            } catch (_) {}
+          } else {
+            needsFull = true;
+            break;
+          }
         }
       }
       if (!needsFull) {
         slots.forEach(s => {
           if (!s.classList.contains('used')) {
+            s.classList.remove('lifting');
             s.classList.add('show');
             s.style.opacity = '1';
+            s.style.visibility = '';
           }
         });
         return;
@@ -323,7 +365,6 @@ function applyRemoteMatchState(data) {
 
 
 function attemptMatchRejoin() {
-  /* P2P match rejoin removed — server MatchClient path */
   try {
     if (typeof MatchClient === "undefined") return false;
     const mid = MatchClient.matchId || (typeof loadMatchCreds === "function" ? null : null);
@@ -480,6 +521,12 @@ function preferHand(localArr, remoteArr) {
   return localArr;
 }
 function recoverHandsFromMatchLog() {
+  // Server-authoritative match: never invent hands from local matchLog
+  try {
+    if (roomMatchMode || window._roomMatchMode || (typeof MatchClient !== 'undefined' && MatchClient.matchId)) {
+      return;
+    }
+  } catch (_) {}
   const log = (typeof matchLog !== 'undefined' && Array.isArray(matchLog)) ? matchLog : null;
   if (!log || !log.length) return;
   const needMe = !Array.isArray(pieces) || !pieces.length;
@@ -546,7 +593,7 @@ function recoverHandsFromMatchLog() {
 
 function forceShowForfeitLoss(myScoreNow, oppScoreNow) {
   try {
-    document.getElementById('vsTitle').textContent = 'Поражение · сдача';
+    document.getElementById('vsTitle').textContent = 'Поражение · вы сдались';
     document.getElementById('vsMyScore').textContent = myScoreNow;
     document.getElementById('vsOppScore').textContent = oppScoreNow;
     const lab = document.getElementById('vsOppLabel');
@@ -613,7 +660,6 @@ function surrenderLiveMatch() {
     oppScore: oppScoreNow
   };
   const overMsg = { type: 'match_over', reason: 'forfeit' };
-  /* P2P forfeit blast removed — MatchClient.forfeit above notifies server */
 
   // Quiet loss for the player who surrendered (toast only, no duel / modal)
   try {
@@ -745,8 +791,9 @@ function fallbackCopy(t) {
 let mpMode = false;
 let mpRole = null; // 'host' | 'guest'
 let mpRoomCode = null;
-let mpSessionLink = null;
-let mpConn = null;
+let mpPendingJoin = null;
+let mpExpectedJoinCode = null;
+let mpRemoteSessionId = null;
 let mpOppName = 'Соперник';
 try { window.mpOppAvatarId = window.mpOppAvatarId || null; } catch (_) {}
 let mpReady = false;
@@ -769,7 +816,6 @@ let pendingRematchOfferName = null;
 /** Keep online link after match so rematch works from menu / delayed result UI */
 let postMatchOnlineEligible = false;
 /** Remote server id for post-match reconnect */
-let mpRemoteSessionId = null;
 
 function setMpStatus(t) {
   const el = document.getElementById('mpStatus');
@@ -787,7 +833,6 @@ function failJoinRoom(reason, silentAlert) {
   clearMpJoinTimer();
   closeRoomLobby();
   hideRjToast(false);
-  mpPendingJoin = null;
   // Room gone / full — drop pending lobby invite for this room
   try {
     if (chPending && chPending.room) {
@@ -803,10 +848,6 @@ function failJoinRoom(reason, silentAlert) {
   if (modal) modal.classList.remove('visible');
   const msg = reason || 'Комната не найдена';
   setMpStatus(msg);
-  /* p2p removed */
-  /* p2p removed */
-  mpConn = null;
-  mpSessionLink = null;
   mpMode = false;
   mpRole = null;
   mpRoomCode = null;
@@ -822,24 +863,19 @@ function failJoinRoom(reason, silentAlert) {
 function mpIsLinked() {
   try {
     if (roomMatchMode || window._roomMatchMode) return true;
-    if (typeof MatchClient !== 'undefined' && MatchClient.connected) return true;
+    if (typeof MatchClient !== "undefined" && MatchClient.connected) return true;
   } catch (_) {}
   return false;
 }
 
-function mpSend(obj) {
-  return;
-}
 
-/** @deprecated P2P/PeerJS removed — server-authoritative MatchClient only */
-function openGameSession() {
-  return Promise.reject(new Error('p2p removed'));
-}
-function wireMpConnection() {}
-function acceptLiveMatchReconnect() {}
-function ensureLiveMatchAccept() {}
-function onMpMessage() {}
-function wireMpConnResume() {}
+
+
+
+
+
+
+
 
 
 function destroyMp() {
@@ -859,18 +895,12 @@ function destroyMp() {
   } catch (_) {
     try { clearLobbyInviteWait(null, closedRoom); } catch (_) {}
   }
-  /* p2p removed */
-  /* p2p removed */
-  mpConn = null; mpSessionLink = null; /* p2p */
-  /* p2p removed */
-  mmSessionLink = null;
   mpMode = false; mpRole = null;
   mpRoomCode = null; mpReady = false; mpOppReady = false;
   mpOppConnected = false; mpMatchStarting = false;
   mpFromMatchmaking = false;
   mpGameSource = null;
   postMatchOnlineEligible = false;
-  mpRemoteSessionId = null;
   try { stopMatchmaking(true); } catch (_) {}
   try { mmFound = false; mmActive = false; } catch (_) {}
   vsIntroLock = false;
@@ -879,8 +909,6 @@ function destroyMp() {
   rematchPending = false;
   pendingRematchOfferName = null;
   try { hideRmToast(false); } catch (_) {}
-  mpPendingJoin = null;
-  mpExpectedJoinCode = null;
   try { hideRjToast(false); } catch (_) {}
   setMpStatus('');
   closeRoomLobby();
@@ -996,9 +1024,7 @@ function delayMs(ms) {
 
 let mpCreateGen = 0;
 let mpJoinGen = 0;
-let mpPendingJoin = null; // { conn, name, code, trophies }
 /** Friend code expected after challenge — auto-admit without host toast */
-let mpExpectedJoinCode = null;
 
 let rjToastHideTimer = null;
 let rjToastCountTimer = null;
@@ -1044,7 +1070,7 @@ function showRjToast(req) {
   try { renderFriendRequests(); } catch (_) {}
   rjToastHideTimer = setTimeout(() => {
     rjToastHideTimer = null;
-    if (mpPendingJoin && mpPendingJoin === req) {
+    if (null && mpPendingJoin === req) {
       try { declinePendingJoin('timeout'); } catch (_) { hideRjToast(true); }
     } else {
       hideRjToast(true);
@@ -1052,61 +1078,16 @@ function showRjToast(req) {
   }, 5000);
 }
 
-function declinePendingJoin(reason) {
-  const pend = mpPendingJoin;
-  mpPendingJoin = null;
-  if (rjExpireTimer) { clearTimeout(rjExpireTimer); rjExpireTimer = null; }
-  hideRjToast(true);
-  try { renderFriendRequests(); updateFriendsSectionCounts(); } catch (_) {}
-  if (!pend || !pend.conn) return;
-  try {
-    if (pend.conn.open) {
-      pend.conn.send({ type: 'join_decline', reason: reason || 'declined' });
-    }
-  } catch (_) {}
-  setTimeout(() => { try { pend.conn.close(); } catch (_) {} }, 250);
-}
 
 
-function acceptPendingJoin() {
-  const pend = mpPendingJoin;
-  if (!pend || !pend.conn) return;
-  if (pend.dead && !pend.conn.open) {
-    setMpStatus('Связь потеряна — попроси игрока войти снова');
-    mpPendingJoin = null;
-    if (rjExpireTimer) { clearTimeout(rjExpireTimer); rjExpireTimer = null; }
-    hideRjToast(true);
-    return;
-  }
-  mpPendingJoin = null;
-  if (rjExpireTimer) { clearTimeout(rjExpireTimer); rjExpireTimer = null; }
-  hideRjToast(true);
-  try { renderFriendRequests(); updateFriendsSectionCounts(); } catch (_) {}
-  if (mpOppConnected) {
-    try { pend.conn.send({ type: 'join_decline', reason: 'full' }); } catch (_) {}
-    setTimeout(() => { try { pend.conn.close(); } catch (_) {} }, 200);
-    return;
-  }
-  mpOppName = pend.name || 'Соперник';
-  if (typeof pend.trophies === 'number') mpOppTrophies = pend.trophies;
-  try {
-    pend.conn.send({
-      type: 'join_accept',
-      name: myNickname,
-      code: myFriendCode,
-      trophies: typeof trophies === 'number' ? trophies : 0,
-      duration: mpLobbyDuration
-    });
-  } catch (_) {}
-  wireMpConnection(pend.conn, true);
-  setMpStatus('Игрок в лобби ✓');
-}
+
+
 
 (function bindRjToast() {
   const acc = document.getElementById('rjToastAccept');
   const dec = document.getElementById('rjToastDecline');
-  if (acc) acc.addEventListener('click', () => acceptPendingJoin());
-  if (dec) dec.addEventListener('click', () => declinePendingJoin('declined'));
+  if (acc) acc.addEventListener('click', () => { try { hideRjToast(true); } catch (_) {} });
+  if (dec) dec.addEventListener('click', () => { try { hideRjToast(true); } catch (_) {} });
 })();
 (function bindRjToastSwipe() {
   const toast = document.getElementById('rjToast');
@@ -1162,10 +1143,31 @@ function openRoomLobby() {
   if (!el) return;
   document.getElementById('lobbyCode').textContent = mpRoomCode || '————';
   document.getElementById('lobbyTitle').textContent = mpRole === 'host' ? 'Твоя комната' : 'Комната';
-  document.getElementById('lobbyMeName').textContent = myNickname + (mpRole === 'host' ? ' (хост)' : '');
+  updateLobbyHostLabels();
   updateLobbyUI();
   el.classList.add('visible');
-  if (mpOppConnected) startLobbyPing();
+  startLobbyPing();
+}
+function updateLobbyHostLabels() {
+  try {
+    const meName = document.getElementById('lobbyMeName');
+    const oppName = document.getElementById('lobbyOppName');
+    const meHost = mpRole === 'host';
+    if (meName) {
+      meName.innerHTML = escapeHtmlLobby(myNickname || 'Ты') +
+        (meHost ? ' <span class="lobby-host-badge">хост</span>' : '');
+    }
+    if (oppName && mpOppConnected) {
+      const on = mpOppName || 'Соперник';
+      oppName.innerHTML = escapeHtmlLobby(on) +
+        (!meHost ? ' <span class="lobby-host-badge">хост</span>' : '');
+    }
+  } catch (_) {}
+}
+function escapeHtmlLobby(s) {
+  return String(s || '').replace(/[&<>"']/g, c => ({
+    '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'
+  })[c]);
 }
 
 function closeRoomLobby() {
@@ -1191,8 +1193,8 @@ function updateLobbyUI() {
     readyBtn.classList.toggle('is-ready', !!mpReady);
   }
 
+  try { updateLobbyHostLabels(); } catch (_) {}
   if (mpOppConnected) {
-    if (oppName) oppName.textContent = mpOppName || 'Соперник';
     if (oppState) oppState.textContent = mpOppReady ? 'Готов ✓' : 'Не готов';
     if (oppSlot) {
       oppSlot.classList.remove('empty');
@@ -1269,28 +1271,149 @@ let oppDcAt = 0;            // when opponent left (wall clock)
 let myDcAt = 0;             // when I left (wall clock)
 let bothAwayMode = false;   // both players currently away from the match
 
-function showDisconnectBanner(sec, kind) {
+function ensureStatusToastStack() {
+  let stack = document.getElementById('statusToastStack');
+  if (stack) return stack;
+  const vs = document.getElementById('screenVersus');
+  if (!vs) return null;
+  stack = document.createElement('div');
+  stack.id = 'statusToastStack';
+  stack.className = 'status-toast-stack';
+  // Place under boards, before player pieces tray
+  const piecesLabel = vs.querySelector('.opp-pieces-label:last-of-type') || document.getElementById('piecesAreaVs');
+  const anchor = document.getElementById('disconnectBanner') || piecesLabel;
+  if (anchor && anchor.parentNode) {
+    anchor.parentNode.insertBefore(stack, anchor);
+  } else {
+    vs.appendChild(stack);
+  }
+  // Hide legacy single banner
   try {
-    if (kind !== 'afk' && kind !== 'afk-me' && isRejoinCalm()) return;
+    const legacy = document.getElementById('disconnectBanner');
+    if (legacy) legacy.style.display = 'none';
   } catch (_) {}
-  const el = document.getElementById('disconnectBanner');
-  if (!el) return;
-  el.style.display = 'block';
+  return stack;
+}
+
+function statusToastText(sec, kind) {
   if (kind === 'afk') {
-    el.textContent = sec > 0
+    return sec > 0
       ? ('⏱ АФК соперника — автопобеда через ' + sec + ' сек')
       : '⏱ АФК соперника…';
-  } else if (kind === 'afk-me') {
-    el.textContent = sec > 0
+  }
+  if (kind === 'afk-me') {
+    return sec > 0
       ? ('⏱ Вы АФК — автопоражение через ' + sec + ' сек')
       : '⏱ Вы АФК…';
-  } else {
-    el.textContent = sec > 0
-      ? ('📡 Отсоединение… ' + sec + ' сек')
-      : '📡 Отсоединение…';
+  }
+  if (kind === 'need-move') {
+    return sec > 0
+      ? ('📡 Нужен ход — сделай ход · ' + sec + ' сек')
+      : '📡 Нужен ход — сделай ход';
+  }
+  if (kind === 'need-move-opp') {
+    return sec > 0
+      ? ('📡 Соперник вернулся — ждём ход · ' + sec + ' сек')
+      : '📡 Соперник вернулся — ждём ход';
+  }
+  return sec > 0
+    ? ('📡 Отсоединение… ' + sec + ' сек')
+    : '📡 Отсоединение…';
+}
+
+/** Stacked bottom toasts — multiple kinds can show at once (no alternating flash). */
+function showDisconnectBanner(sec, kind) {
+  kind = kind || 'disconnect';
+  try {
+    if (kind !== 'afk' && kind !== 'afk-me' && kind !== 'need-move' && kind !== 'need-move-opp'
+        && isRejoinCalm()) return;
+  } catch (_) {}
+  const stack = ensureStatusToastStack();
+  if (!stack) {
+    const el = document.getElementById('disconnectBanner');
+    if (!el) return;
+    el.style.display = 'block';
+    el.textContent = statusToastText(sec, kind);
+    return;
+  }
+  let toast = stack.querySelector('.status-toast[data-kind="' + kind + '"]');
+  const isAfk = (kind === 'afk' || kind === 'afk-me');
+  if (!toast) {
+    toast = document.createElement('div');
+    toast.className = 'status-toast status-banner ' +
+      ((kind === 'afk' || kind === 'afk-me' || kind === 'disconnect') ? 'status-danger' : 'status-info');
+    toast.dataset.kind = kind;
+    // Stable structure: label + seconds so text updates don't reflow animation
+    toast.innerHTML = '<span class="st-label"></span><span class="st-sec"></span>';
+    stack.appendChild(toast);
+    // Enter animation only once
+    toast.style.opacity = '0';
+    toast.style.transform = 'translateY(6px)';
+    requestAnimationFrame(() => {
+      try {
+        toast.classList.add('show');
+        toast.style.opacity = '';
+        toast.style.transform = '';
+      } catch (_) {}
+    });
+  }
+  // Update text without removing .show (no blink on moves / afk ticks)
+  try {
+    const label = toast.querySelector('.st-label');
+    const secEl = toast.querySelector('.st-sec');
+    const full = statusToastText(sec, kind);
+    if (label && secEl) {
+      // Split "… · N сек" so only the number changes
+      const m = full.match(/^(.*?)(\d+)\s*сек\s*$/);
+      if (m) {
+        label.textContent = m[1];
+        secEl.textContent = m[2] + ' сек';
+      } else {
+        label.textContent = full;
+        secEl.textContent = '';
+      }
+    } else if (toast.textContent !== full) {
+      toast.textContent = full;
+    }
+  } catch (_) {
+    const full = statusToastText(sec, kind);
+    if (toast.textContent !== full) toast.textContent = full;
+  }
+  toast.style.display = 'block';
+  // Never strip .show for AFK — that causes the blink
+  if (!toast.classList.contains('show')) toast.classList.add('show');
+  if (isAfk) {
+    try { afkBannerKind = (kind === 'afk-me') ? 'me' : 'opp'; } catch (_) {}
   }
 }
+
+function dismissStatusToast(kind) {
+  const stack = document.getElementById('statusToastStack');
+  if (!stack) return;
+  if (kind) {
+    const toast = stack.querySelector('.status-toast[data-kind="' + kind + '"]');
+    if (toast) toast.remove();
+    if (kind === 'afk' || kind === 'afk-me') {
+      try {
+        if (kind === 'afk' && afkBannerKind === 'opp') afkBannerKind = null;
+        if (kind === 'afk-me' && afkBannerKind === 'me') afkBannerKind = null;
+      } catch (_) {}
+    }
+  }
+}
+
 function hideDisconnectBanner() {
+  // NEVER wipe AFK toasts — only disconnect / need-move
+  try {
+    const stack = document.getElementById('statusToastStack');
+    if (stack) {
+      stack.querySelectorAll('.status-toast').forEach(t => {
+        const k = t.dataset && t.dataset.kind;
+        if (k === 'afk' || k === 'afk-me') return;
+        t.remove();
+      });
+    }
+  } catch (_) {}
   const el = document.getElementById('disconnectBanner');
   if (el) el.style.display = 'none';
 }
@@ -1311,9 +1434,9 @@ function ensureBoardDcOverlay(which) {
   }
   return ov;
 }
-function showBoardDisconnectOverlay(sec, which) {
+function showBoardDisconnectOverlay(sec, which, opts) {
+  opts = opts || {};
   try {
-    // Server room mode: always show when told by player_status
     if (!(roomMatchMode || window._roomMatchMode)) {
       if (isRejoinCalm()) return;
       if (sessionStorage.getItem('bp_rejoin_storm') === '1') return;
@@ -1321,21 +1444,28 @@ function showBoardDisconnectOverlay(sec, which) {
     }
   } catch (_) {}
   const side = which || 'opp';
+  const reason = String(opts.reason || '');
+  const pending = !!opts.pending;
+  // AFK and "need move" must NOT cover the board — bottom notification only
+  // so the player can still aim and place pieces.
+  if (reason === 'afk') {
+    try { hideBoardDisconnectOverlay(side); } catch (_) {}
+    try { showDisconnectBanner(sec, side === 'me' ? 'afk-me' : 'afk'); } catch (_) {}
+    return;
+  }
+  if (pending || reason === 'rejoin_pending') {
+    try { hideBoardDisconnectOverlay(side); } catch (_) {}
+    try {
+      showDisconnectBanner(sec, side === 'me' ? 'need-move' : 'need-move-opp');
+    } catch (_) {}
+    return;
+  }
   const ov = ensureBoardDcOverlay(side);
   if (!ov) return;
   const title = ov.querySelector('.dc-title');
   const sub = ov.querySelector('.dc-sub');
-  if (side === 'me') {
-    if (title) title.textContent = '⏱ АФК — автопоражение';
-    if (sub) sub.textContent = sec > 0 ? ('Осталось ' + sec + ' сек') : '…';
-  } else {
-    if (title) title.textContent = 'Соперник не в сети';
-    if (sub) {
-      sub.textContent = sec > 0
-        ? ('Ожидание ' + sec + ' сек')
-        : 'Ожидание…';
-    }
-  }
+  if (title) title.textContent = side === 'me' ? '📡 Нет связи' : '📡 Отсоединение';
+  if (sub) sub.textContent = sec > 0 ? ('До поражения ' + sec + ' сек') : 'Ожидание…';
   ov.classList.add('show');
 }
 function hideBoardDisconnectOverlay(which) {
@@ -1377,13 +1507,40 @@ function clearDisconnectTimer() {
   myDcAt = 0;
   bothAwayMode = false;
   try { window._soloRejoinActive = false; } catch (_) {}
-  hideDisconnectBanner();
+  // Only clear disconnect / need-move toasts — NEVER wipe AFK banners on opp moves
+  try {
+    if (typeof dismissStatusToast === 'function') {
+      dismissStatusToast('disconnect');
+      dismissStatusToast('need-move');
+      dismissStatusToast('need-move-opp');
+    }
+  } catch (_) {}
   hideBoardDisconnectOverlay();
 }
 
 /** Resolve when disconnect wait ends. Supports dual-away score/timer rules. */
+function isServerAuthMatch() {
+  try {
+    return !!(roomMatchMode || window._roomMatchMode
+      || (typeof MatchClient !== 'undefined' && MatchClient.matchId));
+  } catch (_) { return false; }
+}
 function resolveDisconnectWin() {
   if (!vsActive || !mpMode) return;
+  // Server-authoritative room: client NEVER ends the match on local DC timer.
+  // Wait for match_end from server only — prevents one-sided 0:0 / false forfeit.
+  try {
+    if (roomMatchMode || window._roomMatchMode || (typeof MatchClient !== 'undefined' && MatchClient.matchId)) {
+      try { softRedial && softRedial(); } catch (_) {}
+      try {
+        if (typeof MatchClient !== 'undefined' && MatchClient.connected) {
+          MatchClient.sync({});
+        }
+      } catch (_) {}
+      // Keep overlay, but do not call endVersus
+      return;
+    }
+  } catch (_) {}
   try {
     if (noMovesYet()) {
       forceCancelPreMoveMatch('Соперник отключился до начала матча');
@@ -1419,7 +1576,7 @@ function resolveDisconnectWin() {
       clearDisconnectTimer();
       hideBoardDisconnectOverlay();
       oppDisconnected = false;
-      try { ensureLiveMatchAccept(); } catch (_) {}
+      
       try { softRedial(); } catch (_) {}
       return;
     }
@@ -1450,6 +1607,31 @@ function resolveDisconnectWin() {
   window._soloRejoinActive = false;
   const reason = wasAfk ? 'afk' : 'disconnect';
 
+  // If the player is still looking at the match screen, always show result UI
+  // (quiet end was causing a hard jump to main menu during AFK/DC tests).
+  function _viewerOnMatch() {
+    try {
+      const vs = document.getElementById('screenVersus');
+      return !!(vs && vs.classList.contains('active') && !document.hidden);
+    } catch (_) { return true; }
+  }
+  function _endScoreQuietAware(r) {
+    const q = !_viewerOnMatch();
+    try {
+      if (score > oppScore) endVersus({ forceWin: true, reason: r, quiet: q });
+      else if (score < oppScore) endVersus({ forceLoss: true, reason: r, quiet: q });
+      else endVersus({ reason: r, quiet: q });
+    } catch (_) {}
+  }
+
+  // True AFK forfeit must not be swallowed by dual-rejoin score path
+  if (wasAfk) {
+    try {
+      endVersus({ forceWin: true, reason: 'afk', quiet: false });
+    } catch (_) {}
+    return;
+  }
+
   // Dual rejoin / any rejoin this match → NEVER "Обрыв связи" win
   let dual = !!(snapBothAway || (snapMyLeft > 0 && snapOppLeft > 0) || snapMyLeft > 0);
   try {
@@ -1461,7 +1643,7 @@ function resolveDisconnectWin() {
     if (left > 5) {
       try { markRejoinCalm(20000); } catch (_) {}
       try { softRedial(); } catch (_) {}
-      try { ensureLiveMatchAccept(); } catch (_) {}
+      
       try { persistLiveMatch(); } catch (_) {}
       try {
         oppDisconnected = true;
@@ -1490,22 +1672,14 @@ function resolveDisconnectWin() {
             if (Date.now() >= dcDeadlineTs || (vsTimeLeft | 0) <= 0) {
               clearInterval(mpDisconnectTimer);
               mpDisconnectTimer = null;
-              try {
-                if (score > oppScore) endVersus({ forceWin: true, reason: 'time', quiet: true });
-                else if (score < oppScore) endVersus({ forceLoss: true, reason: 'time', quiet: true });
-                else endVersus({ reason: 'time', quiet: true });
-              } catch (_) {}
+              _endScoreQuietAware('time');
             }
           } catch (_) {}
         }, 1000);
       } catch (_) {}
       return;
     }
-    try {
-      if (score > oppScore) endVersus({ forceWin: true, reason: 'time', quiet: true });
-      else if (score < oppScore) endVersus({ forceLoss: true, reason: 'time', quiet: true });
-      else endVersus({ reason: 'time', quiet: true });
-    } catch (_) {}
+    _endScoreQuietAware('time');
     return;
   }
 
@@ -1522,9 +1696,16 @@ function resolveDisconnectWin() {
     } catch (_) {}
     if (banned) {
       try {
-        if (score > oppScore) endVersus({ forceWin: true, reason: 'time', quiet: true });
-        else if (score < oppScore) endVersus({ forceLoss: true, reason: 'time', quiet: true });
-        else endVersus({ reason: 'time', quiet: true });
+        // Viewer still on match → show result, never silent menu jump
+        const q = (function () {
+          try {
+            const vs = document.getElementById('screenVersus');
+            return !(vs && vs.classList.contains('active') && !document.hidden);
+          } catch (_) { return false; }
+        })();
+        if (score > oppScore) endVersus({ forceWin: true, reason: 'time', quiet: q });
+        else if (score < oppScore) endVersus({ forceLoss: true, reason: 'time', quiet: q });
+        else endVersus({ reason: 'time', quiet: q });
       } catch (_) {}
       return;
     }
@@ -1537,6 +1718,14 @@ function resolveDisconnectWin() {
  *  force=true skips the "window still open" guard (used by expiry timer). */
 function resolveBothAwayFromSnap(snap, force) {
   if (!snap || window._matchEnded) return false;
+  // Server owns the match — never resolve from localStorage snapshot
+  try {
+    if (snap.serverAuth || snap.matchId
+        || roomMatchMode || window._roomMatchMode
+        || (typeof MatchClient !== 'undefined' && MatchClient.matchId)) {
+      return false;
+    }
+  } catch (_) {}
   const myLeft = (typeof snap.leftAt === 'number' && snap.leftAt > 0) ? snap.leftAt : snap.t;
   const oppLeft = (typeof snap.oppLeftAt === 'number' && snap.oppLeftAt > 0) ? snap.oppLeftAt : 0;
   const myScore = (typeof snap.score === 'number') ? snap.score : 0;
@@ -1583,8 +1772,14 @@ function resolveBothAwayFromSnap(snap, force) {
   window._mpRejoiningMatch = false;
   window._soloRejoinActive = false;
   try {
-    // Quiet: score-based end (both left) — never "Обрыв связи"
-    const q = { reason, silent: true, quiet: true };
+    // Score-based end (both left) — never "Обрыв связи".
+    // If the player is still on the match screen, show the result UI.
+    let quietEnd = true;
+    try {
+      const vs = document.getElementById('screenVersus');
+      if (vs && vs.classList.contains('active') && !document.hidden) quietEnd = false;
+    } catch (_) {}
+    const q = { reason, silent: true, quiet: quietEnd };
     const byScore = () => {
       if (myScore > oScore) endVersus({ forceWin: true, ...q });
       else if (myScore < oScore) endVersus({ forceLoss: true, ...q });
@@ -1608,4 +1803,3 @@ function resolveBothAwayFromSnap(snap, force) {
   try { clearLiveMatch(); } catch (_) {}
   return true;
 }
-

@@ -11,6 +11,10 @@ let mpLoading = false;
 let _matchLoad = null; // state object
 
 function showMatchLoading(label, title, sub) {
+  // After «Старт!» is locked in — ignore any further loading text (no «Почти готово» flash)
+  try {
+    if (window._matchStartPhase || window._matchStartLocked) return;
+  } catch (_) {}
   const el = document.getElementById('matchIntro');
   if (!el) return;
   const lab = document.getElementById('miLabel');
@@ -22,11 +26,21 @@ function showMatchLoading(label, title, sub) {
   el.classList.remove('mi-go');
   el.classList.add('visible');
   el.setAttribute('aria-hidden', 'false');
-  // Block interaction with boards underneath
-  try { el.style.pointerEvents = 'auto'; } catch (_) {}
+  // Must override boot-failsafe inline display:none
+  try {
+    el.style.display = 'flex';
+    el.style.pointerEvents = 'auto';
+    el.style.opacity = '1';
+    el.style.visibility = 'visible';
+    el.style.zIndex = '9000';
+  } catch (_) {}
+  try { window._matchIntroShownAt = Date.now(); } catch (_) {}
 }
 
 function updateMatchLoading(title, sub) {
+  try {
+    if (window._matchStartPhase || window._matchStartLocked) return;
+  } catch (_) {}
   try {
     const tit = document.getElementById('miTitle');
     const su = document.getElementById('miSub');
@@ -40,6 +54,10 @@ function hideMatchLoading() {
   if (!el) return;
   el.classList.remove('visible', 'mi-go');
   el.setAttribute('aria-hidden', 'true');
+  try {
+    el.style.display = 'none';
+    el.style.pointerEvents = 'none';
+  } catch (_) {}
 }
 
 function clearMatchLoadState() {
@@ -64,188 +82,18 @@ function isMatchLoadActive() {
  * If peer leaves during this phase → cancel (ranked→search, friendly→lobby).
  */
 function beginVersusMatchMp(isHost) {
-  try { document.body.classList.remove('vs-bots'); } catch (_) {}
-  // Single-flight: never run loading twice for the same match
-  if (mpLoading || isMatchLoadActive()) return;
-  if (vsActive && mpMode) return;
-  if (window._matchLoadCooldown && Date.now() < window._matchLoadCooldown) return;
-  if (vsIntroLock && !mpLoading) return;
-  vsIntroLock = true;
-  try {
-    window._matchEnded = false;
-    window._rankedDeltaApplied = false;
-    window._preMatchAborting = false;
-    window._pendingIntroOppDeal = null;
-  } catch (_) {}
-  try { ensureLiveMatchAccept(); } catch (_) {}
-  try { clearBoardScoreFX(); } catch (_) {}
-  if (vsTimerId) clearInterval(vsTimerId);
-  if (aiInterval) clearInterval(aiInterval);
-  aiInterval = null;
-  clearDisconnectTimer();
-  rematchIWant = false;
-  rematchTheyWant = false;
-  rematchPending = false;
-  pendingRematchOfferName = null;
-  rematchClickCount = 0;
-  hideRematchOffer();
-  hideRematchWait();
-  document.body.classList.remove('replay-ui');
-  document.body.classList.remove('replay-playing');
-  const fbLive = document.getElementById('btnForfeit');
-  if (fbLive) fbLive.style.display = '';
-
-  // Offline / bots path should not use this function; still guard
   if (!mpMode) {
     _beginVersusMatchMpBody(isHost, { skipLoad: true });
     return;
   }
-
-  // Must have a live connection
-  if (!mpConn || !mpConn.open) {
-    vsIntroLock = false;
-    abortPreMatchMissingPeer('Нет связи с соперником');
-    return;
-  }
-
-  clearMatchLoadState();
-  mpLoading = true;
-  const ranked = !!mpFromMatchmaking;
-  const loadId = 'ml_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7);
-
-  _matchLoad = {
-    id: loadId,
-    isHost: !!isHost,
-    ranked,
-    finished: false,
-    oppHere: false,
-    oppBound: false,
-    meBound: false,
-    goSent: false,
-    goRecv: false,
-    timer: null,
-    hb: null,
-    retry: null
-  };
-
-  // Stay on match/friends UI under the overlay — do NOT open versus yet
   try {
-    if (ranked) {
-      showScreen('match');
-      mmSetStatus('Загрузка матча…', 'Проверка связи');
-    }
-  } catch (_) {}
-
-  showMatchLoading(
-    'Загрузка',
-    'Подключение игроков…',
-    ranked ? 'Рейтинговый матч' : 'Товарищеский матч'
-  );
-
-  // Notify peer we entered loading (covers race if only one side called begin)
-  try {
-    mpSend({
-      type: 'match_load_begin',
-      id: loadId,
-      name: myNickname,
-      trophies,
-      ranked,
-      duration: vsDuration,
-      skinId: equippedSkinId,
-      boardId: equippedBoardId,
-      host: !!isHost
-    });
-  } catch (_) {}
-
-  // Heartbeat while loading — if peer stops answering, cancel
-  let missed = 0;
-  const sendHere = () => {
-    try {
-      mpSend({
-        type: 'match_load_here',
-        id: loadId,
-        name: myNickname,
-        t: Date.now()
-      });
-    } catch (_) {}
-  };
-  sendHere();
-  _matchLoad.hb = setInterval(() => {
-    if (!_matchLoad || _matchLoad.finished) return;
-    if (!mpConn || !mpConn.open) {
-      abortPreMatchMissingPeer('Соперник отключился при загрузке');
+    if (roomMatchMode || window._roomMatchMode || (typeof MatchClient !== 'undefined' && MatchClient.matchId)) {
+      _beginVersusMatchMpBody(isHost, { skipLoad: true });
       return;
     }
-    sendHere();
-    if (_matchLoad.oppHere) {
-      missed = 0;
-    } else {
-      missed++;
-      if (missed >= 6) {
-        updateMatchLoading('Нет ответа…', 'Соперник не подтвердил присутствие');
-      }
-      if (missed >= 14) {
-        abortPreMatchMissingPeer('Соперник не ответил при загрузке');
-      }
-    }
-    // Opponent was here but link died
-    if (_matchLoad.oppHere && (!mpConn || !mpConn.open)) {
-      abortPreMatchMissingPeer('Соперник отключился при загрузке');
-    }
-  }, 500);
-
-  // Absolute timeout for whole loading phase
-  _matchLoad.timer = setTimeout(() => {
-    if (!_matchLoad || _matchLoad.finished) return;
-    abortPreMatchMissingPeer('Время загрузки истекло');
-  }, 20000);
-
-  // Wire close during load
-  try {
-    if (mpConn && !mpConn._bpLoadClose) {
-      mpConn._bpLoadClose = true;
-      mpConn.on('close', () => {
-        if (isMatchLoadActive() && !vsActive) {
-          abortPreMatchMissingPeer('Соперник отключился при загрузке');
-        }
-      });
-    }
   } catch (_) {}
-
-  // After short delay: if peer is here, prepare boards under the overlay
-  const tryBind = () => {
-    if (!_matchLoad || _matchLoad.finished || _matchLoad.meBound) return;
-    if (!mpConn || !mpConn.open) {
-      abortPreMatchMissingPeer('Соперник отключился при загрузке');
-      return;
-    }
-    // Wait until peer confirmed presence (heartbeat / load_begin)
-    if (!_matchLoad.oppHere) return;
-    try {
-      _prepareVersusBoardsUnderLoad();
-      _matchLoad.meBound = true;
-      mpSend({
-        type: 'match_load_bound',
-        id: loadId,
-        name: myNickname,
-        skinId: equippedSkinId,
-        boardId: equippedBoardId
-      });
-    } catch (e) {
-      console.warn('bind boards', e);
-      abortPreMatchMissingPeer('Ошибка подготовки поля');
-      return;
-    }
-    maybeFinishMatchLoad();
-  };
-
-  // Poll bind until peer here
-  _matchLoad.retry = setInterval(() => {
-    if (!_matchLoad || _matchLoad.finished) return;
-    tryBind();
-  }, 400);
-  // First attempt soon
-  setTimeout(tryBind, 350);
+  vsIntroLock = false;
+  try { abortPreMatchMissingPeer('Нет связи с соперником'); } catch (_) {}
 }
 
 function _prepareVersusBoardsUnderLoad() {
@@ -303,7 +151,7 @@ function _prepareVersusBoardsUnderLoad() {
   if (oa) oa.innerHTML = '';
   updateBoardMetrics(boardMe);
   updateTimerDisplay();
-  try { startEmptyMatchPeerWatch(); } catch (_) {}
+  
   // Keep the same loading overlay — no second flash
   showMatchLoading(
     'Загрузка',
@@ -323,20 +171,13 @@ function rankedLabel() {
 function maybeFinishMatchLoad() {
   if (!_matchLoad || _matchLoad.finished) return;
   if (!_matchLoad.meBound || !_matchLoad.oppBound) return;
-  if (!mpConn || !mpConn.open) {
+  if (false) {
     abortPreMatchMissingPeer('Соперник отключился при загрузке');
     return;
   }
   if (!_matchLoad.goSent) {
     _matchLoad.goSent = true;
-    try {
-      mpSend({
-        type: 'match_load_go',
-        id: _matchLoad.id,
-        name: myNickname,
-        duration: vsDuration
-      });
-    } catch (_) {}
+    
   }
   _finishMatchLoadAndGoLive();
 }
@@ -344,7 +185,7 @@ function maybeFinishMatchLoad() {
 function _finishMatchLoadAndGoLive() {
   if (!_matchLoad || _matchLoad.finished) return;
   if (!_matchLoad.meBound || !_matchLoad.oppBound) return;
-  if (!mpConn || !mpConn.open) {
+  if (false) {
     abortPreMatchMissingPeer('Соперник отключился до начала матча');
     return;
   }
@@ -356,10 +197,16 @@ function _finishMatchLoadAndGoLive() {
   // Prevent a second loading sequence from late start / load_begin
   window._matchLoadCooldown = Date.now() + 5000;
 
+  // Online server path uses finishRoomMatchLoadAndGo — do not flash a second «Старт!»
+  if (roomMatchMode || window._roomMatchMode || (typeof MatchClient !== 'undefined' && MatchClient.matchId)) {
+    try { hideMatchLoading(); } catch (_) {}
+    // Fall through to unlock without second overlay
+  } else {
   showMatchLoading('Загрузка', 'Старт!', rankedLabel());
+  }
   setTimeout(() => {
     hideMatchLoading();
-    if (!mpConn || !mpConn.open) {
+    if (false) {
       abortPreMatchMissingPeer('Соперник отключился до начала матча');
       return;
     }
@@ -377,8 +224,8 @@ function _finishMatchLoadAndGoLive() {
     const piecesEl = document.getElementById('piecesAreaVs');
     if (piecesEl) piecesEl.style.pointerEvents = '';
     try { startAfkWatch(); } catch (_) {}
-    try { ensureLiveMatchAccept(); } catch (_) {}
-    try { startEmptyMatchPeerWatch(); } catch (_) {}
+    
+    
     try {
       if (window._pendingIntroOppDeal) {
         const d = window._pendingIntroOppDeal;
@@ -389,20 +236,11 @@ function _finishMatchLoadAndGoLive() {
     try {
       if (pieces && pieces.length) {
         logDeal('me', pieces);
-        mpSend({
-          type: 'deal',
-          pieces: pieces.map(p => {
-            let sh = (p.shape || []).map(c => c.slice());
-            try {
-              if (typeof normalize === 'function' && sh.length) sh = normalize(sh.map(c => c.slice()));
-            } catch (_) {}
-            return { shape: sh, color: p.color, used: false };
-          })
-        });
+        
       }
     } catch (_) {}
     // Opponent may have left during "Старт!" — abort cleanly
-    if (!mpConn || !mpConn.open) {
+    if (false) {
       try {
         vsActive = false;
         abortPreMatchMissingPeer('Соперник отключился до начала матча');
@@ -458,7 +296,7 @@ function abortPreMatchMissingPeer(reason) {
   }
   window._preMatchAborting = true;
   try { window._leftForRankedSearch = 0; } catch (_) {}
-  try { stopEmptyMatchPeerWatch(); } catch (_) {}
+  
   try { vsActive = false; } catch (_) {}
   clearMatchLoadState();
   try { hideMatchLoading(); } catch (_) {}
@@ -490,7 +328,7 @@ function abortPreMatchMissingPeer(reason) {
   // Tell peer we aborted (best-effort)
   try {
     if (false) {
-      mpSend({ type: 'match_load_abort', reason: reason || 'abort' });
+      
     }
   } catch (_) {}
 
@@ -553,7 +391,7 @@ function abortPreMatchMissingPeer(reason) {
       if (el) el.classList.add('visible');
       mpReady = false;
       mpOppReady = false;
-      try { mpSend({ type: 'ready', ready: false }); } catch (_) {}
+      
       try { updateLobbyUI(); } catch (_) {}
     } else {
       try { destroyMp(); } catch (_) {}
@@ -577,9 +415,7 @@ function onMatchLoadBegin(data) {
   // Already loading — just mark peer present
   if (_matchLoad && !_matchLoad.finished) {
     _matchLoad.oppHere = true;
-    try {
-      mpSend({ type: 'match_load_here', id: _matchLoad.id, name: myNickname, t: Date.now(), ack: true });
-    } catch (_) {}
+    
     return;
   }
   // Join loading only once if peer started and we have not
@@ -595,15 +431,7 @@ function onMatchLoadHere(data) {
   _matchLoad.oppHere = true;
   // Only reply to non-ack heartbeats to avoid infinite ping-pong
   if (data && data.ack) return;
-  try {
-    mpSend({
-      type: 'match_load_here',
-      id: _matchLoad.id,
-      name: myNickname,
-      t: Date.now(),
-      ack: true
-    });
-  } catch (_) {}
+  
 }
 
 function onMatchLoadBound(data) {
@@ -668,14 +496,9 @@ let _pendingOppPlaces = [];
 function applyOppRemoteDeal(data) {
   if (!data || !data.pieces) return;
   if (typeof replayMode !== 'undefined' && replayMode) return;
-  if (!vsActive) {
-    if (mode === 'versus' && mpMode) {
-      try { window._pendingIntroOppDeal = data; } catch (_) {}
-    }
-    return;
-  }
-  // Wait until current opp place is logged + tray collapse done
-  if (_oppPlaceAnimBusy) {
+  const loading = !vsActive || mpLoading || mpMatchStarting || window._matchAwaitingGo || window._matchIntroSeqRunning;
+  // Wait until current opp place is logged + tray collapse done (live only)
+  if (!loading && _oppPlaceAnimBusy) {
     _pendingOppDeal = data;
     return;
   }
@@ -696,8 +519,13 @@ function applyOppRemoteDeal(data) {
       used: !!(p && p.used)
     };
   });
-  renderOppPieces();
-  if (vsActive) logDeal('opp', oppPieces);
+  try {
+    window._animateDealIn = !loading;
+    window._quietPieceRender = !!loading;
+  } catch (_) {}
+  try { renderOppPieces(); } catch (_) {}
+  try { window._animateDealIn = false; window._quietPieceRender = false; } catch (_) {}
+  try { logDeal('opp', oppPieces); } catch (_) {}
 }
 
 function flushPendingOppDeal() {
@@ -913,7 +741,40 @@ function applyOppRemotePlace(data) {
       oppClearChain = 0;
       // Do NOT renderGrid here — cells already painted + placing anim must stay visible
     } else {
-      oppClearChain = (oppClearChain || 0) + 1;
+      const serverChain = (data && typeof data.chain === 'number') ? (data.chain | 0) : 0;
+      oppClearChain = serverChain || ((oppClearChain || 0) + 1);
+      // Flying scores + combo banner on opponent board (mutual visibility)
+      try {
+        const clearedN = (data && typeof data.cleared === 'number') ? (data.cleared | 0) : (clearInfo.count || 0);
+        const bonusN = (data && typeof data.bonus === 'number') ? (data.bonus | 0) : 0;
+        const wrap = boardOpp && boardOpp.parentElement;
+        const banner = document.getElementById('comboBannerOpp')
+          || (wrap && wrap.querySelector('.combo-banner'))
+          || document.getElementById('comboBannerMe');
+        const maxR = Math.max(...shape.map(s => s[0]));
+        const maxC = Math.max(...shape.map(s => s[1]));
+        const placeAnchor = {
+          baseR: r, baseC: c,
+          centerR: r + maxR / 2,
+          centerC: c + maxC / 2
+        };
+        const positions = (typeof getClearFloatPositions === 'function')
+          ? getClearFloatPositions(boardOpp, clearInfo.rows || [], clearInfo.cols || [], placeAnchor)
+          : null;
+        if (typeof showCombo === 'function') {
+          showCombo(banner, clearedN, bonusN, wrap, 'opp', {
+            chain: oppClearChain,
+            positions,
+            placeAnchor,
+            baseBonus: bonusN,
+            chainExtra: 0
+          });
+        }
+        try {
+          if (clearedN >= 2 || oppClearChain >= 2) SFX.combo();
+          else if (clearedN > 0 && SFX.clear) SFX.clear();
+        } catch (_) {}
+      } catch (_) {}
     }
     // Authoritative final board from server (after place+clear) — kills any stuck cells
     try {
@@ -1393,6 +1254,8 @@ function hideMatchEndFreeze() {
   if (el) {
     el.classList.remove('visible', 'mef-out', 'mef-time', 'mef-lose', 'mef-win', 'mef-draw');
     el.setAttribute('aria-hidden', 'true');
+    // Do NOT set display:none inline — that blocks future .visible
+    try { el.style.display = ''; el.style.pointerEvents = ''; } catch (_) {}
   }
   const r = matchEndFreezeResolve;
   matchEndFreezeResolve = null;
@@ -1407,19 +1270,17 @@ function hideMatchEndFreeze() {
 function showMatchEndFreeze(opts) {
   opts = opts || {};
   return new Promise((resolve) => {
-    try {
-      if (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
-        resolve();
-        return;
-      }
-    } catch (_) {}
-    // Skip only when user disabled match intro (same "cinematic" preference)
-    try {
-      if (settings && settings.matchIntro === '0') { resolve(); return; }
-    } catch (_) {}
+    // Always show end sequence (user-requested cinematic)
 
     const el = document.getElementById('matchEndFreeze');
     if (!el) { resolve(); return; }
+    // Clear any inline display:none left by boot failsafe
+    try {
+      el.style.display = '';
+      el.style.pointerEvents = '';
+      el.style.opacity = '';
+      el.style.visibility = '';
+    } catch (_) {}
 
     // Cancel any previous freeze
     if (matchEndFreezeTimer) {
@@ -1440,30 +1301,30 @@ function showMatchEndFreeze(opts) {
     const won = !!opts.won;
     const draw = !!opts.draw;
 
-    let label = 'Матч';
-    let title = 'Конец';
-    let sub = 'Игра остановлена';
+    let label = 'Versus';
+    let title = 'Матч окончен';
+    let sub = 'Подсчёт результатов…';
     el.classList.remove('mef-time', 'mef-lose', 'mef-win', 'mef-draw');
 
     if (reason === 'forfeit') {
-      title = 'Сдача';
-      sub = won ? 'Соперник сдался' : 'Ты сдался';
+      title = 'Матч окончен';
+      sub = won ? 'Соперник сдался · подсчёт…' : 'Вы сдались · подсчёт…';
       if (!won) el.classList.add('mef-lose');
       else el.classList.add('mef-win');
     } else if (reason === 'disconnect') {
-      title = 'Обрыв связи';
-      sub = won ? 'Соперник отключился' : 'Соединение потеряно';
+      title = 'Матч окончен';
+      sub = won ? 'Соперник отключился · подсчёт…' : 'Обрыв связи · подсчёт…';
     } else if (reason === 'afk') {
-      title = 'АФК';
-      sub = 'Ход не сделан вовремя';
+      title = 'Матч окончен';
+      sub = 'АФК · подсчёт результатов…';
     } else if (timeUp) {
-      title = 'Время!';
-      sub = 'Время матча истекло';
+      title = 'Матч окончен';
+      sub = 'Время вышло · подсчёт…';
       el.classList.add('mef-time');
       label = 'Таймер';
     } else {
-      title = 'Конец';
-      sub = 'Больше нет ходов';
+      title = 'Матч окончен';
+      sub = 'Подсчёт результатов…';
     }
 
     if (draw) el.classList.add('mef-draw');
@@ -1480,8 +1341,32 @@ function showMatchEndFreeze(opts) {
     if (labEl) labEl.textContent = label;
     if (titleEl) titleEl.textContent = title;
     if (subEl) subEl.textContent = sub;
-    if (scMe) scMe.textContent = String(my);
-    if (scOpp) scOpp.textContent = String(opp);
+    if (scMe) scMe.textContent = '0';
+    if (scOpp) scOpp.textContent = '0';
+    // Reveal scores block and count up during freeze
+    try {
+      const scWrap = document.getElementById('mefScores');
+      if (scWrap) {
+        scWrap.style.display = 'flex';
+        scWrap.setAttribute('aria-hidden', 'false');
+      }
+    } catch (_) {}
+    // Animate count-up during freeze
+    try {
+      const dur = 900;
+      const t0 = performance.now();
+      const step = (now) => {
+        const k = Math.min(1, (now - t0) / dur);
+        const e = 1 - Math.pow(1 - k, 3);
+        if (scMe) scMe.textContent = String(Math.round(my * e));
+        if (scOpp) scOpp.textContent = String(Math.round(opp * e));
+        if (k < 1) requestAnimationFrame(step);
+      };
+      requestAnimationFrame(step);
+    } catch (_) {
+      if (scMe) scMe.textContent = String(my);
+      if (scOpp) scOpp.textContent = String(opp);
+    }
 
     try { document.body.classList.add('match-ending'); } catch (_) {}
     el.classList.remove('mef-out');
@@ -1490,7 +1375,7 @@ function showMatchEndFreeze(opts) {
     try { hapticTap(16); } catch (_) {}
     try { SFX.ui && SFX.ui(); } catch (_) {}
 
-    const hold = Math.min(2400, Math.max(1400, opts.ms || 1750));
+    const hold = Math.min(3200, Math.max(1800, opts.ms || 2400));
     matchEndFreezeTimer = setTimeout(() => {
       matchEndFreezeTimer = null;
       el.classList.add('mef-out');
@@ -1613,6 +1498,11 @@ function showScoreDuel(my, opp, won, draw, oppLabel, bot) {
     } catch (_) {}
     const ov = document.getElementById('scoreDuelOverlay');
     if (!ov) { resolve(); return; }
+    try {
+      ov.style.display = '';
+      ov.style.pointerEvents = '';
+      ov.style.opacity = '';
+    } catch (_) {}
     clearScoreDuelTimers();
     scoreDuelResolve = resolve;
     scoreDuelSkippable = false;
@@ -2006,13 +1896,32 @@ function renderOppPieces() {
     }
     slot.appendChild(gridEl);
     area.appendChild(slot);
-    // Quiet — no staggered pop-in on network/rejoin updates
-    slot.classList.add('show');
-    slot.style.opacity = '1';
-    slot.style.transform = 'none';
-    slot.style.transition = 'none';
-    try { slot.style.animation = 'none'; } catch (_) {}
+    const quiet = !!(window._quietPieceRender);
+    const animateIn = !quiet && !!(window._animateDealIn);
+    if (animateIn) {
+      slot.classList.add('deal-in');
+      slot.style.opacity = '0';
+      slot.style.transform = 'scale(0.72) translateY(8px)';
+      const delay = idx * 45;
+      setTimeout(() => {
+        try {
+          slot.classList.add('show');
+          slot.style.opacity = '1';
+          slot.style.transform = 'scale(1) translateY(0)';
+        } catch (_) {}
+      }, 20 + delay);
+      setTimeout(() => {
+        try { slot.classList.remove('deal-in'); } catch (_) {}
+      }, 300 + delay);
+    } else {
+      slot.classList.add('show');
+      slot.style.opacity = '1';
+      slot.style.transform = 'none';
+      slot.style.transition = 'none';
+      try { slot.style.animation = 'none'; } catch (_) {}
+    }
   });
+  try { window._animateDealIn = false; } catch (_) {}
 }
 const boardEl = document.getElementById('board');
 const boardMe = document.getElementById('boardMe');

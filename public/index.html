@@ -50,7 +50,10 @@
   (function () {
     function unlockUI() {
       try { document.body.classList.remove('rejoin-loading', 'is-offline'); } catch (e) {}
-      ['bootLoader', 'matchIntro', 'matchEndFreeze', 'rejoinLoading', 'botPickOverlay'].forEach(function (id) {
+      // Only force-hide boot / stuck loading — NEVER permanently kill matchEndFreeze or bot pick
+      // (inline display:none overrides .visible and breaks end/random animations)
+      // Only boot + rejoin: NEVER force-hide matchIntro (match loading / «Старт!»)
+      ['bootLoader', 'rejoinLoading'].forEach(function (id) {
         var el = document.getElementById(id);
         if (!el) return;
         try {
@@ -60,6 +63,28 @@
           el.setAttribute('aria-hidden', 'true');
         } catch (e) {}
       });
+      // matchIntro: only clear if not actively showing a load
+      try {
+        var mi = document.getElementById('matchIntro');
+        if (mi && !mi.classList.contains('visible')) {
+          mi.style.display = 'none';
+          mi.style.pointerEvents = 'none';
+          mi.setAttribute('aria-hidden', 'true');
+        }
+      } catch (e) {}
+      // Soft-clear stuck flags only if overlays are not actively shown
+      try {
+        var mef = document.getElementById('matchEndFreeze');
+        if (mef && !mef.classList.contains('visible')) {
+          mef.style.display = '';
+          mef.style.pointerEvents = '';
+        }
+        var bp = document.getElementById('botPickOverlay');
+        if (bp && !bp.classList.contains('visible')) {
+          bp.style.display = '';
+          bp.style.pointerEvents = '';
+        }
+      } catch (e) {}
       var boot = document.getElementById('bootLoader');
       if (boot) {
         try {
@@ -563,7 +588,7 @@
         </div>
       </div>
       <div class="friend-add-row">
-        <input id="friendCodeInput" maxlength="6" placeholder="КОД ДРУГА" autocomplete="off" spellcheck="false" />
+        <input id="friendCodeInput" maxlength="24" placeholder="КОД или ник онлайн" autocomplete="off" spellcheck="false" />
         <button class="primary" id="btnAddFriend">Добавить</button>
       </div>
       <div class="friend-add-status" id="friendAddStatus"></div>
@@ -587,8 +612,10 @@
         <div class="friends-section-count" id="friendsListCount">0</div>
       </div>
       <div class="friend-search-row">
-        <input type="search" id="friendSearchInput" placeholder="Поиск по никнейму…" autocomplete="off" spellcheck="false" />
+        <input type="search" id="friendSearchInput" maxlength="24" placeholder="Поиск: ник или код…" autocomplete="off" spellcheck="false" />
       </div>
+      <div class="friend-find-list" id="friendFindList"></div>
+      <div class="friends-section-empty" id="friendFindEmpty" style="display:none">Онлайн-игроки появятся здесь</div>
       <div class="friend-list" id="friendList"></div>
     </div>
 
@@ -905,22 +932,24 @@
         <span id="replayScrubHint">перемотка</span>
       </div>
     </div>
-    <!-- Replay end summary (inline, not modal) -->
+    <!-- Replay end summary — compact centered panel -->
     <div id="replayEndCard" class="replay-end-card" style="display:none" aria-hidden="true">
-      <button type="button" class="replay-end-close" id="btnReplayEndClose" title="Закрыть">✕</button>
-      <div class="replay-end-title" id="replayEndTitle">Победа!</div>
-      <div class="replay-end-scores">
-        <div class="replay-end-side">
-          <span class="replay-end-who">Ты</span>
-          <span class="replay-end-pts" id="replayEndMy">0</span>
+      <div class="replay-end-panel">
+        <button type="button" class="replay-end-close" id="btnReplayEndClose" title="Закрыть">✕</button>
+        <div class="replay-end-title" id="replayEndTitle">Победа!</div>
+        <div class="replay-end-scores">
+          <div class="replay-end-side">
+            <span class="replay-end-who">Ты</span>
+            <span class="replay-end-pts" id="replayEndMy">0</span>
+          </div>
+          <div class="replay-end-sep">:</div>
+          <div class="replay-end-side">
+            <span class="replay-end-who" id="replayEndOppLabel">Соперник</span>
+            <span class="replay-end-pts" id="replayEndOpp">0</span>
+          </div>
         </div>
-        <div class="replay-end-sep">:</div>
-        <div class="replay-end-side">
-          <span class="replay-end-who" id="replayEndOppLabel">Соперник</span>
-          <span class="replay-end-pts" id="replayEndOpp">0</span>
-        </div>
+        <div class="replay-end-meta" id="replayEndMeta"></div>
       </div>
-      <div class="replay-end-meta" id="replayEndMeta"></div>
     </div>
     <div class="footer" id="vsFooter">Алмазы отключены. Успей набрать больше очков!</div>
   </div>

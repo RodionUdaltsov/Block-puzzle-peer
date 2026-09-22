@@ -43,46 +43,71 @@ function showMatchIntro(opts) {
     try {
       if (settings && settings.matchIntro === '0') { resolve(); return; }
     } catch (_) {}
+    if (opts.skip) { resolve(); return; }
     const el = document.getElementById('matchIntro');
     if (!el) { resolve(); return; }
-    // Already showing — do not restart the animation
+    // Already showing — wait for it, do not stack
     if (el.classList.contains('visible') && matchIntroTimer) {
       const wait = setInterval(() => {
         if (!el.classList.contains('visible')) {
           clearInterval(wait);
           resolve();
         }
-      }, 80);
-      setTimeout(() => { clearInterval(wait); resolve(); }, 3500);
+      }, 50);
+      setTimeout(() => { clearInterval(wait); resolve(); }, 2800);
       return;
     }
+    // Reduced motion: still show a short static flash (do not skip entirely)
+    let reduced = false;
     try {
-      if (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
-        resolve(); return;
-      }
+      reduced = !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
     } catch (_) {}
     const label = document.getElementById('miLabel');
     const title = document.getElementById('miTitle');
     const sub = document.getElementById('miSub');
-    if (label) label.textContent = opts.label || 'Подготовка';
-    if (title) title.textContent = opts.title || 'Старт';
+    if (label) label.textContent = opts.label || 'Загрузка';
+    if (title) title.textContent = opts.title || 'Почти готово…';
     if (sub) sub.textContent = opts.sub || '';
     el.classList.remove('mi-go');
     el.classList.add('visible');
     el.setAttribute('aria-hidden', 'false');
+    // Force visible — hideMatchLoading leaves inline display:none which overrides .visible
+    try {
+      el.style.display = 'flex';
+      el.style.pointerEvents = 'auto';
+      el.style.opacity = '1';
+      el.style.visibility = 'visible';
+      el.style.zIndex = '9000';
+    } catch (_) {}
     if (matchIntroTimer) clearTimeout(matchIntroTimer);
-    const total = Math.min(2400, Math.max(1100, opts.ms || 1600));
-    matchIntroTimer = setTimeout(() => {
-      el.classList.add('mi-go');
-      if (title) title.textContent = opts.goText || 'Вперёд!';
-      if (sub) sub.textContent = '';
-      matchIntroTimer = setTimeout(() => {
+    const hideIntro = () => {
+      try {
         el.classList.remove('visible', 'mi-go');
         el.setAttribute('aria-hidden', 'true');
-        matchIntroTimer = null;
-        resolve();
-      }, 920);
-    }, Math.max(400, total - 920));
+        el.style.display = 'none';
+        el.style.pointerEvents = 'none';
+      } catch (_) {}
+      matchIntroTimer = null;
+      resolve();
+    };
+    // Respect explicit ms. Default 1200. goPhase = final «Старт!» flash
+    const requested = (typeof opts.ms === 'number') ? opts.ms : 1200;
+    const total = reduced
+      ? Math.min(600, Math.max(200, requested))
+      : Math.min(2200, Math.max(0, requested));
+    const goPhase = total <= 0 ? 0 : Math.min(520, Math.max(280, Math.floor(total * 0.35)));
+    const hold = Math.max(0, total - goPhase);
+    if (total <= 0) {
+      hideIntro();
+      return;
+    }
+    matchIntroTimer = setTimeout(() => {
+      el.classList.add('mi-go');
+      if (label) label.textContent = 'Готово';
+      if (title) title.textContent = opts.goText || 'Старт!';
+      if (sub) sub.textContent = opts.sub || '';
+      matchIntroTimer = setTimeout(hideIntro, goPhase);
+    }, hold);
   });
 }
 
