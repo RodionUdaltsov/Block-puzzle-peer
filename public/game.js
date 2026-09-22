@@ -16,7 +16,7 @@
     'js/03-audio.js',
     'js/04-profile-friends.js',
     'js/05-soft-render.js',
-    'js/06-peer-liveness.js',
+    'js/06-match-liveness.js',
     'js/07-match-flow-ui.js',
     'js/08-screens-gameplay.js',
     'js/09-offline-and-ranked.js',

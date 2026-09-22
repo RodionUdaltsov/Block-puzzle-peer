@@ -17,7 +17,7 @@ const { createStore, ROOM_TTL_LIVE, ROOM_TTL_ENDED, TOKEN_TTL } = require('./lib
 // Shared authoritative rules (single source with client)
 const R = require('./shared/rules');
 const {
-  SIZE, DEFAULT_COLORS, emptyGrid, cloneGrid, normalizeShape, shapesEqual,
+  SIZE, DEFAULT_COLORS, emptyGrid, cloneGrid, normalizeShape,
   randomPiece, dealThree, canPlaceOn, clearLinesOnGrid, bonusFor, chainBonusFor,
   serializePieces, findAllPlacements, sideHasPlayable,
   MIN_PLACE_INTERVAL_MS, PLACE_BURST_WINDOW_MS, PLACE_BURST_MAX,
@@ -721,38 +721,19 @@ class MatchRoom {
     const handPiece = st.pieces[pieceIdx];
     if (!handPiece || handPiece.used) return reject('piece_used');
 
-    // Prefer server hand shape (client may normalize differently)
-    let shape = normalizeShape(handPiece.shape);
-    if (!shape.length) {
-      shape = normalizeShape(data.shape);
-    }
+    // Server-authoritative move validation: the client may only choose which
+    // hand piece to place and its anchor coordinates. Shape/color/score are
+    // always taken from the server's current hand state. Never trust or
+    // fall back to client-supplied shape/color data for gameplay.
+    const shape = normalizeShape(handPiece.shape);
     if (!shape.length) return reject('shape_mismatch');
-    // If client sent a shape, only require same cell count (orientation already normalized)
-    if (data.shape) {
-      const clientShape = normalizeShape(data.shape);
-      if (clientShape.length && clientShape.length !== shape.length) {
-        // still allow if server shape places at r,c
-      }
-    }
 
     const r = data.r | 0;
     const c = data.c | 0;
-    if (!canPlaceOn(st.grid, shape, r, c)) {
-      // Retry with client shape if different
-      const clientShape = normalizeShape(data.shape);
-      if (clientShape.length && shapesEqual(clientShape, handPiece.shape) === false) {
-        if (canPlaceOn(st.grid, clientShape, r, c) && clientShape.length === shape.length) {
-          shape = clientShape;
-        } else {
-          return reject('cannot_place');
-        }
-      } else {
-        return reject('cannot_place');
-      }
-    }
+    if (!canPlaceOn(st.grid, shape, r, c)) return reject('cannot_place');
 
     // Apply cells
-    const color = handPiece.color || data.color || DEFAULT_COLORS[0];
+    const color = handPiece.color || DEFAULT_COLORS[0];
     for (const [dr, dc] of shape) {
       st.grid[r + dr][c + dc] = color;
     }

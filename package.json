@@ -1,12 +1,14 @@
 {
   "name": "block-puzzle-server",
-  "version": "3.8.6",
-  "description": "Block Puzzle \u2014 modular client + server + persistence",
+  "version": "3.9.29",
+  "description": "Block Puzzle — modular client + server + persistence",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
     "start:file": "BP_STORE=file node server.js",
-    "start:redis": "BP_STORE=redis node server.js"
+    "start:redis": "BP_STORE=redis node server.js",
+    "check": "node scripts/check.js",
+    "test": "node --test test/*.test.js"
   },
   "engines": {
     "node": ">=18"
