@@ -11312,53 +11312,60 @@
     /* Prism: board + tray share the same rules above — do not strip ::after here */
 
 
-/* ========== Mobile / touch: smoother, less harsh ========== */
+/* ========== Mobile / touch: same visuals as PC, smoother compositor path ========== */
+/* Do NOT override placeSoft / clearing durations — they must match desktop. */
+body.touch-ui .screen.active {
+  filter: none !important; /* avoid full-screen filter thrash on weak GPUs */
+}
+/* Promote layers only while animating — same keyframes, less jank */
+body.touch-ui .cell.placing,
+body.touch-ui .cell[class*="clearing-"] {
+  will-change: transform, opacity;
+  backface-visibility: hidden;
+  -webkit-backface-visibility: hidden;
+}
 body.touch-ui .cell.placing {
-  animation-duration: 0.9s !important;
-  animation-timing-function: cubic-bezier(0.22, 0.75, 0.25, 1) !important;
+  /* force GPU path without changing keyframe curve */
+  transform: translateZ(0);
 }
-body.touch-ui .cell.clearing,
-body.touch-ui .cell[class*="clearing-"],
-body.touch-ui .cell.filled[class*="clearing-"],
-body.touch-ui .board-wrap .cell[class*="clearing-"] {
-  animation-duration: 0.26s !important;
-  animation-timing-function: ease-out !important;
+body.touch-ui #ghost {
+  -webkit-transform: translate3d(0,0,0);
+  backface-visibility: hidden;
+  -webkit-backface-visibility: hidden;
 }
-body.touch-ui .score-float {
-  animation-duration: 1.15s !important;
+body.touch-ui .board,
+body.touch-ui .board-wrap {
+  contain: layout style;
+  transform: translateZ(0);
+  -webkit-transform: translateZ(0);
 }
-body.touch-ui .combo-banner {
-  animation-duration: 0.55s !important;
+/* While dragging: kill scroll/bounce so aim tracks finger 1:1 */
+body.is-dragging,
+body.is-dragging #screenVersus,
+body.is-dragging #screenClassic {
+  overflow: hidden !important;
+  overscroll-behavior: none;
+  touch-action: none;
+  -webkit-user-select: none;
+  user-select: none;
 }
-body.touch-ui .screen.active {
-  animation-duration: 0.5s !important;
+body.is-dragging .piece-slot,
+body.is-dragging .board-wrap {
+  touch-action: none;
 }
-body.touch-ui .screen.active.screen-enter > *,
-body.touch-ui .screen.active.screen-enter .bot-card,
-body.touch-ui .screen.active.screen-enter .home-mode,
-body.touch-ui .screen.active.screen-enter .home-nav-btn {
-  animation-duration: 0.55s !important;
-  animation-timing-function: cubic-bezier(0.22, 0.85, 0.28, 1) !important;
-}
-/* Ghost: slightly longer glide between cells — less snappy */
-body.touch-ui #ghost.cell-glide {
-  transition: transform 0.14s cubic-bezier(0.25, 0.8, 0.25, 1) !important;
-}
-/* Piece tray: softer lift */
+/* iOS Safari: prevent text-size adjust / tap highlight flash on cells */
+body.touch-ui .cell,
 body.touch-ui .piece-slot {
-  transition: transform 0.22s cubic-bezier(0.22, 0.9, 0.3, 1), opacity 0.22s ease, box-shadow 0.22s ease !important;
-}
-body.touch-ui .piece-slot.lifting {
-  transition: transform 0.2s cubic-bezier(0.22, 0.9, 0.3, 1), opacity 0.2s ease !important;
-}
-/* Avoid heavy filter/blur thrash on weak GPUs */
-body.touch-ui .screen.active {
-  filter: none !important;
+  -webkit-tap-highlight-color: transparent;
+  -webkit-touch-callout: none;
 }
 @media (hover: none) and (pointer: coarse) {
-  /* Extra safety if class missing */
+  /* Same placeSoft as desktop — no duration override */
   .cell.placing {
-    animation-duration: 0.85s;
+    animation-name: placeSoft;
+    animation-duration: 0.75s;
+    animation-timing-function: cubic-bezier(0.33, 0.0, 0.2, 1);
+    animation-fill-mode: forwards;
   }
 }
 

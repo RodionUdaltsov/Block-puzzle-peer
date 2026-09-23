@@ -732,6 +732,46 @@ function probeOpponentForRematch(timeoutMs) {
   return Promise.resolve({ ok: false, offline: true });
 }
 
+
+/** Clear AFK / DC status toasts so they never leak into the next match. */
+function clearAfkUi() {
+  try {
+    if (typeof afkBannerKind !== 'undefined') afkBannerKind = null;
+    if (typeof dismissStatusToast === 'function') {
+      dismissStatusToast('afk');
+      dismissStatusToast('afk-me');
+      dismissStatusToast('disconnect');
+      dismissStatusToast('need-move');
+      dismissStatusToast('need-move-opp');
+    }
+    if (typeof hideBoardDisconnectOverlay === 'function') hideBoardDisconnectOverlay();
+    if (typeof clearDisconnectTimer === 'function') clearDisconnectTimer();
+  } catch (_) {}
+}
+
+/** Pending rematch invite shown in «Заявки» (survives toast dismiss). */
+let rmPending = null;
+function clearRmPending() {
+  rmPending = null;
+  pendingRematchOfferName = null;
+  try { rematchTheyWant = false; } catch (_) {}
+  try { hideRmToast(false); } catch (_) {}
+  try { hideRematchOffer && hideRematchOffer(); } catch (_) {}
+  try { renderFriendRequests && renderFriendRequests(); } catch (_) {}
+  try { updateFriendsSectionCounts && updateFriendsSectionCounts(); } catch (_) {}
+}
+function setRmPending(fromName, matchId) {
+  rmPending = {
+    name: (fromName || mpOppName || 'Соперник').toString(),
+    matchId: matchId || (typeof MatchClient !== 'undefined' ? MatchClient.matchId : null),
+    ts: Date.now()
+  };
+  pendingRematchOfferName = rmPending.name;
+  rematchTheyWant = true;
+  try { renderFriendRequests && renderFriendRequests(); } catch (_) {}
+  try { updateFriendsSectionCounts && updateFriendsSectionCounts(); } catch (_) {}
+}
+
 function clearRmToastTimers() {
   if (rmToastHideTimer) { clearTimeout(rmToastHideTimer); rmToastHideTimer = null; }
   if (rmToastCountTimer) { clearInterval(rmToastCountTimer); rmToastCountTimer = null; }
@@ -778,21 +818,10 @@ function showRmToast(fromName) {
   toast.classList.remove('out');
   void toast.offsetWidth;
   toast.classList.add('visible');
-  // 15s auto-hide with live countdown; on expiry auto-decline
+  // Auto-hide toast only — заявка остаётся в «Заявках» until accept/decline/cancel
   rmToastCountTimer = startToastCountdown('rmToastCountdown', REMATCH_TOAST_SEC, null);
   rmToastHideTimer = setTimeout(() => {
     rmToastHideTimer = null;
-    // Time expired — decline so requester is notified
-    if (pendingRematchOfferName || rematchTheyWant) {
-      pendingRematchOfferName = null;
-      try {
-        if (roomMatchMode || window._roomMatchMode) {
-          if (typeof MatchClient !== 'undefined' && MatchClient.rematchDecline)
-            MatchClient.rematchDecline();
-        }
-      } catch (_) {}
-      rematchTheyWant = false;
-    }
     hideRmToast(true);
   }, REMATCH_TOAST_SEC * 1000);
   try { SFX.ui && SFX.ui(); } catch (_) {}
@@ -1586,6 +1615,67 @@ function declineChallenge() {
   toast.addEventListener('touchend', onEnd);
   toast.addEventListener('touchcancel', onEnd);
 })();
+
+(function bindRmToastSwipe() {
+  const toast = document.getElementById('rmToast');
+  if (!toast || toast._bpSwipe) return;
+  toast._bpSwipe = true;
+  let startY = 0, startX = 0, dragging = false, dy = 0, dx = 0;
+  const onStart = (e) => {
+    if (e.target && e.target.closest && e.target.closest('button')) return;
+    const t = e.touches ? e.touches[0] : e;
+    startY = t.clientY;
+    startX = t.clientX;
+    dy = 0; dx = 0;
+    dragging = true;
+    toast.classList.add('dragging');
+  };
+  const onMove = (e) => {
+    if (!dragging) return;
+    const t = e.touches ? e.touches[0] : e;
+    dy = t.clientY - startY;
+    dx = t.clientX - startX;
+    if (dx > 8 || dy < -8) {
+      if (e.cancelable) e.preventDefault();
+      const distX = Math.max(0, Math.min(dx, 200));
+      const distY = Math.min(0, Math.max(dy, -120));
+      toast.style.transform = 'translateX(' + distX + 'px) translateY(' + distY + 'px)';
+      toast.style.opacity = String(Math.max(0.2, 1 - distX / 160 - Math.abs(distY) / 140));
+    }
+  };
+  const onEnd = () => {
+    if (!dragging) return;
+    dragging = false;
+    toast.classList.remove('dragging');
+    if (dx > 64 || dy < -56) {
+      // Only hide toast — rematch request stays in «Заявки»
+      hideRmToast(true);
+    } else {
+      toast.style.transform = '';
+      toast.style.opacity = '';
+    }
+    dy = 0; dx = 0;
+  };
+  toast.addEventListener('touchstart', onStart, { passive: true });
+  toast.addEventListener('touchmove', onMove, { passive: false });
+  toast.addEventListener('touchend', onEnd);
+  toast.addEventListener('touchcancel', onEnd);
+  // Mouse drag (desktop)
+  toast.addEventListener('mousedown', (e) => {
+    if (e.target && e.target.closest && e.target.closest('button')) return;
+    onStart(e);
+    const move = (ev) => onMove(ev);
+    const up = () => {
+      onEnd();
+      document.removeEventListener('mousemove', move);
+      document.removeEventListener('mouseup', up);
+    };
+    document.addEventListener('mousemove', move);
+    document.addEventListener('mouseup', up);
+  });
+})();
+
+
 
 // Outgoing lobby invites: friendCode -> roomCode (host side)
 let lobbyInviteWait = {};

@@ -57,11 +57,11 @@
 
   // Disconnect / AFK (server) — tuned against refresh/rejoin storms
   const DC_LIMIT_MS = 60000;       // 60s offline before forfeit (user rule)
-  const AFK_WARN_MS = 25000;       // warn after 25s idle
-  const AFK_LIMIT_MS = 55000;      // forfeit after 55s idle
+  const AFK_WARN_MS = 15000;       // warn after 15s idle
+  const AFK_LIMIT_MS = 30000;      // forfeit after 30s idle (15s warn + 15s)
   const DETACH_GRACE_MS = 5000;    // wait 5s before treating socket close as offline
   const MATCH_START_GRACE_MS = 12000; // no AFK/stuck forfeit in first 12s
-  const AFK_WARN_BROADCAST_MS = 2000; // don't spam afk_warn every tick
+  const AFK_WARN_BROADCAST_MS = 1000; // 1s step so countdown does not jump by 2s
 
   function emptyGrid(size) {
     size = size || SIZE;

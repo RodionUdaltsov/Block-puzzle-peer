@@ -526,7 +526,7 @@ function saveSettings() {
   try { localStorage.setItem('bp_settings', JSON.stringify(settings)); } catch (_) {}
 }
 
-// Mobile / touch: smoother motion, softer haptics (class used by CSS)
+// Mobile / touch: mark for CSS perf helpers only — keep same anim quality as desktop
 (function initTouchUi() {
   try {
     const coarse = window.matchMedia('(pointer: coarse)').matches
@@ -534,14 +534,7 @@ function saveSettings() {
       || ('ontouchstart' in window && navigator.maxTouchPoints > 0);
     if (coarse) {
       document.body.classList.add('touch-ui');
-      // First launch on phone: prefer soft animations if user never set anim
-      try {
-        const raw = localStorage.getItem('bp_settings');
-        if (!raw) {
-          settings.anim = 'soft';
-          saveSettings();
-        }
-      } catch (_) {}
+      // Do NOT force anim=soft — mobile must match PC placeSoft / clear timings
     }
   } catch (_) {}
 })();

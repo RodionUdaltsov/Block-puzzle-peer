@@ -12,6 +12,9 @@ function bindMatchClientHandlers() {
   MatchClient.on('match_found', (data) => {
     try { if (typeof broadcastMyActivity === 'function') broadcastMyActivity(true); } catch (_) {}
     try {
+      try { if (typeof clearAfkUi === 'function') clearAfkUi(); } catch (_) {}
+      try { if (typeof clearRmPending === 'function') clearRmPending(); } catch (_) {}
+      window._lastMatchWasVoid = false;
       roomMatchMode = true;
       window._roomMatchMode = true;
       rematchIWant = false;
@@ -659,6 +662,14 @@ function bindMatchClientHandlers() {
         if (underDc) {
           oppDisconnected = true;
           dcDeadlineTs = data.dcDeadlineTs || (rem > 0 ? Date.now() + rem * 1000 : 0);
+          // AFK toast must yield to disconnect / afk_disconnect — one timer only
+          try {
+            if (typeof dismissStatusToast === 'function') {
+              dismissStatusToast('afk');
+              dismissStatusToast('afk-me');
+            }
+            if (typeof afkBannerKind !== 'undefined') afkBannerKind = null;
+          } catch (_) {}
           try {
             if (typeof showBoardDisconnectOverlay === 'function') {
               showBoardDisconnectOverlay(rem, 'opp', {
@@ -689,7 +700,8 @@ function bindMatchClientHandlers() {
             }
           } catch (_) {}
         } else if (data.online && !pending) {
-          // Fully back — clear DC only, keep AFK toasts if any
+          // Opponent fully back (or cleared pending) — clear ONLY their DC UI.
+          // Do not touch local placingLock / drag / hands: players are independent.
           try { clearDisconnectTimer(); } catch (_) {}
           oppDisconnected = false;
           dcDeadlineTs = 0;
@@ -701,6 +713,34 @@ function bindMatchClientHandlers() {
               dismissStatusToast('need-move-opp');
             }
           } catch (_) {}
+          // Soft safety: only clear sticky rejoin flags if we somehow inherited them;
+          // never force-unlock mid pending local place.
+          try {
+            if (!window._pendingServerPlace) {
+              window._rejoinLoading = false;
+              window._rejoinInputLock = false;
+              try { document.body.classList.remove('rejoin-loading'); } catch (_) {}
+              if (placingLock && !isDragging) placingLock = false;
+              if (!window._matchEnded && !vsActive) vsActive = true;
+            }
+          } catch (_) {}
+          // AFK resume after quick refresh: keep / refresh opponent AFK toast
+          if (data.reason === 'afk_resume') {
+            const idleMs = (typeof data.idleMs === 'number') ? data.idleMs : 0;
+            const afkRem = Math.max(1, Math.ceil(((typeof AFK_LIMIT_MS === 'number' ? AFK_LIMIT_MS : 30000) - idleMs) / 1000));
+            try {
+              if (typeof showDisconnectBanner === 'function') showDisconnectBanner(afkRem, 'afk');
+              if (typeof showBoardDisconnectOverlay === 'function') {
+                showBoardDisconnectOverlay(afkRem, 'opp', { reason: 'afk' });
+              }
+            } catch (_) {}
+          } else if (data.reason === 'online' || data.reason === 'active') {
+            // Not AFK anymore — clear stuck opponent AFK toast from before refresh
+            try {
+              if (typeof dismissStatusToast === 'function') dismissStatusToast('afk');
+              if (typeof afkBannerKind !== 'undefined' && afkBannerKind === 'opp') afkBannerKind = null;
+            } catch (_) {}
+          }
         }
       } else if (isMe) {
         // Own seat: never show "opponent offline" on our board from our own status
@@ -711,6 +751,16 @@ function bindMatchClientHandlers() {
           } catch (_) {}
         } else if (data.online && !pending) {
           try { hideBoardDisconnectOverlay('me'); } catch (_) {}
+          if (data.reason === 'afk_resume') {
+            const idleMs = (typeof data.idleMs === 'number') ? data.idleMs : 0;
+            const afkRem = Math.max(1, Math.ceil(((typeof AFK_LIMIT_MS === 'number' ? AFK_LIMIT_MS : 30000) - idleMs) / 1000));
+            try {
+              if (typeof showDisconnectBanner === 'function') showDisconnectBanner(afkRem, 'afk-me');
+              if (typeof showBoardDisconnectOverlay === 'function') {
+                showBoardDisconnectOverlay(afkRem, 'me', { reason: 'afk' });
+              }
+            } catch (_) {}
+          }
         }
       }
     } catch (e) { console.warn('player_status', e); }
@@ -748,6 +798,11 @@ function bindMatchClientHandlers() {
   });
   MatchClient.on('match_end', (data) => {
     try {
+      try { if (typeof clearAfkUi === 'function') clearAfkUi(); } catch (_) {}
+      try { if (typeof clearRmPending === 'function') clearRmPending(); } catch (_) {}
+      try {
+        window._lastMatchWasVoid = !!(data && (data.void || data.preStart || data.reason === 'void'));
+      } catch (_) { window._lastMatchWasVoid = false; }
       try { stopServerAuthSync(); } catch (_) {}
       window._matchAwaitingGo = false;
       window._matchGoFinishing = false;
@@ -820,16 +875,41 @@ function bindMatchClientHandlers() {
 
   MatchClient.on('rematch_invite', (data) => {
     try {
+      // Ignore invites tied to void / pre-start cancels
+      if (window._lastMatchWasVoid) return;
       rematchTheyWant = true;
       pendingRematchOfferName = (data && data.from) || 'Соперник';
       if (data && data.matchId) MatchClient.matchId = data.matchId;
+      try {
+        if (typeof setRmPending === 'function') {
+          setRmPending(pendingRematchOfferName, data && data.matchId);
+        }
+      } catch (_) {}
       try { showRematchOffer && showRematchOffer(pendingRematchOfferName); } catch (_) {}
-      try { showInfoToast('Реванш', (pendingRematchOfferName || 'Соперник') + ' хочет реванш', 'ok'); } catch (_) {}
       // Auto-accept if we already clicked rematch
       if (rematchIWant) {
         try { MatchClient.rematchAccept(); } catch (_) {}
       }
     } catch (e) { console.warn('rematch_invite', e); }
+  });
+  MatchClient.on('rematch_cancel', (data) => {
+    try {
+      // Inviter cancelled — drop invite from toast + «Заявки»
+      try { if (typeof clearRmPending === 'function') clearRmPending(); } catch (_) {}
+      rematchTheyWant = false;
+      pendingRematchOfferName = null;
+      try { hideRmToast(true); } catch (_) {}
+      try { hideRematchOffer && hideRematchOffer(); } catch (_) {}
+      if (!(data && data.self)) {
+        try { showInfoToast('Реванш', 'Соперник отменил заявку', 'bad'); } catch (_) {}
+      } else {
+        // self cancel — leave wait UI
+        rematchIWant = false;
+        rematchPending = false;
+        try { hideRematchWait && hideRematchWait(); } catch (_) {}
+        try { restorePostMatchResultUI && restorePostMatchResultUI(); } catch (_) {}
+      }
+    } catch (e) { console.warn('rematch_cancel', e); }
   });
   MatchClient.on('rematch_wait', () => {
     try {
@@ -843,8 +923,10 @@ function bindMatchClientHandlers() {
       rematchIWant = false;
       rematchTheyWant = false;
       rematchPending = false;
+      try { if (typeof clearRmPending === 'function') clearRmPending(); } catch (_) {}
       try { hideRematchOffer(); } catch (_) {}
       try { hideRematchWait(); } catch (_) {}
+      try { hideRmToast(false); } catch (_) {}
       // Opponent (or self cancel) declined — always return to result window
       if (wasWaiting || !(data && data.self)) {
         try {

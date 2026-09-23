@@ -459,7 +459,8 @@ class MatchRoom {
     p.online = true;
     p.lastSeen = Date.now();
     const st = this.state[p.seat];
-    // Cancel pending soft-detach (refresh within grace)
+    // Cancel pending soft-detach (refresh within grace — DC never started)
+    const wasGraceOnly = !!st._detachPending;
     try {
       if (st._detachTimer) {
         clearTimeout(st._detachTimer);
@@ -471,36 +472,105 @@ class MatchRoom {
     st.lastSeen = Date.now();
     st.offlineSince = 0;
     const nowA = Date.now();
-    // Full clear of DC on successful rejoin — do NOT keep timer running.
-    // Rapid refresh must not accumulate disconnect forfeit.
-    st.dcDeadlineTs = 0;
-    st.rejoinPendingMove = false;
-    // AFK grace: treat rejoin as activity so false AFK does not fire immediately
-    st.lastActionAt = nowA;
-    st.afkWarned = false;
-    st._lastAfkWarnAt = 0;
     ws._matchId = this.id;
     ws._token = token;
-    this.broadcast({
-      type: 'player_status',
-      seat: p.seat,
-      online: true,
-      clockEndTs: this.clockEndTs,
-      vsTimeLeft: this.timeLeft(),
-      dcDeadlineTs: 0,
-      dcRemaining: 0,
-      rejoinPendingMove: false,
-      idleMs: 0,
-      awaitingMove: false,
-      reason: 'online'
-    }, token);
-    // Tell rejoiner the opponent's current online status (broadcast above skips self)
+
+    // Keep DC countdown across rejoin until a real place (or clear if no moves).
+    // Grace-only refresh (never confirmed offline) → full clear, no plaque.
+    const hadActiveDc = !wasGraceOnly && st.dcDeadlineTs > nowA;
+    let playable = true;
+    try {
+      playable = sideHasPlayable(st.grid, st.pieces);
+    } catch (_) { playable = true; }
+    // null = empty hand / deal pending — treat as "can still act" (keep timer)
+    // false = truly no placement possible → drop plaque on rejoin
+    const noMovesLeft = (playable === false);
+
+    if (hadActiveDc && !noMovesLeft) {
+      // Timer continues; player must place to clear the plaque
+      st.rejoinPendingMove = true;
+      // Do NOT reset lastActionAt / AFK — DC path owns the deadline
+      st.afkWarned = false;
+      st._lastAfkWarnAt = 0;
+      const dcRem = Math.max(0, Math.ceil((st.dcDeadlineTs - nowA) / 1000));
+      this.broadcast({
+        type: 'player_status',
+        seat: p.seat,
+        online: true,
+        clockEndTs: this.clockEndTs,
+        vsTimeLeft: this.timeLeft(),
+        dcDeadlineTs: st.dcDeadlineTs,
+        dcRemaining: dcRem,
+        rejoinPendingMove: true,
+        awaitingMove: true,
+        reason: 'rejoin_pending'
+      }, token);
+    } else if (noMovesLeft) {
+      // No placements possible → drop any DC/AFK plaque on rejoin
+      st.dcDeadlineTs = 0;
+      st.rejoinPendingMove = false;
+      st._dcFromAfk = false;
+      st.lastActionAt = nowA;
+      st.afkWarned = false;
+      st._lastAfkWarnAt = 0;
+      this.broadcast({
+        type: 'player_status',
+        seat: p.seat,
+        online: true,
+        clockEndTs: this.clockEndTs,
+        vsTimeLeft: this.timeLeft(),
+        dcDeadlineTs: 0,
+        dcRemaining: 0,
+        rejoinPendingMove: false,
+        idleMs: 0,
+        awaitingMove: false,
+        reason: 'online'
+      }, token);
+    } else {
+      // Grace refresh or plain rejoin without DC — NEVER reset lastActionAt.
+      // Quick page reload must not wipe AFK progress or restart the 15s window.
+      st.dcDeadlineTs = 0;
+      st.rejoinPendingMove = false;
+      st._dcFromAfk = false;
+      const idle = Math.max(0, nowA - (st.lastActionAt || nowA));
+      const inAfk = idle >= AFK_WARN_MS;
+      st.afkWarned = inAfk;
+      // Force next tick to re-broadcast afk_warn so opponent toast does not stay frozen
+      st._lastAfkWarnAt = 0;
+      this.broadcast({
+        type: 'player_status',
+        seat: p.seat,
+        online: true,
+        clockEndTs: this.clockEndTs,
+        vsTimeLeft: this.timeLeft(),
+        dcDeadlineTs: 0,
+        dcRemaining: 0,
+        rejoinPendingMove: false,
+        idleMs: idle,
+        awaitingMove: false,
+        reason: inAfk ? 'afk_resume' : 'online'
+      }, token);
+      if (inAfk) {
+        const remain = Math.max(1, Math.ceil((AFK_LIMIT_MS - idle) / 1000));
+        this.broadcast({
+          type: 'afk_warn',
+          seat: p.seat,
+          remaining: remain,
+          vsTimeLeft: this.timeLeft(),
+          clockEndTs: this.clockEndTs
+        });
+        st._lastAfkWarnAt = nowA;
+      }
+    }
+
+    // Tell rejoiner the opponent's current online status only (does not touch opp state)
     try {
       const oppSeat = this.otherSeat(p.seat);
       const oppSt = this.state[oppSeat];
       if (oppSt) {
         const now = Date.now();
-        const dcRem = (!oppSt.online && oppSt.dcDeadlineTs > 0)
+        const oppUnderDc = !!(oppSt.dcDeadlineTs > now && (!oppSt.online || oppSt.rejoinPendingMove));
+        const dcRem = oppUnderDc
           ? Math.max(0, Math.ceil((oppSt.dcDeadlineTs - now) / 1000))
           : 0;
         this.send(token, {
@@ -509,8 +579,12 @@ class MatchRoom {
           online: !!oppSt.online,
           clockEndTs: this.clockEndTs,
           vsTimeLeft: this.timeLeft(),
-          dcDeadlineTs: oppSt.dcDeadlineTs || 0,
-          dcRemaining: dcRem
+          dcDeadlineTs: oppUnderDc ? (oppSt.dcDeadlineTs || 0) : 0,
+          dcRemaining: dcRem,
+          rejoinPendingMove: !!(oppSt.online && oppSt.rejoinPendingMove),
+          reason: oppUnderDc
+            ? (oppSt.online ? 'rejoin_pending' : (oppSt._dcFromAfk ? 'afk_disconnect' : 'disconnect'))
+            : (oppSt.online ? 'online' : 'disconnect')
         });
       }
     } catch (_) {}
@@ -592,16 +666,34 @@ class MatchRoom {
     st.detachCount = (st.detachCount || 0) + 1;
     st.lastDetachAt = now;
 
-    // Always wait full 60s (or remaining match time if shorter) — never shorter for flaps
-    const matchLeftMs = Math.max(0, this.clockEndTs - now);
-    let dcMs = DC_LIMIT_MS;
-    if (matchLeftMs > 0 && matchLeftMs < dcMs) dcMs = matchLeftMs;
-    // Minimum 5s so tiny clock remainder still allows a brief rejoin
-    if (dcMs < 5000 && matchLeftMs >= 5000) dcMs = 5000;
-    if (dcMs < 1000) dcMs = Math.max(1000, matchLeftMs);
+    // Idle relative to last real action (place). If player was already in AFK
+    // warning window, keep the SAME remaining countdown — do not reset to full
+    // DC_LIMIT and do not run a second parallel timer.
+    const idle = Math.max(0, now - (st.lastActionAt || now));
+    const matchLeftMs = Math.max(0, (this.clockEndTs || now) - now);
+    let dcMs;
+    let reason = 'disconnect';
+    if (idle >= AFK_WARN_MS) {
+      // Continue AFK countdown as disconnect: remaining = AFK_LIMIT - idle
+      const afkRemain = Math.max(1000, AFK_LIMIT_MS - idle);
+      dcMs = afkRemain;
+      if (matchLeftMs > 0 && matchLeftMs < dcMs) dcMs = matchLeftMs;
+      reason = 'afk_disconnect';
+    } else {
+      // Normal disconnect: full 60s (or remaining match time if shorter)
+      dcMs = DC_LIMIT_MS;
+      if (matchLeftMs > 0 && matchLeftMs < dcMs) dcMs = matchLeftMs;
+      // Minimum 5s so tiny clock remainder still allows a brief rejoin
+      if (dcMs < 5000 && matchLeftMs >= 5000) dcMs = 5000;
+      if (dcMs < 1000) dcMs = Math.max(1000, matchLeftMs);
+    }
     st.dcDeadlineTs = now + dcMs;
     st.offlineSince = now;
     st.rejoinPendingMove = false;
+    st._dcFromAfk = (reason === 'afk_disconnect');
+    // Stop AFK warn spam while offline — DC path owns the UI now
+    st.afkWarned = false;
+    st._lastAfkWarnAt = 0;
 
     this.broadcast({
       type: 'player_status',
@@ -611,7 +703,7 @@ class MatchRoom {
       vsTimeLeft: this.timeLeft(),
       dcDeadlineTs: st.dcDeadlineTs,
       dcRemaining: Math.max(0, Math.ceil(dcMs / 1000)),
-      reason: idle >= AFK_WARN_MS ? 'afk_disconnect' : 'disconnect'
+      reason: reason
     }, token);
     persistRoom(this);
   }
@@ -744,6 +836,7 @@ class MatchRoom {
     st.offlineSince = 0;
     st.dcDeadlineTs = 0;
     st.rejoinPendingMove = false;
+    st._dcFromAfk = false;
     st.placeTimes.push(now);
     st.stuck = false;
     // Clear disconnect/AFK UI for both clients
@@ -1024,6 +1117,7 @@ class MatchRoom {
     if (this.status !== 'loading') return;
     this.status = 'ended';
     this.endedReason = reason || 'void';
+    this.rematch = { a: false, b: false };
     if (this._clockTimer) {
       clearInterval(this._clockTimer);
       this._clockTimer = null;
@@ -1035,9 +1129,21 @@ class MatchRoom {
       clockEndTs: 0,
       matchId: this.id,
       void: true,
-      preStart: true
+      preStart: true,
+      rematchAllowed: false
     });
     persistRoom(this);
+    // Drop room soon — no rematch window for void / pre-start cancels
+    const id = this.id;
+    const tokens = Object.keys(this.players);
+    setTimeout(() => {
+      try {
+        if (rooms.get(id) === this) {
+          rooms.delete(id);
+          forgetRoom(id, tokens);
+        }
+      } catch (_) {}
+    }, 3000);
   }
 
   forfeit(token) {
@@ -1104,6 +1210,12 @@ class MatchRoom {
 
   offerRematch(token) {
     if (this.status !== 'ended') return;
+    // No rematch after void / pre-start cancel
+    const er = String(this.endedReason || '');
+    if (er === 'void' || er === 'peer_left' || er === 'load_timeout' || er === 'forfeit_prestart') {
+      this.send(token, { type: 'rematch_decline', matchId: this.id, reason: 'void', self: true });
+      return;
+    }
     const p = this.players[token];
     if (!p) return;
     if (!this.rematch) this.rematch = { a: false, b: false };
@@ -1123,12 +1235,33 @@ class MatchRoom {
 
   acceptRematch(token) {
     if (this.status !== 'ended') return;
+    const er = String(this.endedReason || '');
+    if (er === 'void' || er === 'peer_left' || er === 'load_timeout' || er === 'forfeit_prestart') {
+      this.send(token, { type: 'rematch_decline', matchId: this.id, reason: 'void', self: true });
+      return;
+    }
     const p = this.players[token];
     if (!p) return;
     if (!this.rematch) this.rematch = { a: false, b: false };
     this.rematch[p.seat] = true;
     this.send(token, { type: 'rematch_wait', matchId: this.id });
     if (this.rematch.a && this.rematch.b) this.startRematch();
+  }
+
+  /** Inviter cancels their own rematch request — other side drops invite. */
+  cancelRematch(token) {
+    if (this.status !== 'ended') return;
+    const p = this.players[token];
+    if (!p) return;
+    if (this.rematch) this.rematch[p.seat] = false;
+    const otherTok = this.seatOf[this.otherSeat(p.seat)];
+    this.send(otherTok, {
+      type: 'rematch_cancel',
+      matchId: this.id,
+      name: this.state[p.seat].name,
+      seat: p.seat
+    });
+    this.send(token, { type: 'rematch_cancel', matchId: this.id, self: true });
   }
 
   declineRematch(token) {
@@ -1271,13 +1404,16 @@ class MatchRoom {
       // Both offline → each has own 60s from their offlineSince. First timer to expire loses.
       // If both timers expire in the same tick / simultaneous leave → score comparison.
       // Connection flaps during DETACH_GRACE do not start the timer.
-      const underDc = !!(st.dcDeadlineTs > 0 && !st.online && !st._detachPending);
+      // Offline OR rejoined but still pending a place — same deadline continues
+      const underDc = !!(st.dcDeadlineTs > 0 && !st._detachPending && (!st.online || st.rejoinPendingMove));
       if (underDc && now >= st.dcDeadlineTs) {
         // Collect who else is past deadline this tick
         const aSt = this.state.a;
         const bSt = this.state.b;
-        const aPast = !!(aSt && !aSt.online && !aSt._detachPending && aSt.dcDeadlineTs > 0 && now >= aSt.dcDeadlineTs);
-        const bPast = !!(bSt && !bSt.online && !bSt._detachPending && bSt.dcDeadlineTs > 0 && now >= bSt.dcDeadlineTs);
+        const seatPast = (s) => !!(s && s.dcDeadlineTs > 0 && !s._detachPending
+          && (!s.online || s.rejoinPendingMove) && now >= s.dcDeadlineTs);
+        const aPast = seatPast(aSt);
+        const bPast = seatPast(bSt);
 
         // No real play yet → void cancel (not a scored draw)
         if (movesN === 0) {
@@ -1301,8 +1437,11 @@ class MatchRoom {
         return;
       }
 
-      // AFK — online only, after start grace, with playable hand
-      const trulyOnline = !!(st.online && !st._detachPending);
+      // AFK — after start grace, with playable hand.
+      // Soft-detach grace still counts as online for AFK so a page refresh does not
+      // freeze the opponent toast or pause the idle clock. Skip only when DC /
+      // rejoin-pending owns the deadline (one timer only).
+      const trulyOnline = !!(st.online && !st.rejoinPendingMove);
       if (trulyOnline && !(st.dcDeadlineTs > now) && !st.stuck && matchAge >= startGrace) {
         const playable = sideHasPlayable(st.grid, st.pieces);
         if (playable === false || playable === null) {
@@ -1344,19 +1483,24 @@ class MatchRoom {
 
       if (underDc) {
         const dcRem = Math.max(0, Math.ceil((st.dcDeadlineTs - now) / 1000));
-        // Throttle status spam: every 2s
-        if (!st._lastDcBroadcastAt || (now - st._lastDcBroadcastAt) >= 2000) {
+        // 1s step so the disconnect / AFK-continue countdown does not jump by 2s
+        if (!st._lastDcBroadcastAt || (now - st._lastDcBroadcastAt) >= 1000) {
           st._lastDcBroadcastAt = now;
+          const isPending = !!(st.online && st.rejoinPendingMove);
+          const dcReason = isPending
+            ? 'rejoin_pending'
+            : (st._dcFromAfk ? 'afk_disconnect' : 'disconnect');
           this.broadcast({
             type: 'player_status',
             seat: seat,
-            online: false,
-            rejoinPendingMove: false,
+            online: !!st.online,
+            rejoinPendingMove: isPending,
+            awaitingMove: isPending,
             clockEndTs: this.clockEndTs,
             vsTimeLeft: left,
             dcDeadlineTs: st.dcDeadlineTs,
             dcRemaining: dcRem,
-            reason: 'disconnect'
+            reason: dcReason
           });
         }
       }
@@ -1814,7 +1958,9 @@ wss.on('connection', (ws) => {
         if (snap.opp && snap.opp.pieces) snap.opp.pieces = serializePieces(snap.opp.pieces);
         send(ws, snap);
       }
-      // Explicit online to the other player (attach also broadcasts; send twice is ok)
+      // Explicit online to the other player (attach also broadcasts; send twice is ok).
+      // Do NOT push a full state snapshot to the continuous player — it can thrash
+      // their hand / placingLock and block their next move mid-drag.
       try {
         const seat = room.getPlayer(token).seat;
         const otherTok = room.seatOf[room.otherSeat(seat)];
@@ -1827,13 +1973,11 @@ wss.on('connection', (ws) => {
             clockEndTs: room.clockEndTs,
             vsTimeLeft: room.timeLeft(),
             dcDeadlineTs: 0,
-            dcRemaining: 0
+            dcRemaining: 0,
+            rejoinPendingMove: false,
+            awaitingMove: false,
+            reason: 'online'
           });
-          const otherSnap = room.snapshotFor(otherTok);
-          if (otherSnap) {
-            otherSnap.type = 'state';
-            send(other.ws, otherSnap);
-          }
         }
       } catch (_) {}
       return;
@@ -2140,9 +2284,16 @@ wss.on('connection', (ws) => {
     }
     if (type === 'rematch_decline') {
       const matchId = data.matchId || ws._matchId;
-      const room = matchId ? rooms.get(matchId) : null;
       const token = data.token || ws._token;
+      const room = matchId ? rooms.get(matchId) : null;
       if (room && room.getPlayer(token)) room.declineRematch(token);
+      return;
+    }
+    if (type === 'rematch_cancel') {
+      const matchId = data.matchId || ws._matchId;
+      const token = data.token || ws._token;
+      const room = matchId ? rooms.get(matchId) : null;
+      if (room && room.getPlayer(token)) room.cancelRematch(token);
       return;
     }
     if (type === 'ping') {

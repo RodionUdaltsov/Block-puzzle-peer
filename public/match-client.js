@@ -403,6 +403,12 @@
       if (this.token) body.token = this.token;
       return this.send(body);
     },
+    rematchCancel() {
+      const body = { type: 'rematch_cancel' };
+      if (this.matchId) body.matchId = this.matchId;
+      if (this.token) body.token = this.token;
+      return this.send(body);
+    },
     leaveMatch() {
       try { this.send({ type: 'leave_match' }); } catch (_) {}
       try { this.send({ type: 'free_match' }); } catch (_) {}

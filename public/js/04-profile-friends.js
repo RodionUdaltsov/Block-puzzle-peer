@@ -515,6 +515,7 @@ function updateFriendsSectionCounts() {
   try {
     if (null && mpRoomCode) reqN += 1;
     if (typeof chPending !== 'undefined' && chPending && chPending.room) reqN += 1;
+    if (typeof rmPending !== 'undefined' && rmPending) reqN += 1;
   } catch (_) {}
   const reqCount = document.getElementById('friendsReqCount');
   const listCount = document.getElementById('friendsListCount');
@@ -1077,6 +1078,21 @@ function renderFriendRequests() {
       </div>
     </div>`);
   }
+  if (typeof rmPending !== 'undefined' && rmPending) {
+    const r = rmPending;
+    const initials = (r.name || '?').slice(0, 2).toUpperCase();
+    parts.push(`<div class="friend-req-card lobby-rm-card" data-rm="1">
+      <div class="f-av">${initials}</div>
+      <div class="f-info">
+        <div class="f-name">${r.name || 'Соперник'}</div>
+        <div class="f-meta"><span class="req-badge">Реванш</span>предлагает ещё матч</div>
+      </div>
+      <div class="f-actions">
+        <button class="primary" id="frRmAcc">✓</button>
+        <button class="ghost" id="frRmDec">✕</button>
+      </div>
+    </div>`);
+  }
 
   list.innerHTML = parts.join('');
   list.querySelectorAll('.fr-acc').forEach(btn => {
@@ -1099,6 +1115,10 @@ function renderFriendRequests() {
   const cd = document.getElementById('frChDec');
   if (ca) ca.addEventListener('click', () => { try { acceptChallenge(); } catch (_) {} });
   if (cd) cd.addEventListener('click', () => { try { declineChallenge(); } catch (_) {} });
+  const ra = document.getElementById('frRmAcc');
+  const rd = document.getElementById('frRmDec');
+  if (ra) ra.addEventListener('click', () => { try { acceptRematchInvite(); } catch (_) {} });
+  if (rd) rd.addEventListener('click', () => { try { declineRematchInvite(); } catch (_) {} });
   updateFriendsSectionCounts();
 }
 

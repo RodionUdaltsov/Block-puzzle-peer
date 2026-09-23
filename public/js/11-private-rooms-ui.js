@@ -3889,6 +3889,8 @@ function getMatchForPostResultReplay() {
 function acceptRematchInvite() {
   rematchIWant = true;
   pendingRematchOfferName = null;
+  try { rmPending = null; } catch (_) {}
+  try { renderFriendRequests && renderFriendRequests(); } catch (_) {}
   if (rematchOfferRetryTimer) { clearTimeout(rematchOfferRetryTimer); rematchOfferRetryTimer = null; }
   hideRematchOffer();
   hideRmToast(false);
@@ -3908,6 +3910,7 @@ function acceptRematchInvite() {
 }
 function declineRematchInvite() {
   pendingRematchOfferName = null;
+  try { if (typeof clearRmPending === 'function') clearRmPending(); else rmPending = null; } catch (_) {}
   if (rematchOfferRetryTimer) { clearTimeout(rematchOfferRetryTimer); rematchOfferRetryTimer = null; }
   try {
     if (roomMatchMode || window._roomMatchMode || (typeof MatchClient !== 'undefined' && MatchClient.matchId)) {
@@ -3927,8 +3930,14 @@ document.getElementById('btnRematchDecline')?.addEventListener('click', () => {
 document.getElementById('btnRematchCancel')?.addEventListener('click', () => {
   pendingRematchOfferName = null;
   if (rematchOfferRetryTimer) { clearTimeout(rematchOfferRetryTimer); rematchOfferRetryTimer = null; }
-  try { if (typeof MatchClient !== 'undefined') MatchClient.rematchDecline(); } catch (_) {}
-  leaveAfterRematchDecline();
+  rematchIWant = false;
+  rematchPending = false;
+  try {
+    if (typeof MatchClient !== 'undefined' && MatchClient.rematchCancel) MatchClient.rematchCancel();
+    else if (typeof MatchClient !== 'undefined') MatchClient.rematchDecline();
+  } catch (_) {}
+  try { hideRematchWait && hideRematchWait(); } catch (_) {}
+  try { restorePostMatchResultUI && restorePostMatchResultUI(); } catch (_) {}
 });
 document.getElementById('rmBtnAccept')?.addEventListener('click', () => {
   acceptRematchInvite();

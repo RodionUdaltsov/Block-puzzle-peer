@@ -1175,8 +1175,12 @@ function startDrag(e, idx, areaEl) {
     if (!isDragging) return;
     const xy = eventClientXY(ev);
     pointerX = xy.x; pointerY = xy.y;
-    if (ev.cancelable && ev.type && ev.type.indexOf('touch') === 0) {
-      try { ev.preventDefault(); } catch (_) {}
+    // Stop scroll / rubber-band while aiming (touch + coarse pointer)
+    if (ev.cancelable) {
+      const t = ev.type || '';
+      if (t.indexOf('touch') === 0 || t === 'pointermove') {
+        try { ev.preventDefault(); } catch (_) {}
+      }
     }
     if (!rafId) rafId = requestAnimationFrame(dragFrame);
   };
@@ -1189,6 +1193,7 @@ function startDrag(e, idx, areaEl) {
     document.removeEventListener('touchcancel', onUp);
     document.removeEventListener('mousemove', onMove);
     document.removeEventListener('mouseup', onUp);
+    try { document.body.classList.remove('is-dragging'); } catch (_) {}
   };
   const onUp = ev => {
     if (!isDragging) return;
@@ -1260,8 +1265,14 @@ function startDrag(e, idx, areaEl) {
     dragPiece = null;
     unbind();
   };
+  // Touch needs non-passive move so preventDefault can stop scroll/bounce (PC keeps passive)
+  try { document.body.classList.add('is-dragging'); } catch (_) {}
+  const touchLike = !!(window.matchMedia && (
+    window.matchMedia('(pointer: coarse)').matches
+    || window.matchMedia('(hover: none)').matches
+  )) || (('ontouchstart' in window) && (navigator.maxTouchPoints > 0));
   if (window.PointerEvent) {
-    document.addEventListener('pointermove', onMove, { passive: true });
+    document.addEventListener('pointermove', onMove, { passive: !touchLike });
     document.addEventListener('pointerup', onUp);
     document.addEventListener('pointercancel', onUp);
   } else {
@@ -1533,10 +1544,26 @@ function tryPlaceAt(x, y, forcedResult) {
       for (const [dr, dc] of shape) {
         const cell = board && board.children[(result.baseR + dr) * SIZE + (result.baseC + dc)];
         if (!cell) continue;
-        cell.classList.remove('preview-ok', 'preview-bad');
+        cell.classList.remove('preview-ok', 'preview-bad', 'placing');
         paintCellColor(cell, color);
-        cell.classList.add('filled', 'placing');
+        cell.classList.add('filled');
+        try {
+          cell.style.removeProperty('animation');
+          cell.style.removeProperty('transition');
+          cell.style.removeProperty('transform');
+          cell.style.removeProperty('opacity');
+        } catch (_) {}
       }
+      // Commit filled paint, then start placeSoft from 0% (same as offline path)
+      requestAnimationFrame(() => {
+        for (const [dr, dc] of shape) {
+          const cell = board && board.children[(result.baseR + dr) * SIZE + (result.baseC + dc)];
+          if (!cell || !cell.classList.contains('filled')) continue;
+          cell.classList.remove('placing');
+          try { void cell.offsetWidth; } catch (_) {}
+          cell.classList.add('placing');
+        }
+      });
       if (pieces[placedIdx]) pieces[placedIdx].used = true;
       selectedIdx = -1;
       isDragging = false;
@@ -1626,16 +1653,18 @@ function tryPlaceAt(x, y, forcedResult) {
       _previewCells = _previewCells.filter(c => !set.has(c));
     }
   } catch (_) {}
-  // Double-rAF: let the browser commit filled state, then start placeSoft/legendPlace
-  requestAnimationFrame(() => {
-    requestAnimationFrame(() => {
-      for (let i = 0; i < placeCells.length; i++) {
-        const cell = placeCells[i];
-        if (!cell || !cell.classList.contains('filled')) continue;
-        cell.classList.add('placing');
-      }
-    });
-  });
+  // Restart placeSoft reliably (Safari/mobile often drop a double-rAF under load).
+  // Visual = same keyframes; force reflow so animation always begins from 0%.
+  const startPlaceSoft = () => {
+    for (let i = 0; i < placeCells.length; i++) {
+      const cell = placeCells[i];
+      if (!cell || !cell.classList.contains('filled')) continue;
+      cell.classList.remove('placing');
+      try { void cell.offsetWidth; } catch (_) {}
+      cell.classList.add('placing');
+    }
+  };
+  requestAnimationFrame(startPlaceSoft);
   const isLegendPlace = document.body.classList.contains('skin-fx-prism');
   try {
     const _mr = Math.max(...shape.map(s => s[0]));
