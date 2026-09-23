@@ -416,15 +416,23 @@ function beginVersusMatch() {
     try { window._rejoinLoading = false; window._rejoinInputLock = false; } catch (_) {}
     window._matchClockEndTs = Date.now() + Math.max(0, vsTimeLeft || vsDuration || 120) * 1000;
     try { startMatchWallClock(window._matchClockEndTs); } catch (_) {}
-    const base = (currentBot && currentBot.interval) || 900;
-    const jitter = (currentBot && currentBot.style && currentBot.style.speedJitter) || 0.25;
-    const tickMs = Math.max(400, base + Math.random() * (base * jitter));
+    const combat = (typeof resolveBotCombat === 'function' && currentBot)
+      ? resolveBotCombat(currentBot)
+      : currentBot;
+    const base = (combat && combat.interval) || (currentBot && currentBot.interval) || 900;
+    const jitter = (combat && combat.style && combat.style.speedJitter)
+      || (currentBot && currentBot.style && currentBot.style.speedJitter) || 0.25;
+    const onPhone = typeof isTouchUiClient === 'function' ? isTouchUiClient() : false;
+    // Desktop: original floor 400ms; mobile: calmer floor 800ms
+    const floor = onPhone ? 800 : 400;
+    const scale = onPhone ? 1.05 : 1.0;
+    const tickMs = Math.max(floor, Math.round(base * scale + Math.random() * (base * jitter)));
     aiBusy = false;
     if (aiInterval) { clearInterval(aiInterval); aiInterval = null; }
     aiInterval = setInterval(() => {
       try { aiTick(); } catch (e) { console.warn('aiTick', e); aiBusy = false; }
     }, tickMs);
-    setTimeout(() => { try { aiTick(); } catch (_) {} }, 200);
+    setTimeout(() => { try { aiTick(); } catch (_) {} }, onPhone ? 500 : 200);
     setTimeout(() => { try { showBotPhrase('start'); } catch (_) {} }, 400);
   };
   showMatchIntro({
@@ -511,7 +519,10 @@ function aiTick() {
   if (!vsActive || aiBusy) return;
   if (vsModeType !== 'bots') return;
   if (!currentBot && BOTS && BOTS.length) currentBot = BOTS[0];
-  const profile = currentBot || (BOTS && BOTS[5]) || { skill: 0.5, mistake: 0.2, interval: 1000 };
+  const rawBot = currentBot || (BOTS && BOTS[5]) || { skill: 0.5, mistake: 0.2, interval: 1000, trophies: 200 };
+  const profile = (typeof resolveBotCombat === 'function')
+    ? resolveBotCombat(rawBot)
+    : rawBot;
 
   // New set if empty or all used
   if (!oppPieces.length || oppPieces.every(p => p.used)) {
@@ -550,19 +561,29 @@ function aiTick() {
   }
   aiTick._skip = false;
 
-  // Always search exhaustively for ANY legal move first (skill only picks among legal)
-  let move = findBestMove(oppGrid, oppPieces, profile.skill);
-  if (move && Math.random() > profile.skill) {
-    const playable = [];
+  // Exhaustive legal search; skill = chance to keep the best move (scales with trophies)
+  const sk = Math.max(0.05, Math.min(0.995, profile.skill || 0.5));
+  let move = findBestMove(oppGrid, oppPieces, sk);
+  // Low skill: sometimes pick a weaker legal move (not pure random spam at high skill)
+  if (move && Math.random() > sk) {
+    const ranked = [];
     oppPieces.forEach((piece, idx) => {
       if (piece.used) return;
       const all = findAllPlacements(oppGrid, piece.shape);
-      if (all.length) {
-        const pos = all[Math.floor(Math.random() * all.length)];
-        playable.push({ piece, idx, pos, sc: 0 });
-      }
+      all.forEach(pos => {
+        const sc = (typeof scorePlacement === 'function')
+          ? scorePlacement(oppGrid, piece.shape, pos)
+          : 0;
+        ranked.push({ piece, idx, pos, sc });
+      });
     });
-    if (playable.length) move = playable[Math.floor(Math.random() * playable.length)];
+    if (ranked.length) {
+      ranked.sort((a, b) => b.sc - a.sc);
+      // Pick from bottom half of ranked list proportional to (1 - skill)
+      const weakN = Math.max(1, Math.ceil(ranked.length * (1 - sk * 0.85)));
+      const pool = ranked.slice(-weakN);
+      move = pool[Math.floor(Math.random() * pool.length)];
+    }
   }
 
   if (!move) {
@@ -743,13 +764,18 @@ function aiTick() {
         renderOppPieces();
         logDeal('opp', oppPieces);
       }
-      aiBusy = false;
       onAiScoreChanged();
-    }, 0);
+      // Mobile: wait for softer clear/placeSoft; desktop: short settle (original feel)
+      const onPhone = typeof isTouchUiClient === 'function' ? isTouchUiClient() : false;
+      const settleMs = onPhone
+        ? ((cleared > 0 ? 420 : 0) + 520)
+        : ((cleared > 0 ? 120 : 0) + 80);
+      setTimeout(() => { aiBusy = false; }, settleMs);
+    }, onPhone ? 80 : 0);
 
     document.getElementById('oppScore').textContent = oppScore;
     onAiScoreChanged();
-  }, 400);
+  }, (typeof isTouchUiClient === 'function' && isTouchUiClient()) ? 480 : 400);
 }
 
 function playerHasMoves() {

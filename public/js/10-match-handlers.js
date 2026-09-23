@@ -14,6 +14,7 @@ function bindMatchClientHandlers() {
     try {
       try { if (typeof clearAfkUi === 'function') clearAfkUi(); } catch (_) {}
       try { if (typeof clearRmPending === 'function') clearRmPending(); } catch (_) {}
+      try { if (typeof scrubTransientFx === 'function') scrubTransientFx(); } catch (_) {}
       window._lastMatchWasVoid = false;
       roomMatchMode = true;
       window._roomMatchMode = true;

@@ -230,6 +230,56 @@ const BOTS = [
 ];
 
 /** Unique hand-crafted SVG avatar per bot palette */
+
+/**
+ * Combat stats driven by trophies so higher-cup bots are consistently stronger.
+ * Catalog skill/mistake/interval are display seeds; runtime uses this curve.
+ * trophies ~40 → weak, ~3800 → near-perfect.
+ */
+function resolveBotCombat(bot) {
+  const b = bot || {};
+  const tMin = 40, tMax = 3800;
+  let t = typeof b.trophies === 'number' ? b.trophies : 200;
+  if (t < tMin) t = tMin;
+  if (t > tMax) t = tMax;
+  // Smoothstep ease — mid ranks feel a real step up
+  const x = (t - tMin) / (tMax - tMin);
+  const n = x * x * (3 - 2 * x);
+  const skill = Math.min(0.995, 0.20 + n * 0.79);       // 0.20 → 0.99
+  const mistake = Math.max(0.008, 0.30 * (1 - n * 0.97)); // 0.30 → ~0.01
+  // Think time: slow novices, snappy masters (still fair)
+  const interval = Math.round(1750 - n * 1400);          // 1750 → 350
+  const clearBias = 0.25 + n * 0.70;
+  const risk = Math.max(0.08, 0.75 - n * 0.62);
+  const speedJitter = Math.max(0.04, 0.45 * (1 - n));
+  const preferSmall = 1.15 - n * 0.35;
+  return {
+    skill,
+    mistake,
+    interval,
+    style: {
+      clearBias,
+      risk,
+      speedJitter,
+      preferSmall,
+      ...(b.style || {})
+    },
+    // keep identity fields
+    id: b.id,
+    name: b.name,
+    trophies: b.trophies,
+    title: b.title,
+    av: b.av,
+    phrases: b.phrases
+  };
+}
+
+function isTouchUiClient() {
+  try {
+    return !!(document.body && document.body.classList.contains('touch-ui'));
+  } catch (_) { return false; }
+}
+
 function botAvatarSVG(bot, size = 48) {
   const [bg, skin, acc, eye] = bot.av || ['#333','#888','#666','#111'];
   // hash id for slight shape variety
@@ -503,7 +553,7 @@ const DEFAULT_SETTINGS = {
   speech: '1',
   voice: '1',
   haptics: '1',
-  preview: '1',
+  preview: '0',
   sfx: '1',
   music: '1',
   musicVol: '50',
@@ -521,6 +571,7 @@ try {
   const raw = JSON.parse(localStorage.getItem('bp_settings') || '{}');
   settings = { ...DEFAULT_SETTINGS, ...raw };
   delete settings.botSpeed;
+  settings.preview = '0'; // permanently disabled
 } catch (_) {}
 function saveSettings() {
   try { localStorage.setItem('bp_settings', JSON.stringify(settings)); } catch (_) {}
@@ -742,7 +793,9 @@ function applySettings() {
   if (settings.anim === 'off') document.body.classList.add('anim-off');
   if (settings.anim === 'soft') document.body.classList.add('anim-soft');
   if (settings.floats === '0') document.body.classList.add('no-floats');
-  if (settings.preview === '0') {
+  // Placement preview removed from game
+  document.body.classList.add('no-preview');
+  if (false && settings.preview === '0') {
     document.body.classList.add('no-preview');
     try { clearPreview(); } catch (_) {}
   }

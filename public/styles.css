@@ -6069,7 +6069,7 @@
       0%   { opacity: 1; background: linear-gradient(160deg, rgba(255,255,255,0.85) 0%, rgba(255,255,255,0.25) 40%, transparent 70%); }
       100% { opacity: 0.88; }
     }
-    /* —— Field clear FX. ~110ms — readable but still quick —— */
+    /* —— Field clear FX. Desktop keeps snappy 110ms; mobile (touch-ui) uses softer 360ms —— */
     .cell.clearing,
     .cell[class*="clearing-"],
     .cell.filled[class*="clearing-"],
@@ -6086,6 +6086,15 @@
       animation-iteration-count: 1 !important;
       animation-delay: 0s !important;
     }
+    body.touch-ui .cell.clearing,
+    body.touch-ui .cell[class*="clearing-"],
+    body.touch-ui .cell.filled[class*="clearing-"],
+    body.touch-ui .board-wrap .cell[class*="clearing-"] {
+      animation-duration: 0.36s !important;
+    }
+body.touch-ui .clear-beam.row { animation-duration: 0.32s !important; }
+body.touch-ui .clear-beam.col { animation-duration: 0.32s !important; }
+
     .cell[class*="clearing-"]::before,
     .cell[class*="clearing-"]::after,
     .cell.clearing::before,
@@ -11325,8 +11334,7 @@ body.touch-ui .cell[class*="clearing-"] {
   -webkit-backface-visibility: hidden;
 }
 body.touch-ui .cell.placing {
-  /* force GPU path without changing keyframe curve */
-  transform: translateZ(0);
+  /* do not set transform here — placeSoft keyframes own transform */
 }
 body.touch-ui #ghost {
   -webkit-transform: translate3d(0,0,0);

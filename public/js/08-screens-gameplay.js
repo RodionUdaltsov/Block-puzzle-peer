@@ -333,7 +333,14 @@ function findBestMove(g, piecesArr, skill) {
   return best;
 }
 /** Clear anim from equipped FIELD only (not piece skin). Duration FIXED for fair play. */
-const CLEAR_ANIM_MS = 110;
+/** Desktop 110ms; mobile (touch-ui) 380ms — soft clear only on phones */
+function getClearAnimMs() {
+  try {
+    if (document.body && document.body.classList.contains('touch-ui')) return 380;
+  } catch (_) {}
+  return 110;
+}
+const CLEAR_ANIM_MS = 110; // default; prefer getClearAnimMs() at runtime
 function getClearAnimMeta(boardDOM) {
   let fx = 'none';
   let boardId = '';
@@ -354,24 +361,24 @@ function getClearAnimMeta(boardDOM) {
     }
   } catch (_) {}
   // Same ms everywhere — look differs by field theme / id
-  if (fx === 'nebula') return { cls: 'clearing-nebula', name: 'clearNebula', beam: 'nebula', ms: CLEAR_ANIM_MS };
-  if (fx === 'solar') return { cls: 'clearing-solar', name: 'clearSolar', beam: 'solar', ms: CLEAR_ANIM_MS };
-  if (fx === 'quantum') return { cls: 'clearing-quantum', name: 'clearQuantum', beam: 'quantum', ms: CLEAR_ANIM_MS };
-  if (fx === 'abyss') return { cls: 'clearing-abyss', name: 'clearAbyss', beam: 'abyss', ms: CLEAR_ANIM_MS };
-  if (fx === 'prismfield') return { cls: 'clearing-prism', name: 'clearPrism', beam: 'prism', ms: CLEAR_ANIM_MS };
-  if (fx === 'magma') return { cls: 'clearing-magma', name: 'clearMagma', beam: 'magma', ms: CLEAR_ANIM_MS };
+  if (fx === 'nebula') return { cls: 'clearing-nebula', name: 'clearNebula', beam: 'nebula', ms: getClearAnimMs() };
+  if (fx === 'solar') return { cls: 'clearing-solar', name: 'clearSolar', beam: 'solar', ms: getClearAnimMs() };
+  if (fx === 'quantum') return { cls: 'clearing-quantum', name: 'clearQuantum', beam: 'quantum', ms: getClearAnimMs() };
+  if (fx === 'abyss') return { cls: 'clearing-abyss', name: 'clearAbyss', beam: 'abyss', ms: getClearAnimMs() };
+  if (fx === 'prismfield') return { cls: 'clearing-prism', name: 'clearPrism', beam: 'prism', ms: getClearAnimMs() };
+  if (fx === 'magma') return { cls: 'clearing-magma', name: 'clearMagma', beam: 'magma', ms: getClearAnimMs() };
   // Epic pulse fields: crystal vs neon_grid by board id
   if (fx === 'pulse') {
-    if (boardId === 'field_neon_grid') return { cls: 'clearing-neon', name: 'clearNeon', beam: 'neon', ms: CLEAR_ANIM_MS };
-    return { cls: 'clearing-epic', name: 'clearEpic', beam: 'epic', ms: CLEAR_ANIM_MS };
+    if (boardId === 'field_neon_grid') return { cls: 'clearing-neon', name: 'clearNeon', beam: 'neon', ms: getClearAnimMs() };
+    return { cls: 'clearing-epic', name: 'clearEpic', beam: 'epic', ms: getClearAnimMs() };
   }
   // Rare soft fields: unique per board
   if (fx === 'soft') {
-    if (boardId === 'field_violet') return { cls: 'clearing-rare-violet', name: 'clearRareViolet', beam: 'rare-violet', ms: CLEAR_ANIM_MS };
-    if (boardId === 'field_jade') return { cls: 'clearing-rare-jade', name: 'clearRareJade', beam: 'rare-jade', ms: CLEAR_ANIM_MS };
-    return { cls: 'clearing-rare-azure', name: 'clearRareAzure', beam: 'rare-azure', ms: CLEAR_ANIM_MS };
+    if (boardId === 'field_violet') return { cls: 'clearing-rare-violet', name: 'clearRareViolet', beam: 'rare-violet', ms: getClearAnimMs() };
+    if (boardId === 'field_jade') return { cls: 'clearing-rare-jade', name: 'clearRareJade', beam: 'rare-jade', ms: getClearAnimMs() };
+    return { cls: 'clearing-rare-azure', name: 'clearRareAzure', beam: 'rare-azure', ms: getClearAnimMs() };
   }
-  return { cls: 'clearing-common', name: 'clearCommon', beam: null, ms: CLEAR_ANIM_MS };
+  return { cls: 'clearing-common', name: 'clearCommon', beam: null, ms: getClearAnimMs() };
 }
 const CLEARING_CLASSES = [
   'clearing', 'clearing-common',
@@ -401,7 +408,7 @@ function spawnClearBeams(boardDOM, rows, cols, beamTheme) {
         el.style.height = boardRect.height + 'px';
       }
       wrap.appendChild(el);
-      setTimeout(() => { try { el.remove(); } catch (_) {} }, CLEAR_ANIM_MS + 40);
+      setTimeout(() => { try { el.remove(); } catch (_) {} }, getClearAnimMs() + 40);
     };
     (rows || []).forEach(r => paint(true, r));
     (cols || []).forEach(c => paint(false, c));
@@ -431,7 +438,7 @@ function spawnClearDebris(boardDOM, cellIndices, theme) {
       el.style.setProperty('--rot', (rot || 0) + 'deg');
       if (extraStyle) Object.assign(el.style, extraStyle);
       wrap.appendChild(el);
-      setTimeout(() => { try { el.remove(); } catch (_) {} }, 400);
+      setTimeout(() => { try { el.remove(); } catch (_) {} }, 500);
     };
     // Cap debris on big multi-line clears for performance
     const indices = cellIndices.length > 16
@@ -634,6 +641,50 @@ function getClearFloatPositions(boardDOM, rows, cols, placeAnchor) {
   });
   return pts;
 }
+
+/** Drop temporary DOM FX + drop will-change so mobile GC can reclaim layers. */
+function scrubTransientFx() {
+  try {
+    document.querySelectorAll(
+      '.clear-debris, .legend-spark, .epic-spark, .skin-particle, .neon-spark, .candy-spark, .sunset-spark, .rare-spark, .score-float, .clear-beam'
+    ).forEach(el => { try { el.remove(); } catch (_) {} });
+  } catch (_) {}
+  try {
+    document.querySelectorAll('.cell.placing, .cell[class*="clearing-"]').forEach(cell => {
+      try {
+        cell.classList.remove('placing');
+        // strip clearing-* without wiping filled paint mid-match only when match over
+        cell.style.removeProperty('will-change');
+        cell.style.removeProperty('animation');
+        cell.style.removeProperty('filter');
+        cell.style.removeProperty('clip-path');
+        cell.style.removeProperty('transform');
+        cell.style.removeProperty('opacity');
+      } catch (_) {}
+    });
+  } catch (_) {}
+  try {
+    const g = document.getElementById('ghost');
+    if (g) {
+      g.style.display = 'none';
+      g.classList.remove('visible', 'cell-glide', 'no-glide');
+      g.innerHTML = '';
+    }
+    const ag = document.getElementById('aiGhost');
+    if (ag) {
+      ag.style.display = 'none';
+      ag.innerHTML = '';
+      ag.style.opacity = '';
+    }
+  } catch (_) {}
+  try { _previewCells = []; } catch (_) {}
+  try { lastPreview = null; } catch (_) {}
+  try {
+    if (typeof window._pendingServerPlace !== 'undefined') window._pendingServerPlace = null;
+    if (window._pendingPlaceTimer) { clearTimeout(window._pendingPlaceTimer); window._pendingPlaceTimer = null; }
+  } catch (_) {}
+}
+
 function renderGrid(g, boardDOM) {
   for (let r=0;r<SIZE;r++) for (let c=0;c<SIZE;c++) {
     const cell = boardDOM.children[r*SIZE+c];
@@ -776,6 +827,7 @@ function startClassic(forceNew) {
     if (typeof vsTimerId !== 'undefined' && vsTimerId) { clearInterval(vsTimerId); vsTimerId = null; }
     if (typeof aiInterval !== 'undefined' && aiInterval) { clearInterval(aiInterval); aiInterval = null; }
     if (typeof replayTimer !== 'undefined' && replayTimer) { clearTimeout(replayTimer); replayTimer = null; }
+    try { scrubTransientFx(); } catch (_) {}
     vsActive = false;
     replayMode = false;
     document.body.classList.remove('replay-ui');
@@ -1428,33 +1480,17 @@ function findBestPlacement(shape, hintR, hintC) {
 // Track only cells currently in preview — avoid scanning the whole board each move
 let _previewCells = [];
 function updatePreview(x,y) {
-  const pos = getGridPos(x,y); const board = getActiveBoard();
-  if (!pos||!dragPiece) { clearPreview(); lastPreview=null; return; }
+  const pos = getGridPos(x,y);
+  if (!pos || !dragPiece) { clearPreview(); lastPreview = null; return; }
   const result = findBestPlacement(dragPiece.shape, pos.r, pos.c);
-  // Always keep placement aim for drop accuracy, even when visual preview is off
-  if (lastPreview && lastPreview.baseR===result.baseR && lastPreview.baseC===result.baseC && lastPreview.valid===result.valid) {
+  // Aim only — visual ghost shows the piece; no board highlight (preview removed)
+  if (lastPreview && lastPreview.baseR === result.baseR && lastPreview.baseC === result.baseC
+      && lastPreview.valid === result.valid) {
     return;
   }
   clearPreview();
   lastPreview = result;
-  // Visual highlight disabled in settings — do not paint cells (avoids blink via opacity transition)
-  if (settings.preview === '0' || document.body.classList.contains('no-preview')) {
-    return;
-  }
-  const cls = result.valid ? 'preview-ok' : 'preview-bad';
-  const g = getActiveGrid();
-  const color = dragPiece.color;
-  _previewCells = [];
-  for (const [dr,dc] of dragPiece.shape) {
-    const r=result.baseR+dr, c=result.baseC+dc;
-    if (r<0||r>=SIZE||c<0||c>=SIZE) continue;
-    const cell = board.children[r*SIZE+c];
-    if (!cell) continue;
-    if (g[r][c]) continue;
-    cell.classList.add(cls);
-    cell.style.background = color;
-    _previewCells.push(cell);
-  }
+  // Preview painting permanently disabled
 }
 function clearPreview() {
   const g = getActiveGrid();
