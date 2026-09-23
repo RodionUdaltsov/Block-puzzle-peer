@@ -741,7 +741,8 @@ function aiTick() {
           if (cell) {
             paintCellColor(cell, chosen.color);
             cell.classList.add('filled', 'placing');
-            setTimeout(() => { try { cell.classList.remove('placing'); } catch (_) {} }, 780);
+            setTimeout(() => { try { cell.classList.remove('placing'); } catch (_) {} },
+              (document.body && document.body.classList.contains('touch-ui')) ? 1000 : 780);
           }
         }
       } catch (_) {}

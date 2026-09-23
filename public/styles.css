@@ -6090,10 +6090,14 @@
     body.touch-ui .cell[class*="clearing-"],
     body.touch-ui .cell.filled[class*="clearing-"],
     body.touch-ui .board-wrap .cell[class*="clearing-"] {
-      animation-duration: 0.36s !important;
+      /* Match getClearAnimMs() 420ms — softer, fewer frame drops than heavy short bursts */
+      animation-duration: 0.42s !important;
+      animation-timing-function: cubic-bezier(0.22, 0.08, 0.18, 1) !important;
+      /* Prefer compositor props; drop permanent will-change thrash */
+      will-change: auto !important;
     }
-body.touch-ui .clear-beam.row { animation-duration: 0.32s !important; }
-body.touch-ui .clear-beam.col { animation-duration: 0.32s !important; }
+body.touch-ui .clear-beam.row { animation-duration: 0.38s !important; }
+body.touch-ui .clear-beam.col { animation-duration: 0.38s !important; }
 
     .cell[class*="clearing-"]::before,
     .cell[class*="clearing-"]::after,
@@ -11321,41 +11325,46 @@ body.touch-ui .clear-beam.col { animation-duration: 0.32s !important; }
     /* Prism: board + tray share the same rules above — do not strip ::after here */
 
 
-/* ========== Mobile / touch: same visuals as PC, smoother compositor path ========== */
-/* Do NOT override placeSoft / clearing durations — they must match desktop. */
+/* ========== Mobile / touch: softer feel than PC (drag / place / clear) ========== */
 body.touch-ui .screen.active {
   filter: none !important; /* avoid full-screen filter thrash on weak GPUs */
 }
-/* Promote layers only while animating — same keyframes, less jank */
+/* Promote layers only while animating — less jank */
 body.touch-ui .cell.placing,
 body.touch-ui .cell[class*="clearing-"] {
   backface-visibility: hidden;
   -webkit-backface-visibility: hidden;
   /* avoid permanent will-change — causes layer thrash / micro-stutters on mobile */
+  will-change: auto;
 }
 body.touch-ui .cell.placing {
-  /* Soft settle on phones — same placeSoft keyframes, gentler timing */
-  animation-duration: 0.85s !important;
-  animation-timing-function: cubic-bezier(0.25, 0.08, 0.18, 1) !important;
+  /* Softer settle on phones — same placeSoft keyframes, gentler timing */
+  animation-duration: 0.95s !important;
+  animation-timing-function: cubic-bezier(0.22, 0.06, 0.16, 1) !important;
 }
 body.touch-ui #ghost {
   -webkit-transform: translate3d(0,0,0);
   backface-visibility: hidden;
   -webkit-backface-visibility: hidden;
+  /* Lighter shadow on mobile GPUs — drop-shadow is expensive mid-drag */
+  filter: drop-shadow(0 6px 12px rgba(0,0,0,0.4));
+  /* Default soft follow easing (JS lerp still primary; CSS helps cell-glide) */
+  transition:
+    opacity 0.2s ease,
+    transform 0.18s cubic-bezier(0.22, 0.82, 0.28, 1);
 }
-/* Soft cell-to-cell glide on phones (desktop already uses cell-glide 0.13s; extend on touch) */
+/* Soft cell-to-cell glide on phones — longer, silkier than desktop 0.13s */
 body.touch-ui #ghost.cell-glide {
   transition:
-    opacity 0.18s ease,
-    transform 0.28s cubic-bezier(0.22, 0.85, 0.32, 1) !important;
+    opacity 0.2s ease,
+    transform 0.36s cubic-bezier(0.2, 0.75, 0.25, 1) !important;
 }
 body.touch-ui #ghost.no-glide {
-  /* still instant only when free-dragging off cells */
+  /* Free-drag: short ease (JS lerp is main smoothness); avoid harsh 0ms snap */
   transition:
-    opacity 0.18s ease,
-    transform 0.01ms linear !important;
+    opacity 0.16s ease,
+    transform 0.05s linear !important;
 }
-/* placeSoft: keep same keyframes, encourage compositor without breaking scale */
 body.touch-ui .cell.placing,
 body.touch-ui .cell[class*="clearing-"] {
   -webkit-backface-visibility: hidden;
@@ -11388,11 +11397,11 @@ body.touch-ui .piece-slot {
   -webkit-touch-callout: none;
 }
 @media (hover: none) and (pointer: coarse) {
-  /* Same placeSoft as desktop — no duration override */
+  /* Soft place settle on phones */
   .cell.placing {
     animation-name: placeSoft;
-    animation-duration: 0.75s;
-    animation-timing-function: cubic-bezier(0.33, 0.0, 0.2, 1);
+    animation-duration: 0.95s;
+    animation-timing-function: cubic-bezier(0.22, 0.06, 0.16, 1);
     animation-fill-mode: forwards;
   }
 }

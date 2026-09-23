@@ -333,10 +333,10 @@ function findBestMove(g, piecesArr, skill) {
   return best;
 }
 /** Clear anim from equipped FIELD only (not piece skin). Duration FIXED for fair play. */
-/** Desktop 110ms; mobile (touch-ui) 380ms — soft clear only on phones */
+/** Desktop 110ms; mobile (touch-ui) 420ms — softer clear only on phones (less janky lag feel) */
 function getClearAnimMs() {
   try {
-    if (document.body && document.body.classList.contains('touch-ui')) return 380;
+    if (document.body && document.body.classList.contains('touch-ui')) return 420;
   } catch (_) {}
   return 110;
 }
@@ -1194,6 +1194,8 @@ function startDrag(e, idx, areaEl) {
   e.preventDefault(); e.stopPropagation();
   selectedIdx = idx; dragPiece = pieces[idx]; isDragging = true;
   activeDragPointerId = (e && e.pointerId != null) ? e.pointerId : 'mouse';
+  _ghostLerpInit = false;
+  _ghostCellKey = '';
   SFX.pick();
   const xy0 = eventClientXY(e);
   pointerX = xy0.x; pointerY = xy0.y;
@@ -1308,7 +1310,11 @@ function startDrag(e, idx, areaEl) {
       }
     } catch (_) {}
     ghost.classList.remove('visible');
-    setTimeout(hideGhost, placed ? 160 : 100);
+    // Mobile: longer soft settle so place does not feel like a hard snap
+    const hideMs = placed
+      ? (_isTouchUi() ? 280 : 160)
+      : (_isTouchUi() ? 140 : 100);
+    setTimeout(hideGhost, hideMs);
     if (placed) markPieceUsed(idx, areaEl);
     else { SFX.bad(); slot.classList.remove('lifting'); slot.classList.add('show'); }
     // Always clear any stuck lifting slots (multi-touch recovery)
@@ -1348,12 +1354,17 @@ function placementWorldCenter(result, shape) {
   return { x: cx, y: cy };
 }
 let _ghostCellKey = '';
+let _ghostLerpX = 0, _ghostLerpY = 0, _ghostLerpInit = false;
+function _isTouchUi() {
+  try { return !!(document.body && document.body.classList.contains('touch-ui')); } catch (_) { return false; }
+}
 function dragFrame() {
   rafId = 0; if (!isDragging) return;
   // Cache board rect for the whole drag — measuring every frame forces layout on mobile
   ensureBoardMetrics();
   const aim = aimFromPointer(pointerX, pointerY);
   updatePreview(aim.x, aim.y);
+  const touchUi = _isTouchUi();
   // Soft cell lock: ghost snaps/glides to placement grid center
   if (lastPreview && dragPiece && boardRect && boardRect.width > 8) {
     const key = lastPreview.baseR + ',' + lastPreview.baseC + ',' + (lastPreview.valid ? 1 : 0);
@@ -1367,16 +1378,38 @@ function dragFrame() {
         // Force style flush so transition applies on this jump (critical on iOS)
         try { void ghost.offsetWidth; } catch (_) {}
         moveGhost(center.x, center.y);
+        _ghostLerpX = center.x;
+        _ghostLerpY = center.y;
+        _ghostLerpInit = true;
       }
       // Same cell: do not re-set transform (would cancel in-flight glide on mobile WebKit)
       return;
     }
   }
-  // Off-board / free finger: 1:1 follow — no CSS transition lag
+  // Off-board / free finger
   if (_ghostCellKey !== '') {
     _ghostCellKey = '';
     ghost.classList.add('no-glide');
     ghost.classList.remove('cell-glide');
+  }
+  if (touchUi) {
+    // Soft follow on phones: exponential lerp — removes harsh 1:1 jitter, feels like PC
+    if (!_ghostLerpInit) {
+      _ghostLerpX = aim.x;
+      _ghostLerpY = aim.y;
+      _ghostLerpInit = true;
+    }
+    // ~0.28–0.34 follow factor → smooth but still responsive (60fps)
+    const k = 0.32;
+    _ghostLerpX += (aim.x - _ghostLerpX) * k;
+    _ghostLerpY += (aim.y - _ghostLerpY) * k;
+    moveGhost(_ghostLerpX, _ghostLerpY);
+    // Keep sampling until settled near finger (avoids freeze mid-motion)
+    const dx = aim.x - _ghostLerpX, dy = aim.y - _ghostLerpY;
+    if (isDragging && (dx * dx + dy * dy) > 0.25) {
+      rafId = requestAnimationFrame(dragFrame);
+    }
+    return;
   }
   moveGhost(aim.x, aim.y);
 }
