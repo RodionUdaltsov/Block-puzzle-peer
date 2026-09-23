@@ -520,7 +520,7 @@ function aiTick() {
   // Safety: never freeze forever if a settle timer was lost
   if (aiBusy) {
     const since = (typeof aiBusySince === 'number') ? (Date.now() - aiBusySince) : 0;
-    if (since > 0 && since < 3500) return;
+    if (since > 0 && since < 2800) return;
     aiBusy = false;
   }
   if (vsModeType !== 'bots') return;
@@ -570,25 +570,23 @@ function aiTick() {
   // Exhaustive legal search; skill = chance to keep the best move (scales with trophies)
   const sk = Math.max(0.05, Math.min(0.995, profile.skill || 0.5));
   let move = findBestMove(oppGrid, oppPieces, sk);
-  // Low skill: sometimes pick a weaker legal move (not pure random spam at high skill)
+  // Low skill: occasionally pick a weaker legal placement (cheap — no full ranking)
   if (move && Math.random() > sk) {
-    const ranked = [];
-    oppPieces.forEach((piece, idx) => {
-      if (piece.used) return;
+    const playable = [];
+    for (let idx = 0; idx < oppPieces.length; idx++) {
+      const piece = oppPieces[idx];
+      if (!piece || piece.used) continue;
       const all = findAllPlacements(oppGrid, piece.shape);
-      all.forEach(pos => {
-        const sc = (typeof scorePlacement === 'function')
-          ? scorePlacement(oppGrid, piece.shape, pos)
-          : 0;
-        ranked.push({ piece, idx, pos, sc });
-      });
-    });
-    if (ranked.length) {
-      ranked.sort((a, b) => b.sc - a.sc);
-      // Pick from bottom half of ranked list proportional to (1 - skill)
-      const weakN = Math.max(1, Math.ceil(ranked.length * (1 - sk * 0.85)));
-      const pool = ranked.slice(-weakN);
-      move = pool[Math.floor(Math.random() * pool.length)];
+      if (!all.length) continue;
+      // sample up to 3 random legal cells per piece
+      const n = Math.min(3, all.length);
+      for (let k = 0; k < n; k++) {
+        const pos = all[Math.floor(Math.random() * all.length)];
+        playable.push({ piece, idx, pos, sc: 0 });
+      }
+    }
+    if (playable.length) {
+      move = playable[Math.floor(Math.random() * playable.length)];
     }
   }
 
@@ -666,7 +664,8 @@ function aiTick() {
 
   const phoneUi = typeof isTouchUiClient === 'function' ? isTouchUiClient() : false;
   setTimeout(() => {
-    if (!vsActive) { aiBusy = false; aiGhost.style.display = 'none'; return; }
+    try {
+    if (!vsActive) { aiBusy = false; try { aiBusySince = 0; } catch (_) {} aiGhost.style.display = 'none'; return; }
 
     // Actually place on grid
     for (const [dr, dc] of chosen.shape) {
@@ -772,16 +771,22 @@ function aiTick() {
         renderOppPieces();
         logDeal('opp', oppPieces);
       }
-      onAiScoreChanged();
-      // Mobile: wait for softer clear/placeSoft; desktop: short settle (original feel)
+      try { onAiScoreChanged(); } catch (_) {}
+      // Always release busy — long settle only on phone
       const settleMs = phoneUi
-        ? ((cleared > 0 ? 420 : 0) + 520)
-        : ((cleared > 0 ? 120 : 0) + 80);
-      setTimeout(() => { aiBusy = false; }, settleMs);
-    }, phoneUi ? 80 : 0);
+        ? ((cleared > 0 ? 380 : 0) + 400)
+        : ((cleared > 0 ? 100 : 0) + 40);
+      setTimeout(() => { aiBusy = false; try { aiBusySince = 0; } catch (_) {} }, settleMs);
+    }, phoneUi ? 60 : 0);
 
     document.getElementById('oppScore').textContent = oppScore;
     onAiScoreChanged();
+    } catch (e) {
+      console.warn('ai place', e);
+      aiBusy = false;
+      try { aiBusySince = 0; } catch (_) {}
+      try { if (aiGhost) aiGhost.style.display = 'none'; } catch (_) {}
+    }
   }, (typeof isTouchUiClient === 'function' && isTouchUiClient()) ? 480 : 400);
 }
 

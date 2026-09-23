@@ -11329,12 +11329,14 @@ body.touch-ui .screen.active {
 /* Promote layers only while animating — same keyframes, less jank */
 body.touch-ui .cell.placing,
 body.touch-ui .cell[class*="clearing-"] {
-  will-change: transform, opacity;
   backface-visibility: hidden;
   -webkit-backface-visibility: hidden;
+  /* avoid permanent will-change — causes layer thrash / micro-stutters on mobile */
 }
 body.touch-ui .cell.placing {
-  /* do not set transform here — placeSoft keyframes own transform */
+  /* Soft settle on phones — same placeSoft keyframes, gentler timing */
+  animation-duration: 0.85s !important;
+  animation-timing-function: cubic-bezier(0.25, 0.08, 0.18, 1) !important;
 }
 body.touch-ui #ghost {
   -webkit-transform: translate3d(0,0,0);
@@ -11345,7 +11347,7 @@ body.touch-ui #ghost {
 body.touch-ui #ghost.cell-glide {
   transition:
     opacity 0.18s ease,
-    transform 0.20s cubic-bezier(0.22, 0.85, 0.32, 1) !important;
+    transform 0.28s cubic-bezier(0.22, 0.85, 0.32, 1) !important;
 }
 body.touch-ui #ghost.no-glide {
   /* still instant only when free-dragging off cells */
@@ -11358,7 +11360,6 @@ body.touch-ui .cell.placing,
 body.touch-ui .cell[class*="clearing-"] {
   -webkit-backface-visibility: hidden;
   backface-visibility: hidden;
-  will-change: transform, opacity, filter;
 }
 body.touch-ui .board,
 body.touch-ui .board-wrap {

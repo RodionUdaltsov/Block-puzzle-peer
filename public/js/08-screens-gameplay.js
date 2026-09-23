@@ -1361,17 +1361,23 @@ function dragFrame() {
     if (center) {
       if (key !== _ghostCellKey) {
         _ghostCellKey = key;
+        // Soft cell-to-cell: enable transition BEFORE setting new transform
         ghost.classList.remove('no-glide');
         ghost.classList.add('cell-glide');
+        // Force style flush so transition applies on this jump (critical on iOS)
+        try { void ghost.offsetWidth; } catch (_) {}
+        moveGhost(center.x, center.y);
       }
-      moveGhost(center.x, center.y);
+      // Same cell: do not re-set transform (would cancel in-flight glide on mobile WebKit)
       return;
     }
   }
   // Off-board / free finger: 1:1 follow — no CSS transition lag
-  _ghostCellKey = '';
-  ghost.classList.add('no-glide');
-  ghost.classList.remove('cell-glide');
+  if (_ghostCellKey !== '') {
+    _ghostCellKey = '';
+    ghost.classList.add('no-glide');
+    ghost.classList.remove('cell-glide');
+  }
   moveGhost(aim.x, aim.y);
 }
 function showGhost(piece) {
