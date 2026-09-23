@@ -6026,14 +6026,14 @@
       animation: none !important;
     }
     .cell.placing {
-      animation: placeSoft 0.75s cubic-bezier(0.33, 0.0, 0.2, 1) forwards;
+      animation: placeSoft 0.8s cubic-bezier(0.22, 0.12, 0.18, 1) forwards;
       z-index: 2;
     }
     @keyframes placeSoft {
-      /* Same soft settle for every rarity — legendary-smooth border cross */
-      0%   { transform: scale(0.95); opacity: 0.82; filter: brightness(1.06); }
-      50%  { transform: scale(1.015); opacity: 1; filter: brightness(1.02); }
-      100% { transform: scale(1); opacity: 1; filter: brightness(1); }
+      /* Soft settle — mild scale so mobile doesn't "pop" */
+      0%   { transform: scale(0.97); opacity: 0.88; filter: brightness(1.04); }
+      55%  { transform: scale(1.01); opacity: 1; filter: brightness(1.01); }
+      100% { transform: scale(1); opacity: 1; filter: none; }
     }
     /* During settle: soft volume for all skins (incl. non-legend) */
     .cell.filled.placing {
@@ -6046,7 +6046,7 @@
     /* Legendary uses the same placeSoft motion; only keeps soft glow bloom */
     body.skin-fx-prism .cell.placing,
     .player-panel.opp.skin-fx-prism .cell.placing {
-      animation: placeSoft 0.75s cubic-bezier(0.33, 0.0, 0.2, 1) forwards;
+      animation: placeSoft 0.8s cubic-bezier(0.22, 0.12, 0.18, 1) forwards;
       z-index: 4;
     }
     @keyframes legendPlace {
@@ -11334,9 +11334,20 @@ body.touch-ui .cell[class*="clearing-"] {
   /* avoid permanent will-change — causes layer thrash / micro-stutters on mobile */
 }
 body.touch-ui .cell.placing {
-  /* Soft settle on phones — same placeSoft keyframes, gentler timing */
-  animation-duration: 0.85s !important;
-  animation-timing-function: cubic-bezier(0.25, 0.08, 0.18, 1) !important;
+  animation-duration: 0.95s !important;
+  animation-timing-function: cubic-bezier(0.2, 0.15, 0.15, 1) !important;
+}
+/* Clear on phones: longer + prefer opacity over heavy filter/clip for less jank */
+body.touch-ui .cell.clearing,
+body.touch-ui .cell[class*="clearing-"],
+body.touch-ui .cell.filled[class*="clearing-"],
+body.touch-ui .board-wrap .cell[class*="clearing-"] {
+  animation-duration: 0.42s !important;
+  animation-timing-function: ease-out !important;
+  /* strip expensive live filters mid-clear on weak GPUs */
+  filter: none !important;
+  will-change: opacity, transform;
+  transform: translateZ(0);
 }
 body.touch-ui #ghost {
   -webkit-transform: translate3d(0,0,0);
