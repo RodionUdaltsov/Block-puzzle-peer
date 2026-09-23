@@ -516,7 +516,13 @@ function findOppTrayIdx(shape, color) {
 
 function aiTick() {
   // Bot AI only — ignore leftover mpMode from previous online matches
-  if (!vsActive || aiBusy) return;
+  if (!vsActive) return;
+  // Safety: never freeze forever if a settle timer was lost
+  if (aiBusy) {
+    const since = (typeof aiBusySince === 'number') ? (Date.now() - aiBusySince) : 0;
+    if (since > 0 && since < 3500) return;
+    aiBusy = false;
+  }
   if (vsModeType !== 'bots') return;
   if (!currentBot && BOTS && BOTS.length) currentBot = BOTS[0];
   const rawBot = currentBot || (BOTS && BOTS[5]) || { skill: 0.5, mistake: 0.2, interval: 1000, trophies: 200 };
@@ -601,6 +607,7 @@ function aiTick() {
   const chosenIdx = move.idx;
 
   aiBusy = true;
+  try { aiBusySince = Date.now(); } catch (_) { aiBusySince = Date.now(); }
   // Resolve tray index before marking used (DOM still has the piece)
   let resolvedIdx = (typeof chosenIdx === 'number') ? chosenIdx : -1;
   if (resolvedIdx < 0 || !oppPieces[resolvedIdx] || oppPieces[resolvedIdx] !== chosen) {
@@ -657,6 +664,7 @@ function aiTick() {
     });
   });
 
+  const phoneUi = typeof isTouchUiClient === 'function' ? isTouchUiClient() : false;
   setTimeout(() => {
     if (!vsActive) { aiBusy = false; aiGhost.style.display = 'none'; return; }
 
@@ -766,12 +774,11 @@ function aiTick() {
       }
       onAiScoreChanged();
       // Mobile: wait for softer clear/placeSoft; desktop: short settle (original feel)
-      const onPhone = typeof isTouchUiClient === 'function' ? isTouchUiClient() : false;
-      const settleMs = onPhone
+      const settleMs = phoneUi
         ? ((cleared > 0 ? 420 : 0) + 520)
         : ((cleared > 0 ? 120 : 0) + 80);
       setTimeout(() => { aiBusy = false; }, settleMs);
-    }, onPhone ? 80 : 0);
+    }, phoneUi ? 80 : 0);
 
     document.getElementById('oppScore').textContent = oppScore;
     onAiScoreChanged();

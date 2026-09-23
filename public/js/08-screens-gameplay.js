@@ -1089,12 +1089,13 @@ function isFinePointer() {
 /** Finger → board aim point. No magnet — 1:1 with finger, piece lifted above. */
 function aimFromPointer(clientX, clientY) {
   ensureBoardMetrics();
-  // Keep aim almost under the finger/cursor — ghost sits just above the contact point
+  // Ghost sits above the contact point so a finger does not cover the piece
   const fine = isFinePointer();
   const base = cellSize > 4 ? cellSize : 24;
   const lift = fine
     ? Math.max(6, Math.min(18, base * 0.35))
-    : Math.max(18, Math.min(36, base * 0.95));
+    // Touch: lift ~1.5–2 cell heights above fingertip
+    : Math.max(52, Math.min(88, base * 1.85));
   return { x: clientX, y: clientY - lift, lift };
 }
 
