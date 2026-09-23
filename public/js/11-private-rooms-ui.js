@@ -420,27 +420,29 @@ function beginVersusMatch() {
       ? resolveBotCombat(currentBot)
       : currentBot;
     let base = (combat && combat.interval) || (currentBot && currentBot.interval) || 900;
-    if (!Number.isFinite(base) || base < 300) base = 900;
+    if (!Number.isFinite(base) || base < 200) base = 900;
     let jitter = (combat && combat.style && combat.style.speedJitter)
       || (currentBot && currentBot.style && currentBot.style.speedJitter) || 0.25;
-    if (!Number.isFinite(jitter) || jitter < 0) jitter = 0.2;
+    if (!Number.isFinite(jitter) || jitter < 0) jitter = 0.25;
     const onPhone = typeof isTouchUiClient === 'function' ? isTouchUiClient() : false;
-    // Phone slightly slower think; both stay reliable
-    const floor = onPhone ? 700 : 450;
-    let tickMs = Math.max(floor, Math.round(base + Math.random() * (base * jitter * 0.5)));
-    if (!Number.isFinite(tickMs) || tickMs < 300) tickMs = 700;
+    const floor = onPhone ? 800 : 400;
+    const scale = onPhone ? 1.05 : 1.0;
+    let tickMs = Math.max(floor, Math.round(base * scale + Math.random() * (base * jitter)));
+    if (!Number.isFinite(tickMs) || tickMs < 200) tickMs = floor;
     aiBusy = false;
-    aiBusySince = 0;
+    try { aiBusySince = 0; } catch (_) {}
     if (aiInterval) { clearInterval(aiInterval); aiInterval = null; }
+    // Primary loop
     aiInterval = setInterval(() => {
       try { aiTick(); } catch (e) {
         console.warn('aiTick', e);
         aiBusy = false;
-        aiBusySince = 0;
+        try { aiBusySince = 0; } catch (_) {}
       }
     }, tickMs);
-    setTimeout(() => { try { aiTick(); } catch (_) {} }, 350);
-    setTimeout(() => { try { if (vsActive) aiTick(); } catch (_) {} }, 350 + tickMs);
+    // Kick off + a couple of safety nudges if first place left busy stuck
+    setTimeout(() => { try { aiTick(); } catch (_) {} }, onPhone ? 500 : 200);
+    setTimeout(() => { try { if (vsActive && !aiBusy) aiTick(); } catch (_) {} }, tickMs + 100);
     setTimeout(() => { try { showBotPhrase('start'); } catch (_) {} }, 400);
   };
   showMatchIntro({
@@ -523,211 +525,243 @@ function findOppTrayIdx(shape, color) {
 }
 
 function aiTick() {
-  try {
-    if (!vsActive) return;
-    const isBotMatch = (vsModeType === 'bots')
-      || !!currentBot
-      || (typeof document !== 'undefined' && document.body && document.body.classList.contains('vs-bots'));
-    if (!isBotMatch) return;
-    if (mpMode && (roomMatchMode || window._roomMatchMode)) return;
+  // Bot AI only — ignore leftover mpMode from previous online matches
+  if (!vsActive) return;
+  // Accept bots mode via flag OR selected bot (vsModeType alone was too fragile)
+  const isBotMatch = (vsModeType === 'bots')
+    || !!currentBot
+    || (typeof document !== 'undefined' && document.body && document.body.classList.contains('vs-bots'));
+  if (!isBotMatch) return;
+  if (mpMode && (roomMatchMode || window._roomMatchMode)) return; // never drive AI in live ranked room
+  // Safety: never freeze forever if a settle timer was lost
+  if (aiBusy) {
+    const since = (typeof aiBusySince === 'number' && aiBusySince > 0)
+      ? (Date.now() - aiBusySince) : 99999;
+    if (since < 1200) return;
+    aiBusy = false;
+    try { aiBusySince = 0; } catch (_) {}
+  }
+  if (!currentBot && BOTS && BOTS.length) currentBot = BOTS[0];
+  const rawBot = currentBot || (BOTS && BOTS[5]) || { skill: 0.5, mistake: 0.2, interval: 1000, trophies: 200 };
+  const profile = (typeof resolveBotCombat === 'function')
+    ? resolveBotCombat(rawBot)
+    : rawBot;
 
-    // Busy lock with hard timeout
-    if (aiBusy) {
-      const since = (typeof aiBusySince === 'number' && aiBusySince > 0)
-        ? (Date.now() - aiBusySince) : 99999;
-      if (since < 900) return;
-      aiBusy = false;
-      aiBusySince = 0;
+  // New set if empty or all used
+  if (!oppPieces.length || oppPieces.every(p => p.used)) {
+    oppPieces = [randomBotPiece(), randomBotPiece(), randomBotPiece()];
+    renderOppPieces();
+    logDeal('opp', oppPieces);
+    if (piecesTrulyUnplayable(oppGrid, oppPieces)) {
+      setAiStuck(true);
+      evaluateMatchEnd();
+      return;
     }
+    setAiStuck(false);
+  }
 
-    if (!currentBot && BOTS && BOTS.length) currentBot = BOTS[0];
-    const rawBot = currentBot || (BOTS && BOTS[5]) || { skill: 0.5, mistake: 0.2, interval: 1000, trophies: 200 };
-    const profile = (typeof resolveBotCombat === 'function') ? resolveBotCombat(rawBot) : rawBot;
+  // Re-verify stuck each tick — recover if a piece actually fits (fixes false positives)
+  if (aiStuck) {
+    if (!piecesTrulyUnplayable(oppGrid, oppPieces)) {
+      setAiStuck(false);
+    } else {
+      evaluateMatchEnd();
+      return;
+    }
+  }
 
-    // Deal if needed
-    if (!oppPieces || !oppPieces.length || oppPieces.every(p => p && p.used)) {
-      oppPieces = [randomBotPiece(), randomBotPiece(), randomBotPiece()];
-      try { renderOppPieces(); } catch (_) {}
-      try { logDeal('opp', oppPieces); } catch (_) {}
-      if (piecesTrulyUnplayable(oppGrid, oppPieces)) {
-        try { setAiStuck(true); } catch (_) {}
-        try { evaluateMatchEnd(); } catch (_) {}
+  const available = oppPieces.filter(p => !p.used);
+  if (!available.length) {
+    // Force deal next tick
+    oppPieces = [];
+    return;
+  }
+
+  // Rare soft hesitation — never skip more than once in a row (prevents frozen bots)
+  if (!aiTick._skip && Math.random() < (profile.mistake || 0) * 0.12) {
+    aiTick._skip = true;
+    return;
+  }
+  aiTick._skip = false;
+
+  // Exhaustive legal search; skill = chance to keep the best move (scales with trophies)
+  const sk = Math.max(0.05, Math.min(0.995, profile.skill || 0.5));
+  let move = findBestMove(oppGrid, oppPieces, sk);
+  // Low skill: occasionally pick a weaker legal placement (cheap — no full ranking)
+  if (move && Math.random() > sk) {
+    const playable = [];
+    for (let idx = 0; idx < oppPieces.length; idx++) {
+      const piece = oppPieces[idx];
+      if (!piece || piece.used) continue;
+      const all = findAllPlacements(oppGrid, piece.shape);
+      if (!all.length) continue;
+      // sample up to 3 random legal cells per piece
+      const n = Math.min(3, all.length);
+      for (let k = 0; k < n; k++) {
+        const pos = all[Math.floor(Math.random() * all.length)];
+        playable.push({ piece, idx, pos, sc: 0 });
+      }
+    }
+    if (playable.length) {
+      move = playable[Math.floor(Math.random() * playable.length)];
+    }
+  }
+
+  if (!move) {
+    // Hard check: only stuck if zero legal placements remain
+    if (piecesTrulyUnplayable(oppGrid, oppPieces)) {
+      setAiStuck(true);
+      evaluateMatchEnd();
+    }
+    return;
+  }
+  setAiStuck(false);
+
+  const chosen = move.piece;
+  const pos = move.pos;
+  const chosenIdx = move.idx;
+
+  aiBusy = true;
+  try { aiBusySince = Date.now(); } catch (_) { aiBusySince = Date.now(); }
+  // Resolve tray index before marking used (DOM still has the piece)
+  let resolvedIdx = (typeof chosenIdx === 'number') ? chosenIdx : -1;
+  if (resolvedIdx < 0 || !oppPieces[resolvedIdx] || oppPieces[resolvedIdx] !== chosen) {
+    resolvedIdx = findOppTrayIdx(chosen.shape, chosen.color);
+  }
+  // Mark used only inside place commit (avoids burning piece if fly/place fails)
+
+  // Lift visual on opponent piece slot
+  const oppArea = document.getElementById('piecesAreaOpp');
+  let slotEl = oppArea && resolvedIdx >= 0
+    ? oppArea.querySelector(`.piece-slot[data-opp-idx="${resolvedIdx}"]`)
+    : null;
+  if (!slotEl && oppArea) {
+    // fallback: first non-used visible slot
+    slotEl = oppArea.querySelector('.piece-slot:not(.used)');
+  }
+  if (slotEl) slotEl.classList.add('lifting');
+
+  // Animate piece from slot → board cell
+  const aiGhost = document.getElementById('aiGhost');
+  const oppRect = boardOpp.getBoundingClientRect();
+  const step = (oppRect.width - 2.5 * (SIZE - 1)) / SIZE;
+  const maxR = Math.max(...chosen.shape.map(s => s[0]));
+  const maxC = Math.max(...chosen.shape.map(s => s[1]));
+  const targetX = oppRect.left + (pos.c + maxC / 2) * (step + 2.5) + step / 2;
+  const targetY = oppRect.top + (pos.r + maxR / 2) * (step + 2.5) + step / 2;
+
+  let startX = oppRect.left + oppRect.width / 2;
+  let startY = oppRect.bottom + 20;
+  if (slotEl) {
+    const sr = slotEl.getBoundingClientRect();
+    startX = sr.left + sr.width / 2;
+    startY = sr.top + sr.height / 2;
+  }
+
+  try { setAiGhostSkin('opp'); } catch (_) {}
+  {
+    const m = getBoardCellMetrics(boardOpp);
+    aiGhost.innerHTML = buildPieceGhostHTML(chosen, m.px, m.gap);
+  }
+  aiGhost.style.transition = 'none';
+  aiGhost.style.left = startX + 'px';
+  aiGhost.style.top = startY + 'px';
+  aiGhost.style.display = 'block';
+  aiGhost.style.opacity = '1';
+  aiGhost.style.visibility = 'visible';
+  aiGhost.style.zIndex = '50';
+  void aiGhost.offsetWidth;
+  aiGhost.style.transition = 'left 0.38s cubic-bezier(0.25, 0.1, 0.25, 1), top 0.38s cubic-bezier(0.25, 0.1, 0.25, 1), opacity 0.15s ease';
+  requestAnimationFrame(() => {
+    requestAnimationFrame(() => {
+      aiGhost.style.left = targetX + 'px';
+      aiGhost.style.top = targetY + 'px';
+    });
+  });
+
+  const phoneUi = typeof isTouchUiClient === 'function' ? isTouchUiClient() : false;
+  const flyMs = phoneUi ? 480 : 400;
+  setTimeout(function aiPlaceCommit() {
+    let released = false;
+    const releaseBusy = (delay) => {
+      if (released) return;
+      released = true;
+      const d = Math.max(0, delay | 0);
+      setTimeout(() => {
+        aiBusy = false;
+        try { aiBusySince = 0; } catch (_) {}
+      }, d);
+    };
+    try {
+      if (!vsActive) {
+        try { if (aiGhost) aiGhost.style.display = 'none'; } catch (_) {}
+        releaseBusy(0);
         return;
       }
-      try { setAiStuck(false); } catch (_) {}
-    }
 
-    if (aiStuck) {
-      if (!piecesTrulyUnplayable(oppGrid, oppPieces)) {
-        try { setAiStuck(false); } catch (_) {}
-      } else {
-        try { evaluateMatchEnd(); } catch (_) {}
-        return;
-      }
-    }
-
-    const available = oppPieces.filter(p => p && !p.used);
-    if (!available.length) {
-      oppPieces = [];
-      return;
-    }
-
-    // Soft hesitation
-    if (!aiTick._skip && Math.random() < (profile.mistake || 0) * 0.10) {
-      aiTick._skip = true;
-      return;
-    }
-    aiTick._skip = false;
-
-    const sk = Math.max(0.05, Math.min(0.995, Number(profile.skill) || 0.5));
-    let move = null;
-    try {
-      move = findBestMove(oppGrid, oppPieces, sk);
-    } catch (e) {
-      console.warn('findBestMove', e);
-      move = null;
-    }
-
-    // Occasional weaker pick (cheap)
-    if (move && Math.random() > sk) {
-      try {
-        const playable = [];
-        for (let idx = 0; idx < oppPieces.length; idx++) {
-          const piece = oppPieces[idx];
-          if (!piece || piece.used || !piece.shape) continue;
-          const all = findAllPlacements(oppGrid, piece.shape);
-          if (!all.length) continue;
-          const pos = all[Math.floor(Math.random() * all.length)];
-          playable.push({ piece, idx, pos, sc: 0 });
-        }
-        if (playable.length) move = playable[Math.floor(Math.random() * playable.length)];
-      } catch (_) {}
-    }
-
-    if (!move || !move.piece || !move.pos) {
-      if (piecesTrulyUnplayable(oppGrid, oppPieces)) {
-        try { setAiStuck(true); } catch (_) {}
-        try { evaluateMatchEnd(); } catch (_) {}
-      }
-      return;
-    }
-    try { setAiStuck(false); } catch (_) {}
-
-    const chosen = move.piece;
-    const pos = move.pos;
-    if (pos.r == null || pos.c == null) return;
-    if (!chosen.shape || !chosen.shape.length) return;
-
-    // --- Logical place FIRST (never blocked by visuals) ---
-    aiBusy = true;
-    aiBusySince = Date.now();
-    try { chosen.used = true; } catch (_) {}
-
-    try {
+      // Commit: mark piece used then write cells
+      try { chosen.used = true; } catch (_) {}
       for (const [dr, dc] of chosen.shape) {
-        const rr = pos.r + dr, cc = pos.c + dc;
-        if (rr >= 0 && rr < SIZE && cc >= 0 && cc < SIZE) {
-          oppGrid[rr][cc] = chosen.color;
-        }
+        oppGrid[pos.r + dr][pos.c + dc] = chosen.color;
       }
       oppScore += chosen.shape.length * 10;
-    } catch (e) {
-      console.warn('ai grid write', e);
-      aiBusy = false;
-      aiBusySince = 0;
-      return;
-    }
-
-    // Visuals — best effort, never gate the next move on success
-    let resolvedIdx = (typeof move.idx === 'number') ? move.idx : -1;
-    try {
-      if (resolvedIdx < 0 || !oppPieces[resolvedIdx] || oppPieces[resolvedIdx] !== chosen) {
-        resolvedIdx = findOppTrayIdx(chosen.shape, chosen.color);
-      }
-    } catch (_) { resolvedIdx = -1; }
-
-    let slotEl = null;
-    try {
-      const oppArea = document.getElementById('piecesAreaOpp');
-      if (oppArea && resolvedIdx >= 0) {
-        slotEl = oppArea.querySelector('.piece-slot[data-opp-idx="' + resolvedIdx + '"]');
-      }
-      if (!slotEl && oppArea) slotEl = oppArea.querySelector('.piece-slot:not(.used)');
-      if (slotEl) slotEl.classList.add('lifting');
-    } catch (_) {}
-
-    // Paint cells + soft place anim
-    try {
-      for (const [dr, dc] of chosen.shape) {
-        const cell = boardOpp && boardOpp.children[(pos.r + dr) * SIZE + (pos.c + dc)];
-        if (cell) {
-          paintCellColor(cell, chosen.color);
-          cell.classList.remove('placing');
-          void cell.offsetWidth;
-          cell.classList.add('filled', 'placing');
-          setTimeout(() => { try { cell.classList.remove('placing'); } catch (_) {} }, 900);
-        }
-      }
-    } catch (_) {}
-
-    // Optional ghost fly (non-blocking)
-    try {
-      const aiGhost = document.getElementById('aiGhost');
-      if (aiGhost && boardOpp) {
-        const oppRect = boardOpp.getBoundingClientRect();
-        const step = (oppRect.width - 2.5 * (SIZE - 1)) / SIZE;
-        const maxR = Math.max(...chosen.shape.map(s => s[0]));
-        const maxC = Math.max(...chosen.shape.map(s => s[1]));
-        const targetX = oppRect.left + (pos.c + maxC / 2) * (step + 2.5) + step / 2;
-        const targetY = oppRect.top + (pos.r + maxR / 2) * (step + 2.5) + step / 2;
-        let startX = oppRect.left + oppRect.width / 2;
-        let startY = oppRect.bottom + 20;
-        if (slotEl) {
-          const sr = slotEl.getBoundingClientRect();
-          startX = sr.left + sr.width / 2;
-          startY = sr.top + sr.height / 2;
-        }
-        try { setAiGhostSkin('opp'); } catch (_) {}
-        const m = getBoardCellMetrics(boardOpp);
-        aiGhost.innerHTML = buildPieceGhostHTML(chosen, m.px, m.gap);
-        aiGhost.style.transition = 'none';
-        aiGhost.style.left = startX + 'px';
-        aiGhost.style.top = startY + 'px';
-        aiGhost.style.display = 'block';
-        aiGhost.style.opacity = '1';
-        aiGhost.style.visibility = 'visible';
-        void aiGhost.offsetWidth;
-        aiGhost.style.transition = 'left 0.32s cubic-bezier(0.25, 0.1, 0.25, 1), top 0.32s cubic-bezier(0.25, 0.1, 0.25, 1), opacity 0.12s ease';
-        requestAnimationFrame(() => {
-          aiGhost.style.left = targetX + 'px';
-          aiGhost.style.top = targetY + 'px';
-        });
-        setTimeout(() => {
-          try {
-            aiGhost.style.opacity = '0';
-            setTimeout(() => { aiGhost.style.display = 'none'; }, 120);
-          } catch (_) {}
-        }, 320);
-      }
-    } catch (_) {}
-
-    if (slotEl) {
+      let _botIdx = -1;
       try {
-        slotEl.classList.remove('lifting');
-        slotEl.classList.add('used');
+        if (oppPieces && chosen) {
+          for (let i = 0; i < oppPieces.length; i++) {
+            if (oppPieces[i] === chosen) { _botIdx = i; break; }
+          }
+        }
       } catch (_) {}
-    }
+      try {
+        matchLog.push({
+          type: 'place',
+          side: 'opp',
+          t: Date.now() - matchStartTs,
+          shape: (typeof normalize === 'function'
+            ? normalize(chosen.shape.map(p => p.slice()))
+            : chosen.shape.map(p => p.slice())),
+          color: chosen.color,
+          r: pos.r,
+          c: pos.c,
+          myScore: score,
+          oppScore,
+          pieceIdx: _botIdx,
+          placePts: chosen.shape.length * 10
+        });
+      } catch (_) {}
 
-    // Clears + score
-    let cleared = 0;
-    try {
-      const clearInfo = clearLinesOn(oppGrid, boardOpp);
-      cleared = (clearInfo && clearInfo.count) || 0;
-      if (cleared > 0) {
-        oppClearChain = (oppClearChain || 0) + 1;
-        const bonus = bonusFor(cleared) + chainBonusFor(oppClearChain);
-        oppScore += bonus;
+      try {
+        for (const [dr, dc] of chosen.shape) {
+          const cell = boardOpp.children[(pos.r + dr) * SIZE + (pos.c + dc)];
+          if (cell) {
+            paintCellColor(cell, chosen.color);
+            cell.classList.add('filled', 'placing');
+            setTimeout(() => { try { cell.classList.remove('placing'); } catch (_) {} }, 780);
+          }
+        }
+      } catch (_) {}
+
+      try {
+        aiGhost.style.opacity = '0';
+        setTimeout(() => { try { aiGhost.style.display = 'none'; } catch (_) {} }, 150);
+      } catch (_) {}
+
+      if (slotEl) {
         try {
+          slotEl.classList.remove('lifting');
+          slotEl.classList.add('used');
+        } catch (_) {}
+      }
+
+      let cleared = 0;
+      try {
+        const clearInfo = clearLinesOn(oppGrid, boardOpp);
+        cleared = clearInfo.count || 0;
+        if (cleared > 0) {
+          oppClearChain = (oppClearChain || 0) + 1;
+          const bonus = bonusFor(cleared) + chainBonusFor(oppClearChain);
+          oppScore += bonus;
           const maxRa = Math.max(...chosen.shape.map(s => s[0]));
           const maxCa = Math.max(...chosen.shape.map(s => s[1]));
           const placeAnchor = {
@@ -735,67 +769,86 @@ function aiTick() {
             centerR: pos.r + maxRa / 2,
             centerC: pos.c + maxCa / 2
           };
-          const positions = getClearFloatPositions(boardOpp, clearInfo.rows, clearInfo.cols, placeAnchor);
-          const oppBanner = document.getElementById('comboBannerOpp');
-          showCombo(oppBanner, cleared, bonus, boardOpp.parentElement, 'opp', {
-            chain: oppClearChain, positions, placeAnchor
-          });
+          try {
+            const positions = getClearFloatPositions(boardOpp, clearInfo.rows, clearInfo.cols, placeAnchor);
+            const oppBanner = document.getElementById('comboBannerOpp');
+            showCombo(oppBanner, cleared, bonus, boardOpp.parentElement, 'opp', {
+              chain: oppClearChain,
+              positions,
+              placeAnchor
+            });
+          } catch (_) {}
+          try {
+            if ((cleared >= 3 || oppClearChain >= 2) && Math.random() < 0.35) showBotPhrase('clear');
+            else if (cleared >= 2 && Math.random() < 0.18) showBotPhrase('clear');
+          } catch (_) {}
+        } else {
+          oppClearChain = 0;
+        }
+        try {
+          if (Math.random() < 0.12) {
+            if (oppScore > score + 250 && Math.random() < 0.28) showBotPhrase('lead');
+            else if (score > oppScore + 250 && Math.random() < 0.28) showBotPhrase('behind');
+          }
         } catch (_) {}
         try {
-          if ((cleared >= 3 || oppClearChain >= 2) && Math.random() < 0.35) showBotPhrase('clear');
-          else if (cleared >= 2 && Math.random() < 0.18) showBotPhrase('clear');
+          const el = document.getElementById('oppScore');
+          if (el) el.textContent = oppScore;
         } catch (_) {}
-      } else {
-        oppClearChain = 0;
+        try {
+          if (matchLog.length && matchLog[matchLog.length - 1].side === 'opp') {
+            const last = matchLog[matchLog.length - 1];
+            last.oppScore = oppScore;
+            last.myScore = score;
+            if (cleared > 0) {
+              const bb = bonusFor(cleared);
+              const ce = chainBonusFor(oppClearChain);
+              last.cleared = cleared;
+              last.bonus = bb + ce;
+              last.baseBonus = bb;
+              last.chainExtra = ce;
+              last.chain = oppClearChain;
+              last.rows = clearInfo.rows ? clearInfo.rows.slice() : [];
+              last.cols = clearInfo.cols ? clearInfo.cols.slice() : [];
+            }
+          }
+        } catch (_) {}
+      } catch (clearErr) {
+        console.warn('ai clear', clearErr);
       }
+
+      // New set only here — always log for replay chronology
+      try {
+        if (oppPieces.every(p => p.used)) {
+          oppPieces = [randomBotPiece(), randomBotPiece(), randomBotPiece()];
+          renderOppPieces();
+          logDeal('opp', oppPieces);
+        }
+      } catch (_) {}
+
+      try {
+        const el = document.getElementById('oppScore');
+        if (el) el.textContent = oppScore;
+      } catch (_) {}
+      try { onAiScoreChanged(); } catch (_) {}
+
+      // Release busy after short settle (phone slightly longer for soft FX)
+      const settleMs = phoneUi
+        ? ((cleared > 0 ? 320 : 0) + 280)
+        : ((cleared > 0 ? 80 : 0) + 30);
+      releaseBusy(settleMs);
+      // Nudge next think so interval alone is not a single point of failure
+      setTimeout(() => {
+        try {
+          if (vsActive && !aiBusy) aiTick();
+        } catch (_) {}
+      }, settleMs + 50);
     } catch (e) {
-      console.warn('ai clear', e);
+      console.warn('ai place', e);
+      try { if (aiGhost) aiGhost.style.display = 'none'; } catch (_) {}
+      releaseBusy(0);
     }
-
-    try {
-      const el = document.getElementById('oppScore');
-      if (el) el.textContent = oppScore;
-    } catch (_) {}
-
-    try {
-      matchLog.push({
-        type: 'place',
-        side: 'opp',
-        t: Date.now() - matchStartTs,
-        shape: (typeof normalize === 'function'
-          ? normalize(chosen.shape.map(p => p.slice()))
-          : chosen.shape.map(p => p.slice())),
-        color: chosen.color,
-        r: pos.r,
-        c: pos.c,
-        myScore: score,
-        oppScore,
-        placePts: chosen.shape.length * 10,
-        cleared: cleared || undefined
-      });
-    } catch (_) {}
-
-    try {
-      if (oppPieces.every(p => p && p.used)) {
-        oppPieces = [randomBotPiece(), randomBotPiece(), randomBotPiece()];
-        renderOppPieces();
-        logDeal('opp', oppPieces);
-      }
-    } catch (_) {}
-
-    try { onAiScoreChanged(); } catch (_) {}
-
-    // Free busy quickly so next interval tick can fire
-    const settle = cleared > 0 ? 180 : 60;
-    setTimeout(() => {
-      aiBusy = false;
-      aiBusySince = 0;
-    }, settle);
-  } catch (e) {
-    console.warn('aiTick fatal', e);
-    aiBusy = false;
-    aiBusySince = 0;
-  }
+  }, flyMs);
 }
 
 
