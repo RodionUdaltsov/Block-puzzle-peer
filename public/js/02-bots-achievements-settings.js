@@ -242,17 +242,23 @@ function resolveBotCombat(bot) {
   let t = typeof b.trophies === 'number' ? b.trophies : 200;
   if (t < tMin) t = tMin;
   if (t > tMax) t = tMax;
-  // Smoothstep ease — mid ranks feel a real step up
+  // Power curve (γ≈0.55): mid ranks (200→1000→2000) feel clearly different.
+  // Smoothstep was almost flat below ~1500 trophies, so 200≈1000 in pace/skill.
   const x = (t - tMin) / (tMax - tMin);
-  const n = x * x * (3 - 2 * x);
-  const skill = Math.min(0.995, 0.20 + n * 0.79);       // 0.20 → 0.99
-  const mistake = Math.max(0.008, 0.30 * (1 - n * 0.97)); // 0.30 → ~0.01
-  // Think time: slow novices, snappy masters (still fair)
-  const interval = Math.round(1750 - n * 1400);          // 1750 → 350
-  const clearBias = 0.25 + n * 0.70;
-  const risk = Math.max(0.08, 0.75 - n * 0.62);
-  const speedJitter = Math.max(0.04, 0.45 * (1 - n));
-  const preferSmall = 1.15 - n * 0.35;
+  const n = Math.pow(x, 0.55);
+  // Skill: novices often miss best cell; masters almost always take it
+  const skill = Math.min(0.995, 0.10 + n * 0.89);         // ~0.10 → 0.99
+  // Hesitation / soft skip chance (applied in aiTick)
+  const mistake = Math.max(0.006, 0.42 * (1 - n * 0.98));  // ~0.42 → ~0.01
+  // Think time between move starts (ms). Wider spread by rank:
+  //   ~40→2100 | ~200→1750 | ~1000→1100 | ~2000→750 | ~3800→480
+  const interval = Math.round(2100 - n * 1620);            // 2100 → 480
+  // Stronger bots hunt clears harder and tolerate risk
+  const clearBias = 0.18 + n * 0.78;
+  const risk = Math.max(0.06, 0.82 - n * 0.72);
+  // Weak bots jitter a lot; masters are steady
+  const speedJitter = Math.max(0.04, 0.40 * (1 - n * 0.95));
+  const preferSmall = 1.20 - n * 0.45;
   return {
     skill,
     mistake,

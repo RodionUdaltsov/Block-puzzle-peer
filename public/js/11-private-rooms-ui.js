@@ -419,20 +419,22 @@ function beginVersusMatch() {
     const combat = (typeof resolveBotCombat === 'function' && currentBot)
       ? resolveBotCombat(currentBot)
       : currentBot;
-    let base = (combat && combat.interval) || (currentBot && currentBot.interval) || 900;
-    if (!Number.isFinite(base) || base < 200) base = 900;
+    let base = (combat && combat.interval) || (currentBot && currentBot.interval) || 1400;
+    if (!Number.isFinite(base) || base < 400) base = 1400;
     let jitter = (combat && combat.style && combat.style.speedJitter)
       || (currentBot && currentBot.style && currentBot.style.speedJitter) || 0.25;
     if (!Number.isFinite(jitter) || jitter < 0) jitter = 0.25;
     const onPhone = typeof isTouchUiClient === 'function' ? isTouchUiClient() : false;
-    const floor = onPhone ? 800 : 400;
-    const scale = onPhone ? 1.05 : 1.0;
+    // Low floor so high-trophy bots can be fast; weak stay slow via base interval
+    const floor = onPhone ? 520 : 420;
+    const scale = onPhone ? 1.06 : 1.0;
     let tickMs = Math.max(floor, Math.round(base * scale + Math.random() * (base * jitter)));
-    if (!Number.isFinite(tickMs) || tickMs < 200) tickMs = floor;
+    if (!Number.isFinite(tickMs) || tickMs < floor) tickMs = floor;
+    aiTickMs = tickMs;
     aiBusy = false;
     try { aiBusySince = 0; } catch (_) {}
     if (aiInterval) { clearInterval(aiInterval); aiInterval = null; }
-    // Primary loop
+    // Primary loop — sole regular driver of bot pace
     aiInterval = setInterval(() => {
       try { aiTick(); } catch (e) {
         console.warn('aiTick', e);
@@ -440,9 +442,9 @@ function beginVersusMatch() {
         try { aiBusySince = 0; } catch (_) {}
       }
     }, tickMs);
-    // Kick off + a couple of safety nudges if first place left busy stuck
-    setTimeout(() => { try { aiTick(); } catch (_) {} }, onPhone ? 500 : 200);
-    setTimeout(() => { try { if (vsActive && !aiBusy) aiTick(); } catch (_) {} }, tickMs + 100);
+    // First move: weak bots delay more, strong start sooner
+    const firstDelay = Math.min(tickMs, Math.max(floor, Math.round(tickMs * 0.55)));
+    setTimeout(() => { try { aiTick(); } catch (_) {} }, firstDelay);
     setTimeout(() => { try { showBotPhrase('start'); } catch (_) {} }, 400);
   };
   showMatchIntro({
@@ -534,10 +536,11 @@ function aiTick() {
   if (!isBotMatch) return;
   if (mpMode && (roomMatchMode || window._roomMatchMode)) return; // never drive AI in live ranked room
   // Safety: never freeze forever if a settle timer was lost
+  // Threshold above max fly+settle so we do not interrupt a normal slow move
   if (aiBusy) {
     const since = (typeof aiBusySince === 'number' && aiBusySince > 0)
       ? (Date.now() - aiBusySince) : 99999;
-    if (since < 1200) return;
+    if (since < 2800) return;
     aiBusy = false;
     try { aiBusySince = 0; } catch (_) {}
   }
@@ -577,8 +580,8 @@ function aiTick() {
     return;
   }
 
-  // Rare soft hesitation — never skip more than once in a row (prevents frozen bots)
-  if (!aiTick._skip && Math.random() < (profile.mistake || 0) * 0.12) {
+  // Soft hesitation — weak bots skip a think more often; never twice in a row
+  if (!aiTick._skip && Math.random() < (profile.mistake || 0) * 0.22) {
     aiTick._skip = true;
     return;
   }
@@ -587,7 +590,8 @@ function aiTick() {
   // Exhaustive legal search; skill = chance to keep the best move (scales with trophies)
   const sk = Math.max(0.05, Math.min(0.995, profile.skill || 0.5));
   let move = findBestMove(oppGrid, oppPieces, sk);
-  // Low skill: occasionally pick a weaker legal placement (cheap — no full ranking)
+  // Low skill: often pick a weaker legal placement (makes low-trophy bots beatable)
+  // High skill almost never takes this branch
   if (move && Math.random() > sk) {
     const playable = [];
     for (let idx = 0; idx < oppPieces.length; idx++) {
@@ -595,8 +599,8 @@ function aiTick() {
       if (!piece || piece.used) continue;
       const all = findAllPlacements(oppGrid, piece.shape);
       if (!all.length) continue;
-      // sample up to 3 random legal cells per piece
-      const n = Math.min(3, all.length);
+      // Weak: sample more random cells; strong rarely reaches here
+      const n = Math.min(sk < 0.4 ? 5 : 3, all.length);
       for (let k = 0; k < n; k++) {
         const pos = all[Math.floor(Math.random() * all.length)];
         playable.push({ piece, idx, pos, sc: 0 });
@@ -832,17 +836,21 @@ function aiTick() {
       } catch (_) {}
       try { onAiScoreChanged(); } catch (_) {}
 
-      // Release busy after short settle (phone slightly longer for soft FX)
+      // Settle: clear FX need a beat; plain places recover faster
       const settleMs = phoneUi
-        ? ((cleared > 0 ? 320 : 0) + 280)
-        : ((cleared > 0 ? 80 : 0) + 30);
+        ? ((cleared > 0 ? 300 : 0) + 200)
+        : ((cleared > 0 ? 140 : 0) + 80);
       releaseBusy(settleMs);
-      // Nudge next think so interval alone is not a single point of failure
+      // Safety nudge only if primary interval stalled — must respect rank pace.
+      // Fast bots (low aiTickMs) get a short gap; slow bots stay slow.
+      const think = (typeof aiTickMs === 'number' && aiTickMs > 0) ? aiTickMs : 1400;
+      const minGap = Math.max(280, Math.round(think * 0.72));
+      const nudgeAt = settleMs + minGap;
       setTimeout(() => {
         try {
           if (vsActive && !aiBusy) aiTick();
         } catch (_) {}
-      }, settleMs + 50);
+      }, nudgeAt);
     } catch (e) {
       console.warn('ai place', e);
       try { if (aiGhost) aiGhost.style.display = 'none'; } catch (_) {}

@@ -245,7 +245,9 @@ let lastPreview = null, boardRect = null, cellSize = 0, gap = 3;
 let rafId = 0, pointerX = 0, pointerY = 0, placingLock = false;
 let vsDuration = 120, vsTimeLeft = 120, vsTimerId = null;
 let oppGrid = [], oppScore = 0, oppName = 'Соперник', oppPieces = [];
-let aiInterval = null, vsActive = false, aiBusy = false;
+let aiInterval = null, vsActive = false, aiBusy = false, aiBusySince = 0;
+/** Current bot think interval (ms) — post-place nudges must respect this pace */
+let aiTickMs = 1400;
 let clearChain = 0;      // consecutive clears by local player
 let oppClearChain = 0;   // consecutive clears by opponent / bot
 let selectedBotId = 'nova';
