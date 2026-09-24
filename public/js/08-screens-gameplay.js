@@ -333,10 +333,10 @@ function findBestMove(g, piecesArr, skill) {
   return best;
 }
 /** Clear anim from equipped FIELD only (not piece skin). Duration FIXED for fair play. */
-/** Desktop 110ms; mobile (touch-ui) 420ms — visible soft clear, light GPU path */
+/** Desktop 110ms; mobile (touch-ui) 360ms — visible, a bit snappier */
 function getClearAnimMs() {
   try {
-    if (document.body && document.body.classList.contains('touch-ui')) return 420;
+    if (document.body && document.body.classList.contains('touch-ui')) return 360;
   } catch (_) {}
   return 110;
 }
@@ -414,6 +414,7 @@ function spawnClearBeams(boardDOM, rows, cols, beamTheme) {
     const paint = (isRow, index) => {
       const el = document.createElement('div');
       el.className = `clear-beam ${isRow ? 'row' : 'col'} ${beamTheme}`;
+      try { el.dataset.born = String(Date.now()); } catch (_) {}
       if (isRow) {
         el.style.top = (boardRect.top - wrapRect.top + step * (index + 0.5)) + 'px';
         el.style.left = (boardRect.left - wrapRect.left) + 'px';
@@ -447,6 +448,7 @@ function spawnClearDebris(boardDOM, cellIndices, theme) {
     const add = (cls, x, y, dx, dy, rot, extraStyle) => {
       const el = document.createElement('div');
       el.className = 'clear-debris ' + cls;
+      try { el.dataset.born = String(Date.now()); } catch (_) {}
       el.style.left = x + 'px';
       el.style.top = y + 'px';
       el.style.setProperty('--dx', dx.toFixed(1) + 'px');
@@ -550,6 +552,52 @@ function spawnClearDebris(boardDOM, cellIndices, theme) {
     });
   } catch (_) {}
 }
+
+/** Progressive-lag guard: purge orphan FX / will-change every few seconds during play */
+let _fxScrubTimer = 0;
+function startFxMaintenance() {
+  try { if (_fxScrubTimer) clearInterval(_fxScrubTimer); } catch (_) {}
+  _fxScrubTimer = setInterval(() => {
+    try {
+      if (typeof scrubTransientFx === 'function') {
+        // Soft scrub: only orphan particles / beams, never mid-clear cells
+        document.querySelectorAll(
+          '.clear-debris, .legend-spark, .epic-spark, .skin-particle, .neon-spark, .candy-spark, .sunset-spark, .rare-spark, .clear-beam'
+        ).forEach(el => {
+          try {
+            // Keep if still young (< 600ms)
+            const born = el.dataset && el.dataset.born;
+            if (born && (Date.now() - (+born)) < 600) return;
+            el.remove();
+          } catch (_) {}
+        });
+      }
+      // Drop will-change on cells that finished anim
+      document.querySelectorAll('.cell').forEach(cell => {
+        try {
+          if (cell.classList.contains('placing')) return;
+          let clearing = false;
+          if (typeof CLEARING_CLASSES !== 'undefined') {
+            for (let i = 0; i < CLEARING_CLASSES.length; i++) {
+              if (cell.classList.contains(CLEARING_CLASSES[i])) { clearing = true; break; }
+            }
+          }
+          if (clearing) return;
+          cell.style.removeProperty('will-change');
+        } catch (_) {}
+      });
+      // Trim matchLog so long sessions don't grow forever
+      if (typeof matchLog !== 'undefined' && Array.isArray(matchLog) && matchLog.length > 400) {
+        matchLog = matchLog.slice(-200);
+      }
+    } catch (_) {}
+  }, 8000);
+}
+function stopFxMaintenance() {
+  try { if (_fxScrubTimer) clearInterval(_fxScrubTimer); } catch (_) {}
+  _fxScrubTimer = 0;
+}
+
 function clearLinesOn(g, boardDOM) {
   const rows=[], cols=[];
   for (let r=0;r<SIZE;r++) if (g[r].every(c => !!c)) rows.push(r);
@@ -564,6 +612,7 @@ function clearLinesOn(g, boardDOM) {
   const animName = touchUi ? 'clearMobileSoft' : meta.name;
   const animCss = `${animName} ${meta.ms}ms cubic-bezier(0.2,0.7,0.2,1) forwards`;
   if (boardDOM) {
+    try { if (typeof scrubTransientFx === 'function') scrubTransientFx(); } catch (_) {}
     markClearBusy(boardDOM, meta.ms);
     const cells = [];
     toAnim.forEach(idx => {
@@ -607,6 +656,7 @@ function clearLinesOn(g, boardDOM) {
   }, clearMs);
   setTimeout(() => {
     try { if (clearBoard) renderGrid(clearGridRef, clearBoard); } catch (_) {}
+    try { if (typeof scrubTransientFx === 'function') scrubTransientFx(); } catch (_) {}
   }, clearMs + 80);
   return { count: rows.length + cols.length, rows, cols };
 }
@@ -870,6 +920,7 @@ function startClassic(forceNew) {
   } catch (_) {}
   showScreen('classic');
   mode = 'classic';
+  try { if (typeof startFxMaintenance === 'function') startFxMaintenance(); } catch (_) {}
   try { clearBoardScoreFX(); } catch (_) {}
   gameOverEl.classList.remove('visible');
   stuckOfferEl.classList.remove('visible');
@@ -1228,6 +1279,26 @@ function startDrag(e, idx, areaEl) {
   }
   e.preventDefault(); e.stopPropagation();
   selectedIdx = idx; dragPiece = pieces[idx]; isDragging = true;
+  // Freeze shape for this gesture (never share refs with SHAPES / hand array)
+  try {
+    if (dragPiece && Array.isArray(dragPiece.shape)) {
+      const frozen = dragPiece.shape.map(c => Array.isArray(c) ? [c[0]|0, c[1]|0] : c);
+      // Also re-clone into hand so softRender cannot shrink the live piece mid-drag
+      if (pieces && pieces[idx] && Array.isArray(pieces[idx].shape)) {
+        pieces[idx] = {
+          shape: frozen.map(c => Array.isArray(c) ? c.slice() : c),
+          color: dragPiece.color,
+          used: !!pieces[idx].used
+        };
+      }
+      dragPiece = {
+        shape: frozen.map(c => Array.isArray(c) ? c.slice() : c),
+        color: dragPiece.color,
+        used: !!dragPiece.used,
+        _shapeLen: frozen.length
+      };
+    }
+  } catch (_) {}
   activeDragPointerId = (e && e.pointerId != null) ? e.pointerId : 'mouse';
   _ghostLerpInit = false;
   _ghostCellKey = '';
@@ -1668,7 +1739,17 @@ function tryPlaceAt(x, y, forcedResult) {
     placingLock = true;
     hapticTap(14);
     SFX.place();
-    const color = dragPiece.color, shape = dragPiece.shape;
+    const color = dragPiece.color;
+    let shape = (dragPiece.shape || []).map(p => Array.isArray(p) ? [p[0]|0, p[1]|0] : p);
+    // Recover if hand/shape was corrupted mid-drag (e.g. softRender / log rebuild)
+    if (dragPiece._shapeLen && shape.length !== dragPiece._shapeLen && pieces && pieces[selectedIdx]) {
+      try {
+        const src = pieces[selectedIdx].shape;
+        if (src && src.length === dragPiece._shapeLen) {
+          shape = src.map(p => Array.isArray(p) ? [p[0]|0, p[1]|0] : p);
+        }
+      } catch (_) {}
+    }
     const placedIdx = selectedIdx;
     const board = getActiveBoard();
     let netShape = shape.map(p => p.slice());
@@ -1776,7 +1857,17 @@ function tryPlaceAt(x, y, forcedResult) {
   placingLock = true;
   hapticTap(14);
   SFX.place();
-  const color = dragPiece.color, shape = dragPiece.shape;
+  const color = dragPiece.color;
+  let shape = (dragPiece.shape || []).map(p => Array.isArray(p) ? [p[0]|0, p[1]|0] : p);
+  if (dragPiece._shapeLen && shape.length !== dragPiece._shapeLen && pieces && pieces[selectedIdx]) {
+    try {
+      const src = pieces[selectedIdx].shape;
+      if (src && src.length === dragPiece._shapeLen) {
+        shape = src.map(p => Array.isArray(p) ? [p[0]|0, p[1]|0] : p);
+      }
+    } catch (_) {}
+  }
+  if (!shape.length) return false;
   const placedIdx = selectedIdx;
   const board = getActiveBoard(), g = getActiveGrid(), areaEl = getActivePiecesArea(), banner = getActiveBanner();
   for (const [dr,dc] of shape) g[result.baseR+dr][result.baseC+dc] = color;

@@ -447,6 +447,24 @@ function applyBoardToWrap(wrap, board) {
   if (!wrap || !board) return;
   BOARD_FX_CLASSES.forEach(c => wrap.classList.remove(c));
   wrap.classList.add('board-fx-' + (board.fx || 'none'));
+  // Drop leftover compositor state after heavy fields (Solar rays etc.)
+  // Critical on mobile: Solar filter/will-change layers used to stick after unequip
+  try {
+    wrap.style.removeProperty('filter');
+    wrap.style.removeProperty('transform');
+    wrap.style.removeProperty('will-change');
+    wrap.style.removeProperty('animation');
+    const boardEl = wrap.querySelector('.board');
+    if (boardEl) {
+      boardEl.style.removeProperty('filter');
+      boardEl.style.removeProperty('animation');
+      boardEl.style.removeProperty('will-change');
+      boardEl.style.removeProperty('transform');
+    }
+    // Force style recalc so WebKit drops promoted layers from previous FX
+    try { void wrap.offsetWidth; } catch (_) {}
+    if (typeof scrubTransientFx === 'function') scrubTransientFx();
+  } catch (_) {}
   wrap.dataset.board = board.id;
   wrap.dataset.boardRarity = board.rarity || 'common';
   const empty = board.empty || '#16191f';

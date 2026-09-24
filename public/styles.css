@@ -6090,14 +6090,14 @@
     body.touch-ui .cell[class*="clearing-"],
     body.touch-ui .cell.filled[class*="clearing-"],
     body.touch-ui .board-wrap .cell[class*="clearing-"] {
-      animation-duration: 0.42s !important;
+      animation-duration: 0.36s !important;
       animation-timing-function: cubic-bezier(0.22, 0.08, 0.18, 1) !important;
       will-change: opacity, transform !important;
       filter: none !important;
     }
     body.touch-ui .cell.clearing-mobile-soft {
       animation-name: clearMobileSoft !important;
-      animation-duration: 0.42s !important;
+      animation-duration: 0.36s !important;
     }
 body.touch-ui .clear-beam.row { animation-duration: 0.4s !important; opacity: 0.95; }
 body.touch-ui .clear-beam.col { animation-duration: 0.4s !important; opacity: 0.95; }
@@ -6142,7 +6142,7 @@ body.touch-ui .cell.clearing::after {
     body.touch-ui .board-wrap .cell.clearing-mobile-soft,
     body.touch-ui .cell.clearing.clearing-mobile-soft {
       animation-name: clearMobileSoft !important;
-      animation-duration: 0.42s !important;
+      animation-duration: 0.36s !important;
       animation-timing-function: cubic-bezier(0.2, 0.7, 0.2, 1) !important;
       animation-fill-mode: forwards !important;
       filter: none !important;
@@ -11778,4 +11778,93 @@ body:not(.match-ending):not(.rejoin-loading) #screenVersus.active .pieces-area:n
   opacity: 1;
   transform: none;
   filter: none;
+}
+
+
+/* MOBILE FIELD PERF — keep DYNAMIC look, ban only expensive filter/blend paths */
+/* filter:brightness on whole board = progressive lag; transform/opacity stay OK */
+body.touch-ui .board-wrap.board-fx-solar,
+body.touch-ui .board-wrap.board-fx-nebula,
+body.touch-ui .board-wrap.board-fx-quantum,
+body.touch-ui .board-wrap.board-fx-abyss,
+body.touch-ui .board-wrap.board-fx-prismfield,
+body.touch-ui .board-wrap.board-fx-magma,
+body.touch-ui .board-wrap.board-fx-pulse {
+  /* soft glow pulse via box-shadow only — no filter */
+  animation: fieldMobileAura 3.2s ease-in-out infinite !important;
+  filter: none !important;
+  will-change: auto !important;
+}
+@keyframes fieldMobileAura {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.96; }
+}
+/* Solar rays: keep spinning, but cheaper (no mix-blend, lower opacity, contain) */
+body.touch-ui .board-wrap.board-fx-solar::before {
+  animation: fieldBorderSpin 12s linear infinite !important;
+  mix-blend-mode: normal !important;
+  opacity: 0.55 !important;
+  will-change: transform !important;
+  contain: strict;
+}
+body.touch-ui .board-wrap.board-fx-solar::after {
+  animation: fieldSolarRays 28s linear infinite !important;
+  mix-blend-mode: normal !important;
+  opacity: 0.28 !important;
+  will-change: transform !important;
+  contain: strict;
+}
+/* Other legend ::before/::after — gentle opacity pulse, no filter */
+body.touch-ui .board-wrap.board-fx-nebula::before,
+body.touch-ui .board-wrap.board-fx-nebula::after,
+body.touch-ui .board-wrap.board-fx-quantum::before,
+body.touch-ui .board-wrap.board-fx-quantum::after,
+body.touch-ui .board-wrap.board-fx-abyss::before,
+body.touch-ui .board-wrap.board-fx-abyss::after,
+body.touch-ui .board-wrap.board-fx-prismfield::before,
+body.touch-ui .board-wrap.board-fx-prismfield::after,
+body.touch-ui .board-wrap.board-fx-magma::before,
+body.touch-ui .board-wrap.board-fx-magma::after,
+body.touch-ui .board-wrap.board-fx-pulse::before,
+body.touch-ui .board-wrap.board-fx-pulse::after {
+  animation: fieldMobilePseudoPulse 4s ease-in-out infinite !important;
+  mix-blend-mode: normal !important;
+  filter: none !important;
+  will-change: opacity !important;
+}
+@keyframes fieldMobilePseudoPulse {
+  0%, 100% { opacity: 0.4; }
+  50% { opacity: 0.7; }
+}
+/* Inner board: no filter heat shimmer (main Solar lag source) */
+body.touch-ui .board-wrap.board-fx-solar .board,
+body.touch-ui .board-wrap.board-fx-nebula .board,
+body.touch-ui .board-wrap.board-fx-quantum .board,
+body.touch-ui .board-wrap.board-fx-abyss .board {
+  animation: none !important;
+  filter: none !important;
+  will-change: auto !important;
+}
+body.touch-ui .board-wrap.board-fx-solar .cell:not(.filled),
+body.touch-ui .board-wrap.board-fx-nebula .cell:not(.filled),
+body.touch-ui .board-wrap.board-fx-quantum .cell:not(.filled),
+body.touch-ui .board-wrap.board-fx-magma .cell:not(.filled),
+body.touch-ui .board-wrap.board-fx-pulse .cell:not(.filled) {
+  animation: none !important;
+  filter: none !important;
+}
+body.touch-ui .board-wrap.board-fx-solar {
+  box-shadow:
+    0 0 0 2px rgba(255, 192, 64, 0.4),
+    0 0 32px rgba(255, 160, 40, 0.28),
+    0 12px 32px rgba(0,0,0,0.45) !important;
+}
+/* After leaving a heavy field — force layers to drop */
+body.touch-ui .board-wrap:not(.board-fx-solar):not(.board-fx-nebula):not(.board-fx-quantum):not(.board-fx-abyss):not(.board-fx-prismfield) {
+  will-change: auto !important;
+  filter: none !important;
+}
+body.touch-ui .board-wrap:not(.board-fx-solar)::before,
+body.touch-ui .board-wrap:not(.board-fx-solar)::after {
+  will-change: auto !important;
 }
