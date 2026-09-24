@@ -535,6 +535,10 @@
     presenceSearch(q) {
       return this.send({ type: 'presence_search', q: String(q || '').slice(0, 24) });
     },
+    /** Check whether a 6-char friend code is known (online or recent presence). */
+    friendCodeCheck(code) {
+      return this.send({ type: 'friend_code_check', code: String(code || '').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 6) });
+    },
     setActivity(activity) {
       if (this._lastPresence) this._lastPresence.activity = activity || 'online';
       return this.send({ type: 'presence_activity', activity: activity || 'online' });

@@ -3,10 +3,14 @@
 Numbered scripts are concatenated by `scripts/bundle-client.js` into
 `public/dist/client.bundle.js` (IIFE, shared scope).
 
+**Production entry:** `index.html` loads only `dist/client.bundle.js`.  
+`public/game.js` and `public/js/main.js` are **legacy / dev-only** and are not used in production.
+
 | File | Role |
 |------|------|
 | `00-state.js` | Global state (`BPState`) |
 | `00-perf.js` | Early perf hooks |
+| `00-i18n.js` | Lightweight i18n (ru/en) |
 | `01-cosmetics.js` | Skins, boards, shop UI |
 | `02-bots-achievements-settings.js` | Bots, achievements, settings |
 | `03-audio.js` | Sound |

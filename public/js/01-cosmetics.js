@@ -6,6 +6,18 @@
  */
 'use strict';
 
+/** Localized cosmetic name/desc (falls back to catalog string). */
+function locCosName(item) {
+  if (!item) return '';
+  var prefix = (item.id && String(item.id).indexOf('field_') === 0) ? 'board.' : 'skin.';
+  return (typeof globalThis.t === 'function') ? t(prefix + item.id + '.name', item.name) : item.name;
+}
+function locCosDesc(item) {
+  if (!item) return '';
+  var prefix = (item.id && String(item.id).indexOf('field_') === 0) ? 'board.' : 'skin.';
+  return (typeof globalThis.t === 'function') ? t(prefix + item.id + '.desc', item.desc || '') : (item.desc || '');
+}
+
 /* Online multiplayer: MatchClient WebSocket (server-authoritative). */
 /* Shared rules: window.BPRules (public/shared/rules.js) — same as server */
 const _R = (typeof BPRules !== 'undefined' && BPRules) ? BPRules : null;
@@ -580,7 +592,7 @@ function boardShopItemHTML(board) {
       <div class="field-mini${fxClass}" aria-hidden="true">${fieldMiniPatternHTML(board)}</div>
     </div>
     <div class="skin-item-meta">
-      <div class="skin-name">${board.name}</div>
+      <div class="skin-name">${locCosName(board)}</div>
       ${action}
     </div>
   </div>`;
@@ -599,7 +611,7 @@ function boardInvItemHTML(board) {
       <div class="field-mini${fxClass}" aria-hidden="true">${fieldMiniPatternHTML(board)}</div>
     </div>
     <div class="skin-item-meta">
-      <div class="skin-name">${board.name}</div>
+      <div class="skin-name">${locCosName(board)}</div>
       ${action}
     </div>
   </div>`;
@@ -738,7 +750,7 @@ function skinShopItemHTML(skin) {
       <div class="skin-mini-board" data-mini="${skin.id}" aria-hidden="true">${Array.from({length:36},()=>'<i></i>').join('')}</div>
     </div>
     <div class="skin-item-meta">
-      <div class="skin-name">${skin.name}</div>
+      <div class="skin-name">${locCosName(skin)}</div>
       ${action}
     </div>
   </div>`;
@@ -756,7 +768,7 @@ function skinInvItemHTML(skin) {
       <div class="skin-mini-board" data-mini="${skin.id}" aria-hidden="true">${Array.from({length:36},()=>'<i></i>').join('')}</div>
     </div>
     <div class="skin-item-meta">
-      <div class="skin-name">${skin.name}</div>
+      <div class="skin-name">${locCosName(skin)}</div>
       ${action}
     </div>
   </div>`;
@@ -959,8 +971,8 @@ function openSkinPreview(skinId) {
   const btn = document.getElementById('skinPrevAction');
   if (!ov || !boardEl) return;
   const rar = skin.rarity || 'common';
-  title.textContent = skin.name;
-  meta.textContent = (skin.desc || '') + ' · ' + skinRarityLabel(rar)
+  title.textContent = locCosName(skin);
+  meta.textContent = locCosDesc(skin) + ' · ' + skinRarityLabel(rar)
     + (rar === 'legendary' ? ' · перелив + особое комбо' : rar === 'epic' ? ' · глянец + яркое комбо' : rar === 'rare' ? ' · мягкое свечение' : ' · матовые кубики');
   const wrap = boardEl.parentElement;
   const modalInner = document.getElementById('skinPrevModalInner') || ov.querySelector('.modal');
@@ -991,18 +1003,18 @@ function openSkinPreview(skinId) {
   const owned = ownedSkins.includes(skin.id);
   const eq = equippedSkinId === skin.id;
   if (eq) {
-    btn.textContent = 'Надето';
+    btn.textContent = (typeof globalThis.t==='function'?globalThis.t('js.equipped','Надето'):'Надето');
     btn.disabled = true;
     btn.className = 'primary';
     btn.onclick = null;
   } else if (owned) {
-    btn.textContent = 'Надеть';
+    btn.textContent = (typeof globalThis.t==='function'?globalThis.t('js.equip','Надеть'):'Надеть');
     btn.disabled = false;
     btn.className = 'primary';
     btn.onclick = () => { equipSkin(skin.id); closeSkinPreview(); renderShopGrid(); renderInvGrid(); };
   } else {
     const can = diamonds >= skin.price;
-    btn.textContent = can ? `Купить · 💎 ${skin.price}` : `💎 ${skin.price}`;
+    btn.textContent = can ? ((typeof globalThis.t==='function'?globalThis.t('js.buy','Купить'):'Купить') + ' · 💎 ' + skin.price) : ('💎 ' + skin.price);
     btn.disabled = !can;
     btn.className = can ? 'primary' : 'ghost';
     btn.onclick = () => {

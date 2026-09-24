@@ -1328,7 +1328,7 @@ function beginRoomRankedMatch(data, opts) {
         showMatchLoading(
           'Загрузка',
           'Почти готово…',
-          mpFromMatchmaking ? 'Рейтинговый матч' : 'Товарищеский матч'
+          mpFromMatchmaking ? (typeof globalThis.t==='function'?globalThis.t('js.rankedMatch','Рейтинговый матч'):'Рейтинговый матч') : (typeof globalThis.t==='function'?globalThis.t('js.friendlyMatch','Товарищеский матч'):'Товарищеский матч')
         );
       } catch (_) {}
 
@@ -1415,7 +1415,7 @@ function runMatchIntroSequence(opts) {
   } catch (_) {}
 
   const sub = opts.sub
-    || (mpFromMatchmaking ? 'Рейтинговый матч' : 'Товарищеский матч');
+    || (mpFromMatchmaking ? (typeof globalThis.t==='function'?globalThis.t('js.rankedMatch','Рейтинговый матч'):'Рейтинговый матч') : (typeof globalThis.t==='function'?globalThis.t('js.friendlyMatch','Товарищеский матч'):'Товарищеский матч'));
   try {
     showMatchLoading('Загрузка', 'Почти готово…', sub);
   } catch (_) {}
@@ -1624,9 +1624,9 @@ function finishRoomMatchLoadAndGo() {
         const lab = document.getElementById('miLabel');
         const tit = document.getElementById('miTitle');
         const su = document.getElementById('miSub');
-        if (lab) lab.textContent = 'Готово';
-        if (tit) tit.textContent = 'Старт!';
-        if (su) su.textContent = mpFromMatchmaking ? 'Рейтинговый матч' : 'Товарищеский матч';
+        if (lab) lab.textContent = (typeof globalThis.t==='function'?globalThis.t('js.ready','Готово'):'Готово');
+        if (tit) tit.textContent = (typeof globalThis.t==='function'?globalThis.t('js.start','Старт!'):'Старт!');
+        if (su) su.textContent = mpFromMatchmaking ? (typeof globalThis.t==='function'?globalThis.t('js.rankedMatch','Рейтинговый матч'):'Рейтинговый матч') : (typeof globalThis.t==='function'?globalThis.t('js.friendlyMatch','Товарищеский матч'):'Товарищеский матч');
         el.classList.add('visible', 'mi-go');
         el.setAttribute('aria-hidden', 'false');
         el.style.display = 'flex';

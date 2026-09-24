@@ -1,14 +1,17 @@
 {
   "name": "block-puzzle-server",
-  "version": "3.9.34",
-  "description": "Block Puzzle — ESM client pipeline + zero-dep bundler",
+  "version": "3.9.49",
+  "description": "Block Puzzle \u2014 ESM client pipeline + zero-dep bundler",
+  "license": "MIT",
   "main": "server.js",
   "scripts": {
-    "build": "node scripts/bundle-client.js",
+    "build": "node scripts/bundle-css.js && node scripts/bundle-client.js",
+    "build:dev": "node scripts/bundle-css.js --no-minify && node scripts/bundle-client.js --no-minify",
     "build:watch": "node scripts/bundle-client.js --watch",
-    "start": "node scripts/bundle-client.js && node server.js",
-    "start:file": "node scripts/bundle-client.js && BP_STORE=file node server.js",
-    "start:redis": "node scripts/bundle-client.js && BP_STORE=redis node server.js",
+    "build:css": "node scripts/bundle-css.js",
+    "start": "node scripts/bundle-css.js && node scripts/bundle-client.js && node server.js",
+    "start:file": "node scripts/bundle-css.js && node scripts/bundle-client.js && BP_STORE=file node server.js",
+    "start:redis": "node scripts/bundle-css.js && node scripts/bundle-client.js && BP_STORE=redis node server.js",
     "check": "node scripts/check.js",
     "test": "node --test test/*.test.js"
   },

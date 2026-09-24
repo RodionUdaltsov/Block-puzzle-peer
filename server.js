@@ -10,10 +10,14 @@
 const path = require('path');
 const http = require('http');
 const fs = require('fs');
+const zlib = require('zlib');
 const crypto = require('crypto');
 const { WebSocketServer } = require('./vendor/ws');
 const { createStore, ROOM_TTL_LIVE, ROOM_TTL_ENDED, TOKEN_TTL, QUEUE_TTL, PRESENCE_TTL } = require('./lib/store');
 const { SKIN_PALETTES, paletteForSkin } = require('./shared/skins');
+const { log, PKG_VERSION } = require('./lib/logger');
+const { allowWsConnection, allowWsMessage } = require('./lib/rate-limit');
+const { WS_ORIGINS, applySecurityHeaders, isOriginAllowed } = require('./lib/security');
 
 // Shared authoritative rules (single source with client)
 const R = require('./shared/rules');
@@ -28,14 +32,9 @@ const {
 
 /** Max inbound WS JSON message size (bytes). Default 64 KiB. */
 const MAX_WS_MSG = Math.max(4096, Number(process.env.BP_MAX_WS_MSG) || 65536);
-/** Optional Origin allowlist (comma-separated). Empty = allow all. */
-const WS_ORIGINS = String(process.env.BP_WS_ORIGINS || '')
-  .split(',')
-  .map((s) => s.trim())
-  .filter(Boolean);
-
 const PORT = Number(process.env.PORT) || 9000;
 const PUBLIC = path.join(__dirname, 'public');
+
 
 /** @type {import('./lib/store').MemoryStore|null} */
 let store = null;
@@ -73,17 +72,32 @@ const MIME = {
   '.js': 'application/javascript; charset=utf-8',
   '.css': 'text/css; charset=utf-8',
   '.json': 'application/json',
+  '.webmanifest': 'application/manifest+json',
   '.png': 'image/png',
   '.jpg': 'image/jpeg',
   '.svg': 'image/svg+xml',
   '.ico': 'image/x-icon',
   '.woff2': 'font/woff2',
-  '.map': 'application/json'
+  '.map': 'application/json',
+  '.txt': 'text/plain; charset=utf-8'
 };
 
-function sendFile(res, filePath) {
+/** Extensions eligible for on-the-fly gzip (text-like assets). */
+const COMPRESSIBLE = new Set([
+  '.html', '.js', '.css', '.json', '.svg', '.webmanifest', '.txt', '.map'
+]);
+
+
+/**
+ * Serve a static file with optional gzip when the client accepts it.
+ * @param {import('http').IncomingMessage} req
+ * @param {import('http').ServerResponse} res
+ * @param {string} filePath
+ */
+function sendFile(req, res, filePath) {
   fs.readFile(filePath, (err, data) => {
     if (err) {
+      applySecurityHeaders(res);
       res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' });
       res.end('Not found');
       return;
@@ -94,7 +108,34 @@ function sendFile(res, filePath) {
       // Prevent stale mobile WebView cache of gameplay/CSS (was causing "random" anim feel)
       headers['Cache-Control'] = 'no-store, no-cache, must-revalidate';
       headers['Pragma'] = 'no-cache';
+    } else if (ext === '.svg' || ext === '.webmanifest' || ext === '.woff2' ||
+               ext === '.png' || ext === '.jpg' || ext === '.ico') {
+      headers['Cache-Control'] = 'public, max-age=86400';
     }
+
+    // Copy security headers into the response map before writeHead
+    applySecurityHeaders({
+      setHeader(k, v) { headers[k] = v; }
+    });
+
+    const accept = String((req && req.headers && req.headers['accept-encoding']) || '');
+    const wantGzip = COMPRESSIBLE.has(ext) && data.length > 512 && /\bgzip\b/.test(accept);
+
+    if (wantGzip) {
+      zlib.gzip(data, { level: 6 }, (zerr, compressed) => {
+        if (zerr || !compressed || compressed.length >= data.length) {
+          res.writeHead(200, headers);
+          res.end(data);
+          return;
+        }
+        headers['Content-Encoding'] = 'gzip';
+        headers['Vary'] = 'Accept-Encoding';
+        res.writeHead(200, headers);
+        res.end(compressed);
+      });
+      return;
+    }
+
     res.writeHead(200, headers);
     res.end(data);
   });
@@ -696,7 +737,7 @@ class MatchRoom {
       try {
         this._confirmDetach(token, seat);
       } catch (e) {
-        console.warn('confirmDetach', e && e.message);
+        log('warn', 'confirmDetach', { err: e && e.message });
       }
     }, grace);
   }
@@ -1803,6 +1844,7 @@ function tryStartPrivate(lobby) {
 
 const server = http.createServer((req, res) => {
   try {
+    applySecurityHeaders(res);
     res.setHeader('Access-Control-Allow-Origin', '*');
     res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
     if (req.method === 'OPTIONS') {
@@ -1814,19 +1856,31 @@ const server = http.createServer((req, res) => {
     if (url === '/health') {
       let wsClients = 0;
       try { wsClients = wss.clients.size; } catch (_) {}
+      let liveRooms = 0;
+      let endedRooms = 0;
+      for (const r of rooms.values()) {
+        if (r && r.status === 'ended') endedRooms += 1;
+        else liveRooms += 1;
+      }
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({
         ok: true,
         service: 'block-puzzle',
+        version: PKG_VERSION,
         crossplay: true,
         protocolVersion: 1,
         rooms: rooms.size,
+        roomsLive: liveRooms,
+        roomsEnded: endedRooms,
         queue: totalQueued(),
         privateLobbies: privateLobbies.size,
         presence: presence.size,
         wsClients,
         store: store ? store.kind : 'none',
-        uptime: Math.floor(process.uptime())
+        uptime: Math.floor(process.uptime()),
+        node: process.version,
+        pid: process.pid,
+        memoryRss: process.memoryUsage().rss
       }));
       return;
     }
@@ -1839,13 +1893,14 @@ const server = http.createServer((req, res) => {
     }
     fs.stat(filePath, (err, st) => {
       if (!err && st.isFile()) {
-        sendFile(res, filePath);
+        sendFile(req, res, filePath);
         return;
       }
       // SPA fallback
-      sendFile(res, path.join(PUBLIC, 'index.html'));
+      sendFile(req, res, path.join(PUBLIC, 'index.html'));
     });
   } catch (e) {
+    try { applySecurityHeaders(res); } catch (_) {}
     res.writeHead(500);
     res.end('Server error');
   }
@@ -1856,25 +1911,10 @@ const wss = new WebSocketServer({
   maxPayload: MAX_WS_MSG,
   perMessageDeflate: false
 });
+wss.on('error', (err) => {
+  try { log('error', 'wss error', { message: err && err.message, code: err && err.code }); } catch (_) {}
+});
 
-/** Simple per-IP connection rate limit (new WS handshakes). */
-const _connHits = new Map();
-function allowWsConnection(ip) {
-  const key = ip || 'unknown';
-  const now = Date.now();
-  let e = _connHits.get(key);
-  if (!e || now - e.t0 > 10000) {
-    e = { t0: now, n: 0 };
-    _connHits.set(key, e);
-  }
-  e.n += 1;
-  if (_connHits.size > 5000) {
-    for (const [k, v] of _connHits) {
-      if (now - v.t0 > 30000) _connHits.delete(k);
-    }
-  }
-  return e.n <= 40; // max 40 new connections / 10s per IP
-}
 
 server.on('upgrade', (req, socket, head) => {
   try {
@@ -1882,7 +1922,7 @@ server.on('upgrade', (req, socket, head) => {
     if (u === '/ws' || u.startsWith('/ws?')) {
       if (WS_ORIGINS.length) {
         const origin = String(req.headers.origin || '');
-        if (origin && !WS_ORIGINS.includes(origin)) {
+        if (!isOriginAllowed(origin)) {
           socket.write('HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n');
           socket.destroy();
           return;
@@ -1927,21 +1967,22 @@ function resolveMatchCtx(ws, data) {
   return { room, token, matchId };
 }
 
-/** Per-socket message rate limit (non-place). Place has its own limits. */
-function allowWsMessage(ws) {
-  const now = Date.now();
-  if (!ws._msgWindow || now - ws._msgWindow.t0 > 1000) {
-    ws._msgWindow = { t0: now, n: 0 };
-  }
-  ws._msgWindow.n += 1;
-  return ws._msgWindow.n <= 60;
-}
 
 wss.on('connection', (ws) => {
   ws._token = uid('t');
   ws._matchId = null;
   ws.isAlive = true;
   ws._msgWindow = null;
+  // Prevent unhandled 'error' (e.g. max payload) from crashing the process
+  ws.on('error', (err) => {
+    try {
+      log('warn', 'ws error', {
+        code: err && err.code,
+        message: err && err.message,
+        token: ws._token || null
+      });
+    } catch (_) {}
+  });
   ws.on('pong', () => { ws.isAlive = true; });
   send(ws, {
     type: 'hello',
@@ -2068,7 +2109,7 @@ wss.on('connection', (ws) => {
           let r = rooms.get(matchId);
           if (!r) {
             r = MatchRoom.restore(snap);
-            if (r) console.log('[store] restored room', matchId, 'status=', r.status);
+            if (r) log('info', 'store restored room on rejoin', { matchId, status: r.status });
           }
           if (!r) {
             send(ws, { type: 'rejoin_fail', reason: 'not_found', matchId: matchId });
@@ -2392,6 +2433,51 @@ wss.on('connection', (ws) => {
       )).then(finish).catch(finish);
       return;
     }
+    if (type === 'friend_code_check') {
+      const code = String(data.code || data.friendCode || '').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 6);
+      if (!code || code.length !== 6) {
+        send(ws, { type: 'friend_code_check_result', code: code || '', ok: false, reason: 'bad_code' });
+        return;
+      }
+      if (ws._friendCode && code === ws._friendCode) {
+        send(ws, { type: 'friend_code_check_result', code, ok: false, reason: 'self' });
+        return;
+      }
+      // Live presence first
+      const live = presence.get(code);
+      if (live && live.ws && live.ws.readyState === 1) {
+        send(ws, {
+          type: 'friend_code_check_result',
+          code,
+          ok: true,
+          online: true,
+          name: String(live.name || '').slice(0, 24) || code,
+          trophies: live.trophies | 0
+        });
+        return;
+      }
+      // Recently seen (persisted presence)
+      const finish = (snap) => {
+        if (snap && (snap.name || snap.lastSeen)) {
+          send(ws, {
+            type: 'friend_code_check_result',
+            code,
+            ok: true,
+            online: false,
+            name: String(snap.name || '').slice(0, 24) || code,
+            trophies: (snap.trophies | 0)
+          });
+        } else {
+          send(ws, { type: 'friend_code_check_result', code, ok: false, reason: 'not_found' });
+        }
+      };
+      if (store && typeof store.loadPresence === 'function') {
+        store.loadPresence(code).then(finish).catch(() => finish(null));
+      } else {
+        finish(null);
+      }
+      return;
+    }
     if (type === 'presence_search') {
       const raw = String(data.q || data.query || '').trim();
       const q = raw.toUpperCase().replace(/[^A-Z0-9А-ЯЁ\s\-_]/gi, '').slice(0, 24);
@@ -2644,7 +2730,7 @@ async function boot() {
   try {
     store = await createStore();
   } catch (e) {
-    console.warn('[store] init failed, using memory:', e && e.message);
+    log('warn', 'store init failed, using memory', { err: e && e.message });
     store = await createStore(); // createStore already falls back
   }
 
@@ -2666,12 +2752,12 @@ async function boot() {
           const room = MatchRoom.restore(data);
           if (room) n++;
         } catch (err) {
-          console.warn('[store] restore failed', id, err && err.message);
+          log('warn', 'store restore failed', { roomId: id, err: err && err.message });
         }
       }
-      if (n) console.log('[store] restored', n, 'room(s)');
+      if (n) log('info', 'store restored rooms', { count: n });
     } catch (e) {
-      console.warn('[store] list/restore error:', e && e.message);
+      log('warn', 'store list/restore error', { err: e && e.message });
     }
 
     // Restore queue intents + presence soft state (players re-attach on reconnect)
@@ -2687,7 +2773,7 @@ async function boot() {
           pendingQueueIntents.set(e.token, e);
           qi++;
         }
-        if (qi) console.log('[store] restored', qi, 'queue intent(s)');
+        if (qi) log('info', 'store restored queue intents', { count: qi });
       }
       const codes = await store.listPresenceCodes();
       let pi = 0;
@@ -2709,9 +2795,9 @@ async function boot() {
           pi++;
         } catch (_) {}
       }
-      if (pi) console.log('[store] restored', pi, 'presence entr(y/ies)');
+      if (pi) log('info', 'store restored presence', { count: pi });
     } catch (e) {
-      console.warn('[store] meta restore error:', e && e.message);
+      log('warn', 'store meta restore error', { err: e && e.message });
     }
   }
 
@@ -2721,12 +2807,17 @@ async function boot() {
   }, 15000);
 
   server.listen(PORT, '0.0.0.0', () => {
-    console.log('Block Puzzle on http://0.0.0.0:' + PORT + ' | ws /ws | store=' + (store && store.kind));
+    log('info', 'server listening', {
+      port: PORT,
+      ws: '/ws',
+      store: store && store.kind,
+      origins: WS_ORIGINS.length ? WS_ORIGINS.length : 'any'
+    });
   });
 }
 
 boot().catch((e) => {
-  console.error('boot failed', e);
+  log('error', 'boot failed', { err: e && (e.stack || e.message || String(e)) });
   process.exit(1);
 });
 

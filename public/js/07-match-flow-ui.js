@@ -20,9 +20,9 @@ function showMatchLoading(label, title, sub) {
   const lab = document.getElementById('miLabel');
   const tit = document.getElementById('miTitle');
   const su = document.getElementById('miSub');
-  if (lab) lab.textContent = label || 'Загрузка';
-  if (tit) tit.textContent = title || 'Подключение…';
-  if (su) su.textContent = sub || 'Проверяем, что оба игрока на месте';
+  if (lab) lab.textContent = label || (typeof globalThis.t==='function'?globalThis.t('js.loading','Загрузка'):'Загрузка');
+  if (tit) tit.textContent = title || (typeof globalThis.t==='function'?globalThis.t('js.connecting','Подключение…'):'Подключение…');
+  if (su) su.textContent = sub || (typeof globalThis.t==='function'?globalThis.t('js.checkingPlayers','Проверяем, что оба игрока на месте'):'Проверяем, что оба игрока на месте');
   el.classList.remove('mi-go');
   el.classList.add('visible');
   el.setAttribute('aria-hidden', 'false');
@@ -1083,7 +1083,7 @@ function showAchClaimCeremony(ach, multiList) {
   if (isMulti) {
     ov.classList.add('multi');
     const total = multiList.reduce((s, a) => s + (a.reward || 0), 0);
-    if (labelEl) labelEl.textContent = 'Награды собраны';
+    if (labelEl) labelEl.textContent = (typeof globalThis.t==='function'?globalThis.t('js.awardsCollected','Награды собраны'):'Награды собраны');
     if (badgeEl) badgeEl.textContent = '✨';
     if (titleEl) titleEl.textContent = multiList.length === 1
       ? (multiList[0].title || 'Достижение')
@@ -1110,9 +1110,9 @@ function showAchClaimCeremony(ach, multiList) {
     }
     if (rewardEl) rewardEl.textContent = `+${total} 💎`;
   } else {
-    if (labelEl) labelEl.textContent = 'Достижение получено';
+    if (labelEl) labelEl.textContent = (typeof globalThis.t==='function'?globalThis.t('js.achGot','Достижение получено'):'Достижение получено');
     if (badgeEl) badgeEl.textContent = '✓';
-    if (titleEl) titleEl.textContent = ach.title || 'Достижение';
+    if (titleEl) titleEl.textContent = ach.title || (typeof globalThis.t==='function'?globalThis.t('js.ach','Достижение'):'Достижение');
     if (descEl) descEl.textContent = ach.desc || '';
     if (countEl) { countEl.style.display = 'none'; countEl.textContent = ''; }
     if (listEl) { listEl.style.display = 'none'; listEl.innerHTML = ''; }
@@ -1520,8 +1520,8 @@ function showScoreDuel(my, opp, won, draw, oppLabel, bot) {
       if (cf) cf.innerHTML = '';
     } catch (_) {}
 
-    document.getElementById('duelNameMe').textContent = (typeof myNickname === 'string' && myNickname) ? myNickname : 'Ты';
-    document.getElementById('duelNameOpp').textContent = oppLabel || 'Соперник';
+    document.getElementById('duelNameMe').textContent = (typeof myNickname === 'string' && myNickname) ? myNickname : (typeof globalThis.t==='function'?globalThis.t('js.you','Ты'):'Ты');
+    document.getElementById('duelNameOpp').textContent = oppLabel || (typeof globalThis.t==='function'?globalThis.t('js.opp','Соперник'):'Соперник');
     document.getElementById('duelScoreMe').textContent = '0';
     document.getElementById('duelScoreOpp').textContent = '0';
 
@@ -1531,7 +1531,7 @@ function showScoreDuel(my, opp, won, draw, oppLabel, bot) {
       try {
         renderAvatarInto(avMeInner, { avatarId: myAvatarId, nick: myNickname, size: 'duel' });
       } catch (_) {
-        const initials = ((typeof myNickname === 'string' && myNickname) ? myNickname : 'Ты').slice(0, 2).toUpperCase();
+        const initials = ((typeof myNickname === 'string' && myNickname) ? myNickname : (typeof globalThis.t==='function'?globalThis.t('js.you','Ты'):'Ты')).slice(0, 2).toUpperCase();
         avMeInner.textContent = initials;
       }
       avMeInner.style.display = '';
@@ -1575,7 +1575,7 @@ function showScoreDuel(my, opp, won, draw, oppLabel, bot) {
       }
       const verd = document.getElementById('duelVerdict');
       verd.className = 'score-duel-verdict ' + (draw ? 'draw' : won ? 'win' : 'lose');
-      verd.textContent = draw ? 'Ничья' : won ? 'Победа!' : 'Поражение';
+      verd.textContent = draw ? (typeof globalThis.t==='function'?globalThis.t('js.draw','Ничья'):'Ничья') : won ? (typeof globalThis.t==='function'?globalThis.t('js.victory','Победа!'):'Победа!') : (typeof globalThis.t==='function'?globalThis.t('js.defeat','Поражение'):'Поражение');
       ov.classList.add('show-verdict');
       try { hapticTap(18); } catch (_) {}
     }, 1000));

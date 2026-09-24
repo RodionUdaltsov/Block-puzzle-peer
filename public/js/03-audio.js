@@ -380,10 +380,10 @@ function runAchievementToast(ach) {
   el.classList.remove('in', 'out', 'complete', 'shine');
   void el.offsetWidth;
 
-  el.querySelector('.ach-toast-title').textContent = ach ? ach.title : 'Достижение';
+  el.querySelector('.ach-toast-title').textContent = ach ? ach.title : (typeof globalThis.t==='function'?globalThis.t('js.ach','Достижение'):'Достижение');
   el.querySelector('.ach-toast-desc').textContent = ach ? (ach.desc || '') : '';
   el.querySelector('.ach-toast-reward').textContent = ach ? `+${ach.reward} 💎` : '';
-  el.querySelector('.ach-toast-status .msg').textContent = 'Выполняется…';
+  el.querySelector('.ach-toast-status .msg').textContent = (typeof globalThis.t==='function'?globalThis.t('js.achProgress','Выполняется…'):'Выполняется…');
   const bar = el.querySelector('.ach-toast-bar > i');
   bar.style.transition = 'none';
   bar.style.width = '12%';
@@ -400,7 +400,7 @@ function runAchievementToast(ach) {
   }, 280);
   scheduleAch(() => {
     el.classList.add('complete', 'shine');
-    el.querySelector('.ach-toast-status .msg').textContent = 'Выполнено · забери награду';
+    el.querySelector('.ach-toast-status .msg').textContent = (typeof globalThis.t==='function'?globalThis.t('js.achDone','Выполнено · забери награду'):'Выполнено · забери награду');
     try { hapticTap(16); } catch (_) {}
   }, 950);
 

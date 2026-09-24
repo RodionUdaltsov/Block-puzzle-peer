@@ -2937,3 +2937,30 @@
       0%   { opacity: 1; transform: translate(-50%, -50%) scale(1.5); }
       100% { opacity: 0; transform: translate(calc(-50% + var(--sx)), calc(-50% + var(--sy))) scale(0.15); }
     }
+
+
+/* Scrollable lists without visible scrollbar */
+.hide-scrollbar,
+.nick-search-results {
+  scrollbar-width: none; /* Firefox */
+  -ms-overflow-style: none; /* IE/Edge legacy */
+}
+.hide-scrollbar::-webkit-scrollbar,
+.nick-search-results::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+  display: none;
+}
+.friend-find-nick-btn {
+  width: 100%;
+  margin-top: 8px;
+}
+
+/* Friend-request toast actions must stay clickable above swipe layer */
+.fr-toast .fr-toast-actions,
+.fr-toast .fr-toast-actions button,
+.fr-toast .fr-toast-dismiss {
+  pointer-events: auto !important;
+  position: relative;
+  z-index: 2;
+}

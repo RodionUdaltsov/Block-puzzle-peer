@@ -2439,7 +2439,7 @@ function checkStuck() {
     else {
       document.getElementById('finalScore').textContent = score;
       const msg = document.getElementById('gameOverMsg');
-      if (msg) msg.textContent = 'Места больше нет';
+      if (msg) msg.textContent = (typeof globalThis.t==='function'?globalThis.t('js.noSpace','Места больше нет'):'Места больше нет');
       clearClassicSave();
       gameOverEl.classList.add('visible');
     }

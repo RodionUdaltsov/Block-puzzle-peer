@@ -137,7 +137,7 @@ function compressAvatarFile(file) {
 }
 function sanitizeNick(raw) {
   let s = String(raw || '').replace(/[<>]/g, '').replace(/\s+/g, ' ').trim();
-  if (s.length > 7) s = s.slice(0, 7);
+  if (s.length > 9) s = s.slice(0, 9);
   return s;
 }
 function saveProfile(data) {
@@ -176,10 +176,10 @@ function saveProfile(data) {
 function refreshProfileUI() {
   renderAvatarInto(document.getElementById('homeProfileAv'), { avatarId: myAvatarId, nick: myNickname });
   const hn = document.getElementById('homeProfileName');
-  if (hn) hn.textContent = myNickname || 'Гость';
+  if (hn) hn.textContent = myNickname || (typeof globalThis.t==='function'?globalThis.t('js.guest','Гость'):'Гость');
   renderAvatarInto(document.getElementById('profileAvBig'), { avatarId: myAvatarId, nick: myNickname, big: true });
   const heroN = document.getElementById('profileHeroName');
-  if (heroN) heroN.textContent = myNickname || 'Гость';
+  if (heroN) heroN.textContent = myNickname || (typeof globalThis.t==='function'?globalThis.t('js.guest','Гость'):'Гость');
   const prev = document.getElementById('profileStatusPreview');
   if (prev) prev.textContent = myStatus || '';
   const codeEl = document.getElementById('profileFriendCode');
@@ -495,7 +495,7 @@ function cancelOutgoingRequest(code) {
   );
   const finish = () => {
     removeOutgoingPending(code);
-if (frOutgoingTimer) { clearTimeout(frOutgoingTimer); frOutgoingTimer = null; }
+    if (frOutgoingTimer) { clearTimeout(frOutgoingTimer); frOutgoingTimer = null; }
     frSearchBusy = false;
     notifyFriendReqCancel(code);
     setFriendAddStatus('Заявка отменена', 'ok');
@@ -513,7 +513,6 @@ if (frOutgoingTimer) { clearTimeout(frOutgoingTimer); frOutgoingTimer = null; }
 function updateFriendsSectionCounts() {
   let reqN = (frIncoming ? frIncoming.length : 0) + (frOutgoingPending ? frOutgoingPending.length : 0);
   try {
-    if (null && mpRoomCode) reqN += 1;
     if (typeof chPending !== 'undefined' && chPending && chPending.room) reqN += 1;
     if (typeof rmPending !== 'undefined' && rmPending) reqN += 1;
   } catch (_) {}
@@ -528,7 +527,6 @@ function updateFriendsSectionCounts() {
 function renderOutgoingPending(animateEnter) {
   const list = document.getElementById('friendOutList');
   if (!list) return;
-  // drop stale (>7 days)
   const week = 7 * 24 * 3600 * 1000;
   frOutgoingPending = frOutgoingPending.filter(p => p && p.code && (Date.now() - (p.ts || 0)) < week);
   saveOutgoingPending();
@@ -537,29 +535,24 @@ function renderOutgoingPending(animateEnter) {
     updateFriendsSectionCounts();
     return;
   }
-  // Preserve existing cards that already match — only add missing / remove gone (no flicker)
   const existing = new Map();
   list.querySelectorAll('.friend-req-card[data-code]').forEach(el => {
     existing.set(el.getAttribute('data-code'), el);
   });
   const keepCodes = new Set(frOutgoingPending.map(p => p.code));
-  // Remove cards no longer pending (without anim here — callers animate first)
   existing.forEach((el, code) => {
-    if (!keepCodes.has(code) && !el.classList.contains('friend-exit')) {
-      el.remove();
-    }
+    if (!keepCodes.has(code) && !el.classList.contains('friend-exit')) el.remove();
   });
   frOutgoingPending.forEach((p, i) => {
     let card = existing.get(p.code);
-    const t = p.ts ? new Date(p.ts).toLocaleString('ru-RU', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }) : '';
-    const label = (p.name && p.name.toUpperCase() !== p.code) ? p.name : 'Игрок';
+    const ts = p.ts ? new Date(p.ts).toLocaleString('ru-RU', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }) : '';
+    const label = (p.name && p.name.toUpperCase() !== p.code) ? p.name : (typeof globalThis.t==='function'?globalThis.t('js.player','Игрок'):'Игрок');
     if (card) {
-      // Update text in place — never re-run enter animation
       const nameEl = card.querySelector('.f-name');
       const metaEl = card.querySelector('.f-meta');
       const av = card.querySelector('.f-av');
       if (nameEl && nameEl.textContent !== label) nameEl.textContent = label;
-      if (metaEl) metaEl.textContent = 'Исходящая · ' + p.code + (t ? ' · ' + t : '');
+      if (metaEl) metaEl.textContent = (typeof globalThis.t==='function'?globalThis.t('js.outgoing','Исходящая'):'Исходящая') + ' · ' + p.code + (ts ? ' · ' + ts : '');
       if (av) {
         const initials = label.slice(0, 2).toUpperCase();
         av.childNodes.forEach(node => {
@@ -568,7 +561,6 @@ function renderOutgoingPending(animateEnter) {
       }
       return;
     }
-    // New card
     card = document.createElement('div');
     card.className = 'friend-req-card' + (animateEnter ? ' friend-enter' : '');
     card.setAttribute('data-code', p.code);
@@ -576,21 +568,21 @@ function renderOutgoingPending(animateEnter) {
     card.innerHTML =
       '<div class="f-av">' + label.slice(0, 2).toUpperCase() + '</div>' +
       '<div class="f-info">' +
-        '<div class="f-name">' + label + '</div>' +
-        '<div class="f-meta">Исходящая · ' + p.code + (t ? ' · ' + t : '') + '</div>' +
+        '<div class="f-name">' + label.replace(/</g, '') + '</div>' +
+        '<div class="f-meta">' + (typeof globalThis.t==='function'?globalThis.t('js.outgoing','Исходящая'):'Исходящая') + ' · ' + p.code + (ts ? ' · ' + ts : '') + '</div>' +
       '</div>' +
       '<div class="f-actions">' +
-        '<button type="button" class="ghost fr-out-cancel" data-code="' + p.code + '">Отменить</button>' +
+        '<button type="button" class="ghost fr-out-cancel" data-code="' + p.code + '">✕</button>' +
       '</div>';
     list.appendChild(card);
-    const btn = card.querySelector('.fr-out-cancel');
-    if (btn) btn.addEventListener('click', () => cancelOutgoingRequest(btn.dataset.code));
-  });
-  // Re-bind cancel on any card that lost listeners (safety)
-  list.querySelectorAll('.fr-out-cancel').forEach(btn => {
-    if (btn._bpBound) return;
-    btn._bpBound = true;
-    btn.addEventListener('click', () => cancelOutgoingRequest(btn.dataset.code));
+    const cancelBtn = card.querySelector('.fr-out-cancel');
+    if (cancelBtn) {
+      cancelBtn.addEventListener('click', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        try { cancelOutgoingRequest(p.code); } catch (_) {}
+      });
+    }
   });
   updateFriendsSectionCounts();
 }
@@ -598,17 +590,9 @@ function renderOutgoingPending(animateEnter) {
 function setFriendAddStatus(msg, kind) {
   const el = document.getElementById('friendAddStatus');
   if (el) {
-    // Keep inline status minimal / empty — primary feedback is top-right toast
-    el.textContent = '';
-    el.className = 'friend-add-status';
+    el.textContent = msg || '';
+    el.className = 'friend-add-status' + (kind ? ' ' + kind : '');
   }
-  if (!msg) return;
-  const label = kind === 'err' ? 'Ошибка'
-    : kind === 'ok' ? 'Готово'
-    : kind === 'wait' ? 'Ожидание'
-    : 'Друзья';
-  const toastKind = kind === 'err' ? 'bad' : (kind === 'ok' ? 'ok' : '');
-  try { showInfoToast(label, String(msg), toastKind); } catch (_) {}
 }
 
 /** Deliver social message via server relay (replaces server one-shot). */
@@ -828,14 +812,14 @@ function startToastCountdown(elId, seconds, onZero) {
   const el = document.getElementById(elId);
   let left = Math.max(1, seconds | 0);
   const paint = () => {
-    if (el) el.textContent = 'Скроется через ' + left + ' с';
+    if (el) el.textContent = (typeof globalThis.t==='function'?globalThis.t('js.hideIn','Скроется через {n} с',{n:left}):('Скроется через '+left+' с'));
   };
   paint();
   const tickId = setInterval(() => {
     left -= 1;
     if (left <= 0) {
       clearInterval(tickId);
-      if (el) el.textContent = 'Скроется…';
+      if (el) el.textContent = (typeof globalThis.t==='function'?globalThis.t('js.hiding','Скроется…'):'Скроется…');
       if (onZero) onZero();
       return;
     }
@@ -863,11 +847,11 @@ function showFrToast(req) {
   toast.classList.remove('out', 'dragging');
   void toast.offsetWidth;
   toast.classList.add('visible');
-  frToastCountTimer = startToastCountdown('frToastCountdown', 5, null);
+  frToastCountTimer = startToastCountdown('frToastCountdown', 15, null);
   frToastHideTimer = setTimeout(() => {
     frToastHideTimer = null;
     if (frActiveToast === req) dismissFrToast(true);
-  }, 5000);
+  }, 15000);
 }
 
 /** Hide toast only — request stays in frIncoming / «Друзья» */
@@ -959,6 +943,40 @@ function respondFriendReq(req, accept) {
   } catch (_) {}
 }
 
+
+(function bindFrToastButtons() {
+  if (window._bpFrToastBtns) return;
+  window._bpFrToastBtns = true;
+  const acc = document.getElementById('frToastAccept');
+  const dec = document.getElementById('frToastDecline');
+  const dis = document.getElementById('frToastDismiss');
+  if (acc) {
+    acc.addEventListener('click', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const req = frActiveToast;
+      if (!req) return;
+      try { respondFriendReq(req, true); } catch (err) { console.warn('fr toast accept', err); }
+    });
+  }
+  if (dec) {
+    dec.addEventListener('click', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const req = frActiveToast;
+      if (!req) return;
+      try { respondFriendReq(req, false); } catch (err) { console.warn('fr toast decline', err); }
+    });
+  }
+  if (dis) {
+    dis.addEventListener('click', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      try { dismissFrToast(true); } catch (_) {}
+    });
+  }
+})();
+
 // Swipe right / up to dismiss friend-request toast (request stays pending)
 (function bindFrToastSwipe() {
   const toast = document.getElementById('frToast');
@@ -1033,11 +1051,12 @@ function renderFriendRequests() {
   frIncoming.forEach((r, i) => {
     const initials = (r.name || r.code || '?').slice(0, 2).toUpperCase();
     const cups = r.trophies != null ? ` · 🏆 ${r.trophies}` : '';
-    parts.push(`<div class="friend-req-card friend-only-card" data-ri="${i}">
+    const nm = (r.name || r.code || 'Игрок').toString().replace(/</g, '');
+    parts.push(`<div class="friend-req-card" data-code="${r.code}">
       <div class="f-av">${initials}</div>
       <div class="f-info">
-        <div class="f-name">${r.name || 'Игрок'}</div>
-        <div class="f-meta"><span class="req-badge">Друзья</span>${r.code}${cups}</div>
+        <div class="f-name">${nm}</div>
+        <div class="f-meta"><span class="req-badge">Заявка</span>${r.code}${cups}</div>
       </div>
       <div class="f-actions">
         <button class="primary fr-acc" data-ri="${i}">✓</button>
@@ -1045,6 +1064,7 @@ function renderFriendRequests() {
       </div>
     </div>`);
   });
+
   if (null && mpRoomCode) {
     const r = null;
     const initials = (r.name || r.code || '?').slice(0, 2).toUpperCase();
@@ -1289,8 +1309,7 @@ function renderFriends(highlightNew) {
     return name.includes(q) || code.includes(q);
   });
   if (!indexed.length) {
-    list.innerHTML = '<div class="friends-section-empty">Никого не найдено по «' +
-      (getFriendSearchQuery().replace(/[<>&]/g, '') || '…') + '»</div>';
+    list.innerHTML = '';
     updateFriendsSectionCounts();
     return;
   }
@@ -1372,7 +1391,8 @@ function cleanupOutgoingSearch() {
   frSearchBusy = false;
 }
 
-function sendFriendRequestToCode(code, displayName) {
+function sendFriendRequestToCode(code, displayName, opts) {
+  opts = opts || {};
   code = normalizeFriendCode(code);
   if (!code || code.length !== 6) {
     setFriendAddStatus('Нужен код из 6 символов', 'err');
@@ -1398,6 +1418,39 @@ function sendFriendRequestToCode(code, displayName) {
   if (!checkCrossPlatformReady()) return;
   if (frSearchBusy) {
     setFriendAddStatus('Подождите…', 'wait');
+    return;
+  }
+
+  // Mandatory existence check (unless already verified, e.g. from nick search pick)
+  if (!opts.skipCheck) {
+    frSearchBusy = true;
+    setFriendAddStatus((typeof globalThis.t==='function'?globalThis.t('friends.codeChecking','Проверяем код…'):'Проверяем код…'), 'wait');
+    try { ensureFriendPresence(); } catch (_) {}
+    try { MatchClient.connect(); } catch (_) {}
+    let settled = false;
+    const onCheck = (data) => {
+      if (settled) return;
+      if (!data || String(data.code || '').toUpperCase() !== code) return;
+      settled = true;
+      try { MatchClient.off('friend_code_check_result', onCheck); } catch (_) {}
+      frSearchBusy = false;
+      if (!data.ok) {
+        const reason = data.reason || 'not_found';
+        if (reason === 'self') setFriendAddStatus('Это твой собственный код', 'err');
+        else setFriendAddStatus((typeof globalThis.t==='function'?globalThis.t('friends.codeNotFound','Такого кода нет'):'Такого кода нет'), 'err');
+        return;
+      }
+      sendFriendRequestToCode(code, data.name || displayName, { skipCheck: true });
+    };
+    try { MatchClient.on('friend_code_check_result', onCheck); } catch (_) {}
+    try { MatchClient.friendCodeCheck(code); } catch (_) {}
+    setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      try { MatchClient.off('friend_code_check_result', onCheck); } catch (_) {}
+      frSearchBusy = false;
+      setFriendAddStatus((typeof globalThis.t==='function'?globalThis.t('friends.codeNotFound','Такого кода нет'):'Такого кода нет'), 'err');
+    }, 8000);
     return;
   }
 
@@ -1429,128 +1482,43 @@ function sendFriendRequestToCode(code, displayName) {
     frSearchBusy = false;
     if (!ok) {
       setFriendAddStatus('Заявка сохранена. Друг получит её, когда зайдёт в игру', 'ok');
+      try {
+        _friendFindCache = (_friendFindCache || []).filter(r => normalizeFriendCode(r.code) !== code);
+      } catch (_) {}
       try { renderOutgoingPending(false); } catch (_) {}
       try { refreshFriendFindCards(); } catch (_) {}
       return;
     }
     setFriendAddStatus('Заявка отправлена — ждём ответа', 'ok');
+    try {
+      _friendFindCache = (_friendFindCache || []).filter(r => normalizeFriendCode(r.code) !== code);
+    } catch (_) {}
     try { renderOutgoingPending(false); } catch (_) {}
     try { refreshFriendFindCards(); } catch (_) {}
   });
 }
 
-/** Add by 6-char code OR resolve online nickname via presence_search */
+/** Add friend by 6-char code (existence checked on server). Nickname search uses the modal. */
 function addFriendByCode(raw) {
   const input = document.getElementById('friendCodeInput');
   const typed = String(raw != null ? raw : (input && input.value) || '').trim();
   if (input) input.value = typed;
 
   if (!typed) {
-    setFriendAddStatus('Введи код (6 символов) или ник онлайн-игрока', 'err');
+    setFriendAddStatus('Введи код друга из 6 символов', 'err');
     return;
   }
 
   const asCode = normalizeFriendCode(typed);
-  // Exact friend code path
-  if (asCode.length === 6 && asCode === typed.toUpperCase().replace(/[^A-Z0-9]/g, '')) {
+  if (asCode.length === 6) {
     sendFriendRequestToCode(asCode);
     return;
   }
 
-  // Nickname path — need server presence search
-  if (typed.length < 2) {
-    setFriendAddStatus('Ник слишком короткий (минимум 2 символа)', 'err');
-    return;
-  }
-  if (typeof MatchClient === 'undefined') {
-    setFriendAddStatus('Сервер недоступен. Обнови страницу.', 'err');
-    return;
-  }
-  if (frSearchBusy) {
-    setFriendAddStatus('Подождите…', 'wait');
-    return;
-  }
-  frSearchBusy = true;
-  setFriendAddStatus('Ищем «' + typed.slice(0, 20) + '» онлайн…', 'wait');
-  try { ensureFriendPresence(); } catch (_) {}
-  try { MatchClient.connect(); } catch (_) {}
-
-  let settled = false;
-  const finish = (ok) => {
-    if (settled) return;
-    settled = true;
-    frSearchBusy = false;
-    try { MatchClient.off('presence_search_result', onRes); } catch (_) {}
-  };
-  const onRes = (data) => {
-    if (!data || settled) return;
-    // Accept any search response while we're busy resolving a nick
-    const results = Array.isArray(data.results) ? data.results : [];
-    const q = typed.toLowerCase();
-    const exact = results.filter(r => String(r.name || '').toLowerCase() === q);
-    const pool = exact.length ? exact : results;
-    if (!pool.length) {
-      finish(false);
-      setFriendAddStatus('Никого с таким ником сейчас нет в сети. Попробуй код друга.', 'err');
-      return;
-    }
-    if (pool.length > 1 && exact.length !== 1) {
-      finish(false);
-      setFriendAddStatus('Несколько игроков — уточни ник или используй код', 'wait');
-      // Show them in find list
-      try { renderFriendFindResults(pool, typed); } catch (_) {}
-      return;
-    }
-    const pick = pool[0];
-    finish(true);
-    const code = normalizeFriendCode(pick.code);
-    if (input) input.value = code;
-    sendFriendRequestToCode(code, pick.name);
-  };
-  try { MatchClient.on('presence_search_result', onRes); } catch (_) {}
-  try { MatchClient.presenceSearch(typed); } catch (_) {}
-  setTimeout(() => {
-    if (!settled) {
-      finish(false);
-      setFriendAddStatus('Поиск не ответил. Проверь связь или введи код.', 'err');
-    }
-  }, 8000);
+  // Incomplete code — nick search is a separate button/modal
+  setFriendAddStatus('Нужен код из 6 символов. Поиск по нику — кнопка ниже.', 'err');
 }
 
-function animateRemoveOutgoing(code, after) {
-  const list = document.getElementById('friendOutList');
-  if (!list) { if (after) after(); return; }
-  const card = list.querySelector('.friend-req-card[data-code="' + code + '"]')
-    || (list.querySelector('.fr-out-cancel[data-code="' + code + '"]') || {}).closest?.('.friend-req-card');
-  if (!card) { if (after) after(); return; }
-  card.classList.add('friend-exit');
-  setTimeout(() => { if (after) after(); }, 360);
-}
-
-// Bind toast buttons once DOM ready (script at end of body)
-(function bindFrToast() {
-  const acc = document.getElementById('frToastAccept');
-  const dec = document.getElementById('frToastDecline');
-  const dis = document.getElementById('frToastDismiss');
-  if (acc) acc.addEventListener('click', () => {
-    if (frActiveToast) respondFriendReq(frActiveToast, true);
-  });
-  if (dec) dec.addEventListener('click', () => {
-    if (frActiveToast) respondFriendReq(frActiveToast, false);
-  });
-  if (dis) dis.addEventListener('click', (e) => {
-    e.preventDefault();
-    e.stopPropagation();
-    dismissFrToast(true);
-    try { setFriendAddStatus('Заявка сохранена', 'ok'); } catch (_) {}
-  });
-})();
-
-
-
-/* ── Find online players (uses friendSearchInput — one search field) ───── */
-let _friendFindTimer = null;
-let _friendFindLastQ = '';
 /** Last successful presence_search results (kept when input is cleared). */
 let _friendFindCache = [];
 
@@ -1562,160 +1530,133 @@ function activityFindLabel(act) {
   return a;
 }
 
-function refreshFriendFindCards() {
-  if (!_friendFindCache || !_friendFindCache.length) return;
-  renderFriendFindResults(_friendFindCache, _friendFindLastQ, { keepEmpty: true });
+
+function openNickSearchModal(prefill) {
+  const modal = document.getElementById('nickSearchModal');
+  const input = document.getElementById('nickSearchInput');
+  const results = document.getElementById('nickSearchResults');
+  const empty = document.getElementById('nickSearchEmpty');
+  if (!modal) return;
+  if (results) results.innerHTML = '';
+  if (empty) empty.style.display = 'none';
+  if (input) input.value = prefill ? String(prefill).slice(0, 11) : '';
+  modal.classList.add('visible');
+  modal.setAttribute('aria-hidden', 'false');
+  try { if (input) input.focus(); } catch (_) {}
 }
 
-function renderFriendFindResults(results, q, opts) {
-  opts = opts || {};
-  const list = document.getElementById('friendFindList');
-  const empty = document.getElementById('friendFindEmpty');
-  if (!list) return;
-  results = Array.isArray(results) ? results : [];
-  if (results.length) _friendFindCache = results.slice();
+function closeNickSearchModal() {
+  const modal = document.getElementById('nickSearchModal');
+  if (!modal) return;
+  modal.classList.remove('visible');
+  modal.setAttribute('aria-hidden', 'true');
+}
 
-  list.innerHTML = '';
-  if (!results.length) {
-    if (empty && !opts.keepEmpty) {
+function runNickSearchFromModal() {
+  const input = document.getElementById('nickSearchInput');
+  const resultsEl = document.getElementById('nickSearchResults');
+  const empty = document.getElementById('nickSearchEmpty');
+  const q = String((input && input.value) || '').trim();
+  if (q.length < 2) {
+    if (empty) { empty.style.display = ''; empty.textContent = 'Введите минимум 2 символа'; }
+    return;
+  }
+  if (typeof MatchClient === 'undefined') {
+    if (empty) { empty.style.display = ''; empty.textContent = 'Сервер недоступен'; }
+    return;
+  }
+  if (resultsEl) resultsEl.innerHTML = '';
+  if (empty) { empty.style.display = ''; empty.textContent = 'Ищем…'; }
+  try { ensureFriendPresence(); } catch (_) {}
+  try { MatchClient.connect(); } catch (_) {}
+  let settled = false;
+  const onRes = (data) => {
+    if (settled || !data) return;
+    settled = true;
+    try { MatchClient.off('presence_search_result', onRes); } catch (_) {}
+    renderNickSearchResults(Array.isArray(data.results) ? data.results : [], q);
+  };
+  try { MatchClient.on('presence_search_result', onRes); } catch (_) {}
+  try { MatchClient.presenceSearch(q); } catch (_) {}
+  setTimeout(() => {
+    if (settled) return;
+    settled = true;
+    try { MatchClient.off('presence_search_result', onRes); } catch (_) {}
+    if (empty) {
       empty.style.display = '';
-      empty.textContent = q
-        ? ('Никого не нашли по «' + String(q).slice(0, 20) + '». Игрок должен быть онлайн.')
-        : '';
-      if (!q) empty.style.display = 'none';
+      empty.textContent = (typeof globalThis.t==='function'?globalThis.t('friends.notFoundNick','Никого не нашли'):'Никого не нашли');
+    }
+  }, 8000);
+}
+
+function renderNickSearchResults(results, q) {
+  const list = document.getElementById('nickSearchResults');
+  const empty = document.getElementById('nickSearchEmpty');
+  if (!list) return;
+  list.innerHTML = '';
+  results = Array.isArray(results) ? results : [];
+  if (!results.length) {
+    if (empty) {
+      empty.style.display = '';
+      empty.textContent = (typeof globalThis.t==='function'?globalThis.t('friends.notFoundNick','Никого не нашли'):'Никого не нашли')
+        + (q ? (' · «' + String(q).slice(0, 20) + '»') : '');
     }
     return;
   }
   if (empty) empty.style.display = 'none';
-
   for (const r of results) {
-    const code = normalizeFriendCode(r.code || '');
+    const code = normalizeFriendCode(r.code);
     if (!code) continue;
     const name = String(r.name || code).slice(0, 20);
-    const isSelf = code === myFriendCode;
-    const isFriend = !isSelf && friends.some(f => f.code === code);
-    const pending = !isFriend && frOutgoingPending.some(p => p.code === code);
     const card = document.createElement('div');
-    card.className = 'friend-find-card' + (isFriend ? ' is-friend' : '');
-    card.dataset.code = code;
-
-    const av = document.createElement('div');
-    av.className = 'ff-av';
-    av.textContent = (name.charAt(0) || '?').toUpperCase();
-
-    const meta = document.createElement('div');
-    meta.className = 'ff-meta';
-    const nm = document.createElement('div');
-    nm.className = 'ff-name';
-    nm.textContent = name;
-    const sub = document.createElement('div');
-    sub.className = 'ff-sub';
-    const parts = [code];
-    if (typeof r.trophies === 'number') parts.push('🏆 ' + (r.trophies | 0));
-    parts.push(activityFindLabel(r.activity));
-    sub.textContent = parts.join(' · ');
-    meta.appendChild(nm);
-    meta.appendChild(sub);
-
+    card.className = 'friend-req-card';
+    card.style.cssText = 'display:flex;align-items:center;justify-content:space-between;gap:8px;padding:10px;margin-bottom:6px;border-radius:12px;background:var(--surface2)';
+    card.innerHTML =
+      '<div style="min-width:0"><div style="font-weight:800">' + name.replace(/</g, '') + '</div>' +
+      '<div style="font-size:0.75rem;opacity:0.7">' + code + (r.trophies != null ? ' · 🏆 ' + (r.trophies | 0) : '') + '</div></div>';
     const btn = document.createElement('button');
     btn.type = 'button';
-    btn.className = 'primary ff-add';
-    if (isSelf) {
-      btn.textContent = 'Это ты';
-      btn.disabled = true;
-    } else if (isFriend) {
-      btn.textContent = 'В друзьях';
-      btn.disabled = true;
-      card.classList.add('is-friend');
-    } else if (pending) {
-      btn.textContent = 'Отправлено';
-      btn.disabled = true;
-    } else {
-      btn.textContent = 'Добавить';
-      btn.addEventListener('click', () => {
-        try {
-          const codeInput = document.getElementById('friendCodeInput');
-          if (codeInput) codeInput.value = code;
-        } catch (_) {}
-        addFriendByCode(code);
-        // Optimistic: pending until accept/decline
-        try {
-          if (!frOutgoingPending.some(p => p.code === code)) {
-            frOutgoingPending.unshift({ code, name: name, ts: Date.now() });
-            saveOutgoingPending();
-          } else {
-            updateOutgoingPendingName(code, name);
-          }
-        } catch (_) {}
-        btn.textContent = 'Отправлено';
-        btn.disabled = true;
-        try { renderOutgoingPending(false); } catch (_) {}
-      });
-    }
-    card.appendChild(av);
-    card.appendChild(meta);
+    btn.className = 'primary';
+    btn.textContent = (typeof globalThis.t==='function'?globalThis.t('friends.add','Добавить'):'Добавить');
+    btn.addEventListener('click', () => {
+      closeNickSearchModal();
+      const mainIn = document.getElementById('friendCodeInput');
+      if (mainIn) mainIn.value = code;
+      sendFriendRequestToCode(code, name, { skipCheck: true });
+    });
     card.appendChild(btn);
     list.appendChild(card);
   }
 }
 
-function runFriendFind(q) {
-  q = String(q || '').trim();
-  _friendFindLastQ = q;
-  const empty = document.getElementById('friendFindEmpty');
-  if (!q || q.length < 2) {
-    // Do NOT clear cards — keep last results (names stay after wiping input)
-    if (empty) empty.style.display = 'none';
-    return;
-  }
-  if (typeof MatchClient === 'undefined') {
-    if (empty) {
-      empty.style.display = '';
-      empty.textContent = 'Нет связи с сервером';
-    }
-    return;
-  }
-  if (empty) {
-    empty.style.display = '';
-    empty.textContent = 'Ищем…';
-  }
-  try { ensureFriendPresence(); } catch (_) {}
-  try { MatchClient.connect(); } catch (_) {}
-  try { MatchClient.presenceSearch(q); } catch (_) {}
+function syncFindByNickButton() {
+  const btn = document.getElementById('btnFindByNick');
+  if (btn) btn.style.display = '';
 }
+
+
+function refreshFriendFindCards() { /* online find list removed */ }
+
+function renderFriendFindResults(results, q, opts) { /* online find list removed */ }
+
+function runFriendFind(q) { /* online find list removed */ }
 
 function bindFriendFindUI() {
   if (window._friendFindBound) return;
   window._friendFindBound = true;
-  // Single search field under "Друзья" also drives online presence search
   const input = document.getElementById('friendSearchInput');
   if (input) {
+    input.addEventListener('input', () => {
+      try { renderFriends(false); } catch (_) {}
+    });
     input.addEventListener('keydown', (e) => {
       if (e.key === 'Enter') {
         e.preventDefault();
-        runFriendFind(input.value);
+        try { renderFriends(false); } catch (_) {}
       }
-    });
-    input.addEventListener('input', () => {
-      if (_friendFindTimer) clearTimeout(_friendFindTimer);
-      const q = input.value;
-      // Local friends list filter is handled elsewhere; here only online search
-      _friendFindTimer = setTimeout(() => {
-        if (String(q).trim().length >= 2) runFriendFind(q);
-        // empty input: keep cached results, only hide "searching" hint
-      }, 400);
-    });
-  }
-  if (typeof MatchClient !== 'undefined') {
-    MatchClient.on('presence_search_result', (data) => {
-      try {
-        if (!data) return;
-        renderFriendFindResults(data.results || [], data.q || _friendFindLastQ);
-      } catch (e) { console.warn('presence_search_result', e); }
     });
   }
 }
-
 try { bindFriendFindUI(); } catch (_) {}
 
 // Start presence when possible (WebSocket, no server)
@@ -2226,7 +2167,7 @@ function showRejoinLoading(msg) {
   const el = document.getElementById('rejoinLoading');
   if (el) {
     const sub = document.getElementById('rejoinLoadingSub');
-    if (sub) sub.textContent = msg || 'Возврат в матч…';
+    if (sub) sub.textContent = msg || (typeof globalThis.t==='function'?globalThis.t('js.returnMatch','Возврат в матч…'):'Возврат в матч…');
     el.classList.add('show');
   }
 }

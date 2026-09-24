@@ -75,6 +75,12 @@ function bindPrivateLobbyHandlers() {
       try {
         document.querySelectorAll('.lobby-dur').forEach(btn => {
           btn.classList.toggle('selected', parseInt(btn.dataset.sec, 10) === mpLobbyDuration);
+          const hostOnly = mpRole === 'host';
+          btn.disabled = !hostOnly;
+          btn.setAttribute('aria-disabled', hostOnly ? 'false' : 'true');
+          btn.style.pointerEvents = hostOnly ? '' : 'none';
+          btn.style.opacity = hostOnly ? '' : '0.55';
+          btn.style.cursor = hostOnly ? '' : 'default';
         });
       } catch (_) {}
     } catch (e) { console.warn('private_lobby', e); }
@@ -1492,14 +1498,14 @@ function endVersus(opts) {
   }
 
   const timeInfo = document.getElementById('vsTimeLeftInfo');
-  if (vsTimeLeft <= 0) timeInfo.textContent = 'Время вышло';
-  else timeInfo.textContent = `Осталось времени: ${formatTimeLeft(vsTimeLeft)}`;
+  if (vsTimeLeft <= 0) timeInfo.textContent = (typeof globalThis.t==='function'?globalThis.t('js.timeUp','Время вышло'):'Время вышло');
+  else timeInfo.textContent = (typeof globalThis.t==='function'?globalThis.t('js.timeLeft','Осталось времени: {t}',{t:formatTimeLeft(vsTimeLeft)}):('Осталось времени: '+formatTimeLeft(vsTimeLeft)));
 
   // Prepare review bar
   const reviewTitle = document.getElementById('reviewTitle');
   const reviewMeta = document.getElementById('reviewMeta');
   reviewTitle.textContent = resultLabel + (delta ? ` · ${delta > 0 ? '+' : ''}${delta} 🏆` : '');
-  reviewMeta.textContent = `Ты ${my} — ${opp} ${oppName} · осталось ${formatTimeLeft(vsTimeLeft)}`;
+  reviewMeta.textContent = (typeof globalThis.t==='function'?globalThis.t('js.you','Ты'):'Ты') + ' ' + my + ' — ' + opp + ' ' + oppName + ' · ' + (typeof globalThis.t==='function'?globalThis.t('js.timeLeft','Осталось времени: {t}',{t:formatTimeLeft(vsTimeLeft)}):('Осталось времени: '+formatTimeLeft(vsTimeLeft)));
 
   const liveCtrl = document.getElementById('vsLiveControls');
   const footer = document.getElementById('vsFooter');
@@ -1854,8 +1860,8 @@ function startReplay(match, opts) {
 
   const reviewBar = document.getElementById('reviewBar');
   reviewBar.classList.add('visible');
-  document.getElementById('reviewTitle').textContent = `Повтор · ${match.result}`;
-  document.getElementById('reviewMeta').textContent = `Событие ${replayIndex} / ${match.moves.length} · 0:0`;
+  document.getElementById('reviewTitle').textContent = (typeof globalThis.t==='function'?globalThis.t('js.replay','Повтор'):'Повтор') + ' · ' + match.result;
+  document.getElementById('reviewMeta').textContent = (typeof globalThis.t==='function'?globalThis.t('js.event','Событие'):'Событие') + ' ' + replayIndex + ' / ' + match.moves.length + ' · 0:0';
   replaySpeed = 1;
   replayClockMs = 0;
   if (match.duration) timerEl.textContent = formatReplayClock(match.duration * 1000);
@@ -3358,11 +3364,11 @@ function showBotPickOverlay(bot, phase) {
     '<span style="opacity:' + (st[String(sec)] ? 1 : 0.25) + '">★</span>'
   ).join('');
   if (phase === 'spin') {
-    label.textContent = 'Прокрутка соперников…';
+    label.textContent = (typeof globalThis.t==='function'?globalThis.t('js.scrollOpps','Прокрутка соперников…'):'Прокрутка соперников…');
     av.classList.add('spin');
     name.classList.add('bot-pick-name-spin');
   } else {
-    label.textContent = 'Твой соперник';
+    label.textContent = (typeof globalThis.t==='function'?globalThis.t('js.yourOpponent','Твой соперник'):'Твой соперник');
     av.classList.remove('spin');
     name.classList.remove('bot-pick-name-spin');
     void name.offsetWidth;
@@ -3539,8 +3545,8 @@ document.getElementById('profileAvatarFile')?.addEventListener('change', async (
     try {
       const t = document.getElementById('infoToast');
       if (t) {
-        document.getElementById('infoToastLabel').textContent = 'Аватар';
-        document.getElementById('infoToastText').textContent = (err && err.message) || 'Ошибка загрузки';
+        document.getElementById('infoToastLabel').textContent = (typeof globalThis.t==='function'?globalThis.t('js.avatar','Аватар'):'Аватар');
+        document.getElementById('infoToastText').textContent = (err && err.message) || (typeof globalThis.t==='function'?globalThis.t('js.loadError','Ошибка загрузки'):'Ошибка загрузки');
         t.classList.add('visible');
         clearTimeout(t._hide);
         t._hide = setTimeout(() => t.classList.remove('visible'), 2600);
@@ -3573,8 +3579,8 @@ document.getElementById('btnProfileSave')?.addEventListener('click', () => {
     try {
       const t = document.getElementById('infoToast');
       if (t) {
-        document.getElementById('infoToastLabel').textContent = 'Профиль';
-        document.getElementById('infoToastText').textContent = res.err || 'Ошибка';
+        document.getElementById('infoToastLabel').textContent = (typeof globalThis.t==='function'?globalThis.t('js.profile','Профиль'):'Профиль');
+        document.getElementById('infoToastText').textContent = res.err || (typeof globalThis.t==='function'?globalThis.t('js.error','Ошибка'):'Ошибка');
         t.classList.add('visible');
         clearTimeout(t._hide);
         t._hide = setTimeout(() => t.classList.remove('visible'), 2400);
@@ -3586,8 +3592,8 @@ document.getElementById('btnProfileSave')?.addEventListener('click', () => {
   try {
     const t = document.getElementById('infoToast');
     if (t) {
-      document.getElementById('infoToastLabel').textContent = 'Профиль';
-      document.getElementById('infoToastText').textContent = 'Сохранено';
+      document.getElementById('infoToastLabel').textContent = (typeof globalThis.t==='function'?globalThis.t('js.profile','Профиль'):'Профиль');
+      document.getElementById('infoToastText').textContent = (typeof globalThis.t==='function'?globalThis.t('js.saved','Сохранено'):'Сохранено');
       t.classList.add('visible');
       clearTimeout(t._hide);
       t._hide = setTimeout(() => t.classList.remove('visible'), 1800);
@@ -3600,8 +3606,8 @@ document.getElementById('btnProfileCopyCode')?.addEventListener('click', () => {
   try {
     const t = document.getElementById('infoToast');
     if (t) {
-      document.getElementById('infoToastLabel').textContent = 'Код';
-      document.getElementById('infoToastText').textContent = 'Скопирован';
+      document.getElementById('infoToastLabel').textContent = (typeof globalThis.t==='function'?globalThis.t('js.code','Код'):'Код');
+      document.getElementById('infoToastText').textContent = (typeof globalThis.t==='function'?globalThis.t('js.codeCopied','Скопирован'):'Скопирован');
       t.classList.add('visible');
       clearTimeout(t._hide);
       t._hide = setTimeout(() => t.classList.remove('visible'), 1600);
@@ -3746,7 +3752,7 @@ document.getElementById('btnGiveUp')?.addEventListener('click', () => {
   stuckOfferEl.classList.remove('visible');
   document.getElementById('finalScore').textContent = score;
   const msg = document.getElementById('gameOverMsg');
-  if (msg) msg.textContent = 'Места больше нет';
+  if (msg) msg.textContent = (typeof globalThis.t==='function'?globalThis.t('js.noSpace','Места больше нет'):'Места больше нет');
   clearClassicSave();
   gameOverEl.classList.add('visible');
 });
@@ -4078,6 +4084,13 @@ document.getElementById('btnFriends')?.addEventListener('click', () => {
   showScreen('friends');
   setFriendAddStatus('');
   try { scheduleFriendsPresence(); } catch (_) {}
+
+  try {
+    if (typeof frIncoming !== 'undefined' && frIncoming && frIncoming[0] && typeof showFrToast === 'function') {
+      const toast = document.getElementById('frToast');
+      if (toast && !toast.classList.contains('visible')) showFrToast(frIncoming[0]);
+    }
+  } catch (_) {}
 });
 (function bindLobbyInviteModal() {
   const closeBtn = document.getElementById('btnLobbyInviteClose');
@@ -4134,9 +4147,9 @@ document.getElementById('btnAddFriend')?.addEventListener('click', () => {
 });
 document.getElementById('friendCodeInput')?.addEventListener('input', (e) => {
   const el = e.target;
-  const cur = el.value;
-  const clean = normalizeFriendCode(cur);
-  if (cur !== clean) {
+  // Code field only: A–Z0–9, max 6
+  const clean = String(el.value || '').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 6);
+  if (el.value !== clean) {
     const pos = el.selectionStart;
     el.value = clean;
     try { el.setSelectionRange(Math.min(pos, clean.length), Math.min(pos, clean.length)); } catch (_) {}
@@ -4146,12 +4159,35 @@ document.getElementById('friendCodeInput')?.addEventListener('input', (e) => {
     if (st && !frSearchBusy && st.classList.contains('err')) setFriendAddStatus('');
   }
 });
+
 document.getElementById('friendCodeInput')?.addEventListener('keydown', (e) => {
   if (e.key === 'Enter') {
     e.preventDefault();
     addFriendByCode(document.getElementById('friendCodeInput').value);
   }
 });
+
+document.getElementById('btnFindByNick')?.addEventListener('click', () => {
+  try { openNickSearchModal(''); } catch (_) {}
+});
+document.getElementById('btnNickSearchClose')?.addEventListener('click', () => {
+  try { closeNickSearchModal(); } catch (_) {}
+});
+document.getElementById('btnNickSearchGo')?.addEventListener('click', () => {
+  try { runNickSearchFromModal(); } catch (_) {}
+});
+document.getElementById('nickSearchInput')?.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') {
+    e.preventDefault();
+    try { runNickSearchFromModal(); } catch (_) {}
+  }
+});
+document.getElementById('nickSearchModal')?.addEventListener('click', (e) => {
+  if (e.target && e.target.id === 'nickSearchModal') {
+    try { closeNickSearchModal(); } catch (_) {}
+  }
+});
+
 document.getElementById('btnCopyCode')?.addEventListener('click', () => {
   copyText(myFriendCode);
   setFriendAddStatus('Код скопирован', 'ok');
@@ -4198,6 +4234,8 @@ document.getElementById('btnLobbyLeave')?.addEventListener('click', () => {
 });
 document.querySelectorAll('.lobby-dur').forEach(btn => {
   btn.addEventListener('click', () => {
+    // Only the host may change match duration; guest clicks do nothing
+    if (mpRole !== 'host') return;
     mpLobbyDuration = parseInt(btn.dataset.sec, 10) || 120;
     try {
       if (typeof MatchClient !== 'undefined' && mpRoomCode) {

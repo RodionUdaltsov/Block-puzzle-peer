@@ -1,0 +1,32 @@
+# Default: app only (file store). Redis optional via profile.
+#
+#   docker compose up -d --build
+#   BP_STORE=redis REDIS_URL=redis://redis:6379 docker compose --profile redis up -d --build
+#
+services:
+  app:
+    build: .
+    ports:
+      - "9000:9000"
+    environment:
+      PORT: "9000"
+      BP_STORE: ${BP_STORE:-file}
+      REDIS_URL: ${REDIS_URL:-}
+      BP_WS_ORIGINS: ${BP_WS_ORIGINS:-}
+      BP_LOG: ${BP_LOG:-info}
+    volumes:
+      - bp-data:/app/data
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    profiles: ["redis"]
+    restart: unless-stopped
+    volumes:
+      - bp-redis:/data
+    # ports:
+    #   - "6379:6379"
+
+volumes:
+  bp-data:
+  bp-redis:

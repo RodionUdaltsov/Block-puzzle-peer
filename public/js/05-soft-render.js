@@ -612,11 +612,11 @@ function recoverHandsFromMatchLog() {
 
 function forceShowForfeitLoss(myScoreNow, oppScoreNow) {
   try {
-    document.getElementById('vsTitle').textContent = 'Поражение · вы сдались';
+    document.getElementById('vsTitle').textContent = (typeof globalThis.t==='function'?globalThis.t('js.defeatForfeit','Поражение · вы сдались'):'Поражение · вы сдались');
     document.getElementById('vsMyScore').textContent = myScoreNow;
     document.getElementById('vsOppScore').textContent = oppScoreNow;
     const lab = document.getElementById('vsOppLabel');
-    if (lab) lab.textContent = oppName || mpOppName || 'Соперник';
+    if (lab) lab.textContent = oppName || mpOppName || (typeof globalThis.t==='function'?globalThis.t('js.opp','Соперник'):'Соперник');
     const deltaEl = document.getElementById('vsTrophyDelta');
     if (deltaEl) deltaEl.innerHTML = '<span class="muted">Сдача</span>';
     const timeInfo = document.getElementById('vsTimeLeftInfo');
@@ -999,17 +999,17 @@ function showNetBanner(html, opts) {
   actions.innerHTML = '';
   const dismiss = document.createElement('button');
   dismiss.className = 'ghost';
-  dismiss.textContent = 'Понятно';
+  dismiss.textContent = (typeof globalThis.t==='function'?globalThis.t('js.gotIt','Понятно'):'Понятно');
   dismiss.onclick = () => el.classList.remove('visible');
   actions.appendChild(dismiss);
   if (opts && opts.copyUrl) {
     const b = document.createElement('button');
     b.className = 'primary';
-    b.textContent = 'Скопировать ссылку';
+    b.textContent = (typeof globalThis.t==='function'?globalThis.t('js.copyLink','Скопировать ссылку'):'Скопировать ссылку');
     b.onclick = () => {
       try {
         copyText(location.href.split('#')[0]);
-        b.textContent = 'Скопировано';
+        b.textContent = (typeof globalThis.t==='function'?globalThis.t('js.copied','Скопировано'):'Скопировано');
       } catch (_) {}
     };
     actions.appendChild(b);
@@ -1072,7 +1072,7 @@ function showRjToast(req) {
   const name = document.getElementById('rjToastName');
   const meta = document.getElementById('rjToastMeta');
   if (av) av.textContent = (req.name || '?').slice(0, 2).toUpperCase();
-  if (name) name.textContent = req.name || 'Игрок';
+  if (name) name.textContent = req.name || (typeof globalThis.t==='function'?globalThis.t('js.player','Игрок'):'Игрок');
   if (meta) {
     const parts = [];
     if (req.code) parts.push('код ' + req.code);
@@ -1161,7 +1161,7 @@ function openRoomLobby() {
   const el = document.getElementById('roomLobby');
   if (!el) return;
   document.getElementById('lobbyCode').textContent = mpRoomCode || '————';
-  document.getElementById('lobbyTitle').textContent = mpRole === 'host' ? 'Твоя комната' : 'Комната';
+  document.getElementById('lobbyTitle').textContent = mpRole === 'host' ? (typeof globalThis.t==='function'?globalThis.t('js.yourRoom','Твоя комната'):'Твоя комната') : (typeof globalThis.t==='function'?globalThis.t('js.room','Комната'):'Комната');
   updateLobbyHostLabels();
   updateLobbyUI();
   el.classList.add('visible');
@@ -1208,7 +1208,7 @@ function updateLobbyUI() {
   if (meState) meState.textContent = mpReady ? 'Готов ✓' : 'Не готов';
   if (meSlot) meSlot.classList.toggle('ready', !!mpReady);
   if (readyBtn) {
-    readyBtn.textContent = mpReady ? 'Не готов' : 'Готов';
+    readyBtn.textContent = mpReady ? (typeof globalThis.t==='function'?globalThis.t('js.notReady','Не готов'):'Не готов') : (typeof globalThis.t==='function'?globalThis.t('js.readyBtn','Готов'):'Готов');
     readyBtn.classList.toggle('is-ready', !!mpReady);
   }
 
@@ -1249,9 +1249,16 @@ function updateLobbyUI() {
     }
   }
 
-  // Sync duration button selection
+  // Sync duration button selection (host only can change; guest is view-only)
   document.querySelectorAll('.lobby-dur').forEach(btn => {
     btn.classList.toggle('selected', parseInt(btn.dataset.sec, 10) === mpLobbyDuration);
+    const hostOnly = mpRole === 'host';
+    btn.disabled = !hostOnly;
+    btn.setAttribute('aria-disabled', hostOnly ? 'false' : 'true');
+    btn.classList.toggle('lobby-dur-locked', !hostOnly);
+    btn.style.pointerEvents = hostOnly ? '' : 'none';
+    btn.style.opacity = hostOnly ? '' : '0.55';
+    btn.style.cursor = hostOnly ? '' : 'default';
   });
 
   tryStartMpMatch();

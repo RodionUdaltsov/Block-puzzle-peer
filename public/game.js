@@ -1,7 +1,10 @@
 /**
- * Block Puzzle — entry loader (legacy entry point).
- * Prefer explicit <script src="js/0N-*.js"> tags in index.html.
- * This loader only runs if modules were not already included.
+ * LEGACY — not used in production.
+ *
+ * Production loads only `dist/client.bundle.js` from index.html.
+ * Kept for offline/dev fallback if the bundle is missing and modules are
+ * included as separate <script> tags. Safe to delete once you no longer
+ * need the unbundled multi-script load path.
  */
 (function () {
   'use strict';

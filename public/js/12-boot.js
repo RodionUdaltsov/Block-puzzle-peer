@@ -65,8 +65,8 @@ function showMatchIntro(opts) {
     const label = document.getElementById('miLabel');
     const title = document.getElementById('miTitle');
     const sub = document.getElementById('miSub');
-    if (label) label.textContent = opts.label || 'Загрузка';
-    if (title) title.textContent = opts.title || 'Почти готово…';
+    if (label) label.textContent = opts.label || (typeof globalThis.t==='function'?globalThis.t('js.loading','Загрузка'):'Загрузка');
+    if (title) title.textContent = opts.title || (typeof globalThis.t==='function'?globalThis.t('js.almostReady','Почти готово…'):'Почти готово…');
     if (sub) sub.textContent = opts.sub || '';
     el.classList.remove('mi-go');
     el.classList.add('visible');
@@ -103,8 +103,8 @@ function showMatchIntro(opts) {
     }
     matchIntroTimer = setTimeout(() => {
       el.classList.add('mi-go');
-      if (label) label.textContent = 'Готово';
-      if (title) title.textContent = opts.goText || 'Старт!';
+      if (label) label.textContent = (typeof globalThis.t==='function'?globalThis.t('js.ready','Готово'):'Готово');
+      if (title) title.textContent = opts.goText || (typeof globalThis.t==='function'?globalThis.t('js.start','Старт!'):'Старт!');
       if (sub) sub.textContent = opts.sub || '';
       matchIntroTimer = setTimeout(hideIntro, goPhase);
     }, hold);
