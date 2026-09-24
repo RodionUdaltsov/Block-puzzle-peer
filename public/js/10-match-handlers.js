@@ -1010,11 +1010,22 @@ function registerWsPresence() {
   try {
     if (typeof MatchClient === 'undefined') return;
     if (!myFriendCode) return;
+    var hint = null;
+    try {
+      hint = {
+        diamonds: typeof diamonds === 'number' ? diamonds : 0,
+        ownedSkins: typeof ownedSkins !== 'undefined' ? ownedSkins.slice() : undefined,
+        ownedBoards: typeof ownedBoards !== 'undefined' ? ownedBoards.slice() : undefined,
+        equippedSkin: typeof equippedSkinId !== 'undefined' ? equippedSkinId : undefined,
+        equippedBoard: typeof equippedBoardId !== 'undefined' ? equippedBoardId : undefined
+      };
+    } catch (_) {}
     MatchClient.registerPresence({
       friendCode: myFriendCode,
       name: myNickname,
       trophies: trophies | 0,
-      activity: 'online'
+      activity: 'online',
+      cosmeticsHint: hint
     });
     const codes = (friends || []).map(f => f.code).filter(Boolean);
     if (codes.length) MatchClient.queryPresence(codes);

@@ -539,6 +539,13 @@ function buyBoard(id) {
   const board = getBoardById(id);
   if (!board || board.price <= 0) return false;
   if (ownedBoards.includes(id)) return false;
+  // Prefer server-authoritative purchase when online
+  try {
+    if (typeof MatchClient !== 'undefined' && MatchClient.ws && MatchClient.ws.readyState === 1 && typeof MatchClient.cosmeticsBuy === 'function') {
+      MatchClient.cosmeticsBuy('board', id);
+      return true; // optimistic UI; state confirmed via cosmetics_buy_result
+    }
+  } catch (_) {}
   if (diamonds < board.price) return false;
   diamonds -= board.price;
   try { localStorage.setItem('bp_diamonds', diamonds); } catch (_) {}
@@ -554,6 +561,11 @@ function buyBoard(id) {
 }
 function equipBoard(id) {
   if (!ownedBoards.includes(id)) return false;
+  try {
+    if (typeof MatchClient !== 'undefined' && MatchClient.ws && MatchClient.ws.readyState === 1 && typeof MatchClient.cosmeticsEquip === 'function') {
+      MatchClient.cosmeticsEquip('board', id);
+    }
+  } catch (_) {}
   equippedBoardId = id;
   applyEquippedBoard();
   saveBoardsState();
@@ -637,6 +649,12 @@ function buySkin(id) {
   const skin = getSkinById(id);
   if (!skin || skin.price <= 0) return false;
   if (ownedSkins.includes(id)) return false;
+  try {
+    if (typeof MatchClient !== 'undefined' && MatchClient.ws && MatchClient.ws.readyState === 1 && typeof MatchClient.cosmeticsBuy === 'function') {
+      MatchClient.cosmeticsBuy('skin', id);
+      return true;
+    }
+  } catch (_) {}
   if (diamonds < skin.price) return false;
   diamonds -= skin.price;
   try { localStorage.setItem('bp_diamonds', diamonds); } catch (_) {}
@@ -649,6 +667,11 @@ function buySkin(id) {
 }
 function equipSkin(id) {
   if (!ownedSkins.includes(id)) return false;
+  try {
+    if (typeof MatchClient !== 'undefined' && MatchClient.ws && MatchClient.ws.readyState === 1 && typeof MatchClient.cosmeticsEquip === 'function') {
+      MatchClient.cosmeticsEquip('skin', id);
+    }
+  } catch (_) {}
   equippedSkinId = id;
   applyEquippedSkin();
   try { applyEquippedBoard(); } catch (_) {}
@@ -1243,3 +1266,79 @@ const SHAPE_WEIGHTS = _R ? _R.SHAPE_WEIGHTS : SHAPES.map(s => {
 // 15 bots: trophies roughly map to strength
 // Unique bots — custom SVG avatars, cool names, Russian voice lines
 // av: [bg, skin, accent, eye] hex colors for procedural avatar
+
+
+/* —— Server-authoritative cosmetics sync —— */
+window._bpServerCosmetics = false;
+function applyCosmeticsStateFromServer(data) {
+  if (!data || typeof data !== 'object') return;
+  try {
+    if (typeof data.diamonds === 'number' && data.diamonds >= 0) {
+      diamonds = data.diamonds;
+      try { localStorage.setItem('bp_diamonds', String(diamonds)); } catch (_) {}
+    }
+    if (Array.isArray(data.ownedSkins) && data.ownedSkins.length) {
+      ownedSkins = data.ownedSkins.map(String);
+      for (const free of FREE_SKIN_IDS) {
+        if (!ownedSkins.includes(free)) ownedSkins.push(free);
+      }
+    }
+    if (Array.isArray(data.ownedBoards) && data.ownedBoards.length) {
+      ownedBoards = data.ownedBoards.map(String);
+      for (const free of FREE_BOARD_IDS) {
+        if (!ownedBoards.includes(free)) ownedBoards.push(free);
+      }
+    }
+    if (data.equippedSkin && ownedSkins.includes(String(data.equippedSkin))) {
+      equippedSkinId = String(data.equippedSkin);
+      try { applyEquippedSkin(); } catch (_) {}
+    }
+    if (data.equippedBoard && ownedBoards.includes(String(data.equippedBoard))) {
+      equippedBoardId = String(data.equippedBoard);
+      try { applyEquippedBoard(); } catch (_) {}
+    }
+    try { saveSkinsState(); } catch (_) {}
+    try { saveBoardsState(); } catch (_) {}
+    try { updateMenuStats(); } catch (_) {}
+    try {
+      if (typeof renderShop === 'function') renderShop();
+      else if (typeof renderSkinShop === 'function') renderSkinShop();
+    } catch (_) {}
+    window._bpServerCosmetics = true;
+  } catch (_) {}
+}
+
+(function wireCosmeticsWs() {
+  function onState(data) { applyCosmeticsStateFromServer(data); }
+  function onBuy(data) {
+    if (data && data.ok) {
+      applyCosmeticsStateFromServer(data);
+      try {
+        if (data.kind === 'board') {
+          bumpAchStat('boardsBought', 1);
+          const board = getBoardById(data.id);
+          if (board && board.rarity === 'legendary') setAchStat('boardsLegendary', Math.max(1, getAchStat('boardsLegendary')));
+          checkNewAchievements();
+        } else {
+          setAchStat('skinsOwned', ownedSkins.length);
+          bumpAchStat('skinsBought', 1);
+        }
+      } catch (_) {}
+    } else if (data) {
+      applyCosmeticsStateFromServer(data);
+    }
+  }
+  function onEquip(data) {
+    if (data) applyCosmeticsStateFromServer(data);
+  }
+  function tryWire() {
+    if (typeof MatchClient === 'undefined' || typeof MatchClient.on !== 'function') {
+      setTimeout(tryWire, 400);
+      return;
+    }
+    try { MatchClient.on('cosmetics_state', onState); } catch (_) {}
+    try { MatchClient.on('cosmetics_buy_result', onBuy); } catch (_) {}
+    try { MatchClient.on('cosmetics_equip_result', onEquip); } catch (_) {}
+  }
+  tryWire();
+})();

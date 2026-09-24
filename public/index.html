@@ -1137,7 +1137,27 @@
   </div>
 
   <!-- Client bundle (ESM pipeline → dist/client.bundle.js). Sources: public/js/* -->
-  <script src="dist/client.bundle.js?v3934"></script>
+  <script src="dist/client.bundle.js?v3940"></script>
+  <!-- Deferred: private rooms UI (loaded after first paint) -->
+  <script>
+  (function loadDeferred() {
+    function inject() {
+      try {
+        var s = document.createElement('script');
+        s.src = 'dist/client.deferred.js?v3940';
+        s.async = true;
+        s.onload = function () { try { window.__bpDeferredReady = true; } catch (_) {} };
+        document.head.appendChild(s);
+      } catch (_) {}
+    }
+    if (document.readyState === 'complete') setTimeout(inject, 100);
+    else window.addEventListener('load', function () { setTimeout(inject, 100); }, { once: true });
+    // Fallback: ensure loaded within 4s even if load event missed
+    setTimeout(function () {
+      if (!window.__bpDeferredReady) inject();
+    }, 4000);
+  })();
+  </script>
   <script>
   /* menu-delegate: clicks work even if late game.js bindings failed */
   (function () {

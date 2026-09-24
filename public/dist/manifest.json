@@ -1,10 +1,11 @@
 {
-  "version": "3.9.49",
-  "hash": "babb137f32f5",
+  "version": "3.9.50",
+  "hash": "469af561ffd5",
   "minified": true,
-  "generatedAt": "2026-09-24T17:42:36.727Z",
+  "generatedAt": "2026-09-24T18:01:43.164Z",
   "modules": [
     "public/shared/rules.js",
+    "public/shared/cosmetics.js",
     "public/match-client.js",
     "public/js/00-state.js",
     "public/js/00-perf.js",
@@ -19,7 +20,6 @@
     "public/js/08-screens-gameplay.js",
     "public/js/09-offline-and-ranked.js",
     "public/js/10-match-handlers.js",
-    "public/js/11-private-rooms-ui.js",
     "public/js/12-boot.js",
     "public/js/13-performance.js"
   ],
@@ -31,111 +31,119 @@
       "bytes": 8932
     },
     {
-      "file": "public/match-client.js",
+      "file": "public/shared/cosmetics.js",
       "startLine": 268,
-      "endLine": 862,
-      "bytes": 21030
+      "endLine": 554,
+      "bytes": 9555
+    },
+    {
+      "file": "public/match-client.js",
+      "startLine": 555,
+      "endLine": 1168,
+      "bytes": 22082
     },
     {
       "file": "public/js/00-state.js",
-      "startLine": 863,
-      "endLine": 986,
+      "startLine": 1169,
+      "endLine": 1292,
       "bytes": 3120
     },
     {
       "file": "public/js/00-perf.js",
-      "startLine": 987,
-      "endLine": 1133,
+      "startLine": 1293,
+      "endLine": 1439,
       "bytes": 4232
     },
     {
       "file": "public/js/00-i18n.js",
-      "startLine": 1134,
-      "endLine": 2047,
+      "startLine": 1440,
+      "endLine": 2353,
       "bytes": 41313
     },
     {
       "file": "public/js/01-cosmetics.js",
-      "startLine": 2048,
-      "endLine": 3294,
-      "bytes": 51183
+      "startLine": 2354,
+      "endLine": 3699,
+      "bytes": 55014
     },
     {
       "file": "public/js/02-bots-achievements-settings.js",
-      "startLine": 3295,
-      "endLine": 4177,
+      "startLine": 3700,
+      "endLine": 4582,
       "bytes": 151766
     },
     {
       "file": "public/js/03-audio.js",
-      "startLine": 4178,
-      "endLine": 4658,
+      "startLine": 4583,
+      "endLine": 5063,
       "bytes": 17089
     },
     {
       "file": "public/js/04-profile-friends.js",
-      "startLine": 4659,
-      "endLine": 6991,
-      "bytes": 91306
+      "startLine": 5064,
+      "endLine": 7407,
+      "bytes": 91831
     },
     {
       "file": "public/js/05-soft-render.js",
-      "startLine": 6992,
-      "endLine": 8853,
+      "startLine": 7408,
+      "endLine": 9269,
       "bytes": 68877
     },
     {
       "file": "public/js/06-match-liveness.js",
-      "startLine": 8854,
-      "endLine": 10803,
+      "startLine": 9270,
+      "endLine": 11219,
       "bytes": 70596
     },
     {
       "file": "public/js/07-match-flow-ui.js",
-      "startLine": 10804,
-      "endLine": 12748,
+      "startLine": 11220,
+      "endLine": 13164,
       "bytes": 75517
     },
     {
       "file": "public/js/08-screens-gameplay.js",
-      "startLine": 12749,
-      "endLine": 15237,
+      "startLine": 13165,
+      "endLine": 15653,
       "bytes": 99962
     },
     {
       "file": "public/js/09-offline-and-ranked.js",
-      "startLine": 15238,
-      "endLine": 15773,
+      "startLine": 15654,
+      "endLine": 16189,
       "bytes": 20579
     },
     {
       "file": "public/js/10-match-handlers.js",
-      "startLine": 15774,
-      "endLine": 17527,
-      "bytes": 73103
-    },
-    {
-      "file": "public/js/11-private-rooms-ui.js",
-      "startLine": 17528,
-      "endLine": 21783,
-      "bytes": 168788
+      "startLine": 16190,
+      "endLine": 17954,
+      "bytes": 73628
     },
     {
       "file": "public/js/12-boot.js",
-      "startLine": 21784,
-      "endLine": 21914,
+      "startLine": 17955,
+      "endLine": 18085,
       "bytes": 5035
     },
     {
       "file": "public/js/13-performance.js",
-      "startLine": 21915,
-      "endLine": 22047,
-      "bytes": 4464
+      "startLine": 18086,
+      "endLine": 18237,
+      "bytes": 5372
     }
   ],
   "bytes": {
-    "classic": 961275,
-    "esm": 961318,
-    "classicRaw": 976909
+    "classic": 809503,
+    "esm": 809546,
+    "classicRaw": 824517
+  },
+  "deferred": {
+    "file": "client.deferred.js",
+    "modules": [
+      "public/js/11-private-rooms-ui.js"
+    ],
+    "bytes": 167444,
+    "hash": "2dbb8c8a4d8a"
   }
 }

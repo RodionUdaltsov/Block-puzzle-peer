@@ -683,11 +683,22 @@ function applyIncomingFriendDecline(data) {
 function ensureFriendPresence() {
   if (typeof MatchClient === 'undefined' || !myFriendCode) return;
   try {
+    var hint = null;
+    try {
+      hint = {
+        diamonds: typeof diamonds === 'number' ? diamonds : 0,
+        ownedSkins: typeof ownedSkins !== 'undefined' ? ownedSkins.slice() : undefined,
+        ownedBoards: typeof ownedBoards !== 'undefined' ? ownedBoards.slice() : undefined,
+        equippedSkin: typeof equippedSkinId !== 'undefined' ? equippedSkinId : undefined,
+        equippedBoard: typeof equippedBoardId !== 'undefined' ? equippedBoardId : undefined
+      };
+    } catch (_) {}
     MatchClient.registerPresence({
       friendCode: myFriendCode,
       name: myNickname || 'Игрок',
       activity: (typeof detectMyActivity === 'function' ? detectMyActivity() : 'online'),
-      trophies: typeof trophies === 'number' ? trophies : 0
+      trophies: typeof trophies === 'number' ? trophies : 0,
+      cosmeticsHint: hint
     });
   } catch (_) {}
 }

@@ -525,8 +525,27 @@
         activity: opts.activity || 'online',
         trophies: opts.trophies | 0
       };
+      // One-time migration hint so server can seed ownership from localStorage
+      if (opts.cosmeticsHint && typeof opts.cosmeticsHint === 'object') {
+        this._lastPresence.cosmeticsHint = {
+          diamonds: opts.cosmeticsHint.diamonds | 0,
+          ownedSkins: Array.isArray(opts.cosmeticsHint.ownedSkins) ? opts.cosmeticsHint.ownedSkins.slice(0, 64) : undefined,
+          ownedBoards: Array.isArray(opts.cosmeticsHint.ownedBoards) ? opts.cosmeticsHint.ownedBoards.slice(0, 64) : undefined,
+          equippedSkin: opts.cosmeticsHint.equippedSkin || undefined,
+          equippedBoard: opts.cosmeticsHint.equippedBoard || undefined
+        };
+      }
       this.connect();
       return this.send(Object.assign({ type: 'presence_register' }, this._lastPresence));
+    },
+    cosmeticsGet() {
+      return this.send({ type: 'cosmetics_get' });
+    },
+    cosmeticsBuy(kind, id) {
+      return this.send({ type: 'cosmetics_buy', kind: kind === 'board' ? 'board' : 'skin', id: String(id || '') });
+    },
+    cosmeticsEquip(kind, id) {
+      return this.send({ type: 'cosmetics_equip', kind: kind === 'board' ? 'board' : 'skin', id: String(id || '') });
     },
     queryPresence(codes) {
       return this.send({ type: 'presence_query', codes: codes || [] });

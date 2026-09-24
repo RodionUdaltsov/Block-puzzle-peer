@@ -58,6 +58,14 @@ Windows: double-click `start-server.bat` (auto-builds bundle if missing).
 - **`public/css/*`** — modular CSS sources (production bundle is `public/styles.css`)
 - **`public/js/00-i18n.js`** — lightweight ru/en i18n (`t()`, `data-i18n`, settings language chips)
 
+## Cosmetics (server-authoritative)
+
+Ownership, equip, and diamonds are stored server-side (keyed by friend code).
+On `presence_register` the server migrates local ownership once, then becomes source of truth.
+WS: `cosmetics_state`, `cosmetics_buy`, `cosmetics_equip` / `*_result`.
+Board FX are gated by `html.bp-full-board-fx` (set only on capable devices) to reduce mobile lag.
+Private rooms UI ships as deferred chunk `dist/client.deferred.js`.
+
 ## Docker
 
 ```bash

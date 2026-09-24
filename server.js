@@ -15,6 +15,7 @@ const crypto = require('crypto');
 const { WebSocketServer } = require('./vendor/ws');
 const { createStore, ROOM_TTL_LIVE, ROOM_TTL_ENDED, TOKEN_TTL, QUEUE_TTL, PRESENCE_TTL } = require('./lib/store');
 const { SKIN_PALETTES, paletteForSkin } = require('./shared/skins');
+const Cosmetics = require('./shared/cosmetics');
 const { log, PKG_VERSION } = require('./lib/logger');
 const { allowWsConnection, allowWsMessage } = require('./lib/rate-limit');
 const { WS_ORIGINS, applySecurityHeaders, isOriginAllowed } = require('./lib/security');
@@ -33,6 +34,54 @@ const {
 /** Max inbound WS JSON message size (bytes). Default 64 KiB. */
 const MAX_WS_MSG = Math.max(4096, Number(process.env.BP_MAX_WS_MSG) || 65536);
 const PORT = Number(process.env.PORT) || 9000;
+const PROFILE_TTL = 365 * 24 * 3600;
+
+/** In-memory cache friendCode → cosmetics profile (backed by store). */
+const profileCache = new Map();
+
+async function loadCosmeticsProfile(friendCode) {
+  const code = String(friendCode || '').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 16);
+  if (!code) return Cosmetics.defaultProfile();
+  if (profileCache.has(code)) return Cosmetics.normalizeProfile(profileCache.get(code));
+  let raw = null;
+  try {
+    if (store) raw = await store.loadProfile(code);
+  } catch (_) { raw = null; }
+  const p = Cosmetics.normalizeProfile(raw || Cosmetics.defaultProfile());
+  profileCache.set(code, p);
+  return p;
+}
+
+async function saveCosmeticsProfile(friendCode, profile) {
+  const code = String(friendCode || '').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 16);
+  if (!code) return;
+  const p = Cosmetics.normalizeProfile(profile);
+  profileCache.set(code, p);
+  try {
+    if (store) await store.saveProfile(code, p, PROFILE_TTL);
+  } catch (_) {}
+}
+
+function cosmeticsStatePayload(profile) {
+  const p = Cosmetics.normalizeProfile(profile);
+  return {
+    type: 'cosmetics_state',
+    diamonds: p.diamonds,
+    ownedSkins: p.ownedSkins.slice(),
+    ownedBoards: p.ownedBoards.slice(),
+    equippedSkin: p.equippedSkin,
+    equippedBoard: p.equippedBoard,
+    migrated: !!p.migrated
+  };
+}
+
+async function authorizeCosmetics(friendCode, skinId, boardId) {
+  if (!friendCode) {
+    return Cosmetics.clampCosmetics(Cosmetics.defaultProfile(), skinId, boardId);
+  }
+  const p = await loadCosmeticsProfile(friendCode);
+  return Cosmetics.clampCosmetics(p, skinId, boardId);
+}
 const PUBLIC = path.join(__dirname, 'public');
 
 
@@ -2026,35 +2075,45 @@ wss.on('connection', (ws) => {
         return;
       }
       const intent = pendingQueueIntents.get(ws._token);
-      const player = {
-        token: ws._token, ws,
-        name: String(data.name || 'Игрок').slice(0, 24),
-        trophies: Math.max(0, data.trophies | 0),
-        skinId: data.skinId ? String(data.skinId).slice(0, 32) : 'default',
-        boardId: data.boardId ? String(data.boardId).slice(0, 32) : 'field_default',
-        avatarId: data.avatarId ? String(data.avatarId).slice(0, 32) : 'init',
-        avatarCustom: (data.avatarCustom && typeof data.avatarCustom === 'string') ? String(data.avatarCustom).slice(0, 49152) : '',
-        duration: (data.duration === 60 || data.duration === 180) ? data.duration : 120,
-        expandLevel: Math.min(3, Math.max(0, data.expandLevel | 0)),
-        clientId: data.clientId ? String(data.clientId).slice(0, 64) : null,
-        // Crossplay: accept any device/OS — never segregate queues by platform
-        platform: normalizePlatform(data.platform || data.device || ws._platform),
-        os: String(data.os || ws._os || 'unknown').slice(0, 24),
-        protocolVersion: (data.protocolVersion | 0) || 1,
-        queuedAt: (intent && intent.queuedAt) || Date.now()
-      };
-      try {
-        ws._platform = player.platform;
-        ws._os = player.os;
-      } catch (_) {}
-      const opp = findMatch(player);
-      if (opp) {
-        dequeueToken(opp.token);
-        startRoom(opp, player);
-      } else {
-        enqueue(player);
-        send(ws, { type: 'queued', duration: player.duration, trophies: player.trophies, restored: !!intent });
-      }
+      const friendCode = ws._friendCode || null;
+      // Server validates ownership — client cannot equip unowned cosmetics
+      authorizeCosmetics(
+        friendCode,
+        data.skinId ? String(data.skinId).slice(0, 32) : 'default',
+        data.boardId ? String(data.boardId).slice(0, 32) : 'field_default'
+      ).then((cos) => {
+        const player = {
+          token: ws._token, ws,
+          name: String(data.name || 'Игрок').slice(0, 24),
+          trophies: Math.max(0, data.trophies | 0),
+          skinId: cos.skinId,
+          boardId: cos.boardId,
+          avatarId: data.avatarId ? String(data.avatarId).slice(0, 32) : 'init',
+          avatarCustom: (data.avatarCustom && typeof data.avatarCustom === 'string') ? String(data.avatarCustom).slice(0, 49152) : '',
+          duration: (data.duration === 60 || data.duration === 180) ? data.duration : 120,
+          expandLevel: Math.min(3, Math.max(0, data.expandLevel | 0)),
+          clientId: data.clientId ? String(data.clientId).slice(0, 64) : null,
+          platform: normalizePlatform(data.platform || data.device || ws._platform),
+          os: String(data.os || ws._os || 'unknown').slice(0, 24),
+          protocolVersion: (data.protocolVersion | 0) || 1,
+          queuedAt: (intent && intent.queuedAt) || Date.now(),
+          friendCode
+        };
+        try {
+          ws._platform = player.platform;
+          ws._os = player.os;
+        } catch (_) {}
+        const opp = findMatch(player);
+        if (opp) {
+          dequeueToken(opp.token);
+          startRoom(opp, player);
+        } else {
+          enqueue(player);
+          send(ws, { type: 'queued', duration: player.duration, trophies: player.trophies, restored: !!intent });
+        }
+      }).catch(() => {
+        send(ws, { type: 'error', code: 'cosmetics_auth', message: 'cosmetics validation failed' });
+      });
       return;
     }
     if (type === 'leave_queue') {
@@ -2230,6 +2289,7 @@ wss.on('connection', (ws) => {
       let guard = 0;
       while (privateLobbies.has(code) && guard++ < 20) code = genPrivateCode();
       const duration = (data.duration === 60 || data.duration === 180) ? data.duration : 120;
+      const hostFc = ws._friendCode || (data.friendCode ? String(data.friendCode).slice(0, 16) : null);
       const lobby = {
         code, duration, hostReady: false, guestReady: false, createdAt: Date.now(),
         host: {
@@ -2240,15 +2300,26 @@ wss.on('connection', (ws) => {
           boardId: data.boardId ? String(data.boardId).slice(0, 32) : 'field_default',
           avatarId: data.avatarId ? String(data.avatarId).slice(0, 32) : 'init',
           avatarCustom: (data.avatarCustom && typeof data.avatarCustom === 'string') ? String(data.avatarCustom).slice(0, 49152) : '',
-          friendCode: data.friendCode ? String(data.friendCode).slice(0, 16) : null,
+          friendCode: hostFc,
           platform: normalizePlatform(data.platform || ws._platform || 'web'),
           os: String(data.os || ws._os || 'unknown').slice(0, 24)
         },
         guest: null
       };
-      privateLobbies.set(code, lobby);
-      ws._privateCode = code;
-      send(ws, lobbySnapshot(lobby, 'host'));
+      // Clamp host cosmetics against server profile (async, then snapshot)
+      authorizeCosmetics(hostFc, lobby.host.skinId, lobby.host.boardId).then((cos) => {
+        lobby.host.skinId = cos.skinId;
+        lobby.host.boardId = cos.boardId;
+        privateLobbies.set(code, lobby);
+        ws._privateCode = code;
+        send(ws, lobbySnapshot(lobby, 'host'));
+      }).catch(() => {
+        lobby.host.skinId = 'default';
+        lobby.host.boardId = 'field_default';
+        privateLobbies.set(code, lobby);
+        ws._privateCode = code;
+        send(ws, lobbySnapshot(lobby, 'host'));
+      });
       return;
     }
     if (type === 'join_private') {
@@ -2279,7 +2350,8 @@ wss.on('connection', (ws) => {
       }
       // Reattach host if soft-disconnected
       if (lobby.host && !lobby.host.ws) lobby.host.ws = lobby.host.ws;
-      lobby.guest = {
+      const guestFc = ws._friendCode || (data.friendCode ? String(data.friendCode).slice(0, 16) : null);
+      const guestDraft = {
         token: ws._token, ws,
         name: String(data.name || 'Игрок').slice(0, 24),
         trophies: Math.max(0, data.trophies | 0),
@@ -2287,13 +2359,25 @@ wss.on('connection', (ws) => {
         boardId: data.boardId ? String(data.boardId).slice(0, 32) : 'field_default',
         avatarId: data.avatarId ? String(data.avatarId).slice(0, 32) : 'init',
         avatarCustom: (data.avatarCustom && typeof data.avatarCustom === 'string') ? String(data.avatarCustom).slice(0, 49152) : '',
-        friendCode: data.friendCode ? String(data.friendCode).slice(0, 16) : null,
+        friendCode: guestFc,
         platform: normalizePlatform(data.platform || ws._platform || 'web'),
         os: String(data.os || ws._os || 'unknown').slice(0, 24)
       };
-      ws._privateCode = code;
-      send(ws, lobbySnapshot(lobby, 'guest'));
-      if (lobby.host.ws) send(lobby.host.ws, lobbySnapshot(lobby, 'host'));
+      authorizeCosmetics(guestFc, guestDraft.skinId, guestDraft.boardId).then((cos) => {
+        guestDraft.skinId = cos.skinId;
+        guestDraft.boardId = cos.boardId;
+        lobby.guest = guestDraft;
+        ws._privateCode = code;
+        send(ws, lobbySnapshot(lobby, 'guest'));
+        if (lobby.host.ws) send(lobby.host.ws, lobbySnapshot(lobby, 'host'));
+      }).catch(() => {
+        guestDraft.skinId = 'default';
+        guestDraft.boardId = 'field_default';
+        lobby.guest = guestDraft;
+        ws._privateCode = code;
+        send(ws, lobbySnapshot(lobby, 'guest'));
+        if (lobby.host.ws) send(lobby.host.ws, lobbySnapshot(lobby, 'host'));
+      });
       return;
     }
     if (type === 'leave_private') {
@@ -2366,6 +2450,20 @@ wss.on('connection', (ws) => {
       }
       schedulePersistMeta();
       send(ws, { type: 'presence_ok', friendCode: code });
+      // Server-authoritative cosmetics: load/migrate profile and push state
+      (async () => {
+        try {
+          let profile = await loadCosmeticsProfile(code);
+          if (!profile.migrated && data.cosmeticsHint) {
+            profile = Cosmetics.migrateFromClient(profile, data.cosmeticsHint);
+            await saveCosmeticsProfile(code, profile);
+          } else if (!profile.migrated) {
+            profile = Cosmetics.migrateFromClient(profile, {});
+            await saveCosmeticsProfile(code, profile);
+          }
+          send(ws, cosmeticsStatePayload(profile));
+        } catch (_) {}
+      })();
       const deliverBox = (box) => {
         if (!box || !box.length) return;
         pendingSocial.delete(code);
@@ -2626,6 +2724,64 @@ wss.on('connection', (ws) => {
       if (room && room.getPlayer(token)) room.cancelRematch(token);
       return;
     }
+
+    // —— Server-authoritative cosmetics ——
+    if (type === 'cosmetics_get') {
+      const code = ws._friendCode || String(data.friendCode || '').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 16);
+      if (!code) {
+        send(ws, cosmeticsStatePayload(Cosmetics.defaultProfile()));
+        return;
+      }
+      loadCosmeticsProfile(code).then((profile) => {
+        send(ws, cosmeticsStatePayload(profile));
+      }).catch(() => {
+        send(ws, cosmeticsStatePayload(Cosmetics.defaultProfile()));
+      });
+      return;
+    }
+    if (type === 'cosmetics_buy') {
+      const code = ws._friendCode;
+      if (!code) {
+        send(ws, { type: 'cosmetics_buy_result', ok: false, error: 'no_profile' });
+        return;
+      }
+      const kind = data.kind === 'board' ? 'board' : 'skin';
+      const id = String(data.id || '').slice(0, 32);
+      loadCosmeticsProfile(code).then(async (profile) => {
+        const result = Cosmetics.tryBuy(profile, kind, id);
+        if (result.ok) {
+          await saveCosmeticsProfile(code, result.profile);
+          send(ws, Object.assign({ type: 'cosmetics_buy_result', ok: true, kind, id }, cosmeticsStatePayload(result.profile)));
+        } else {
+          send(ws, Object.assign({ type: 'cosmetics_buy_result', ok: false, error: result.error, kind, id }, cosmeticsStatePayload(result.profile)));
+        }
+      }).catch(() => {
+        send(ws, { type: 'cosmetics_buy_result', ok: false, error: 'server' });
+      });
+      return;
+    }
+    if (type === 'cosmetics_equip') {
+      const code = ws._friendCode;
+      if (!code) {
+        send(ws, { type: 'cosmetics_equip_result', ok: false, error: 'no_profile' });
+        return;
+      }
+      const kind = data.kind === 'board' ? 'board' : 'skin';
+      const id = String(data.id || '').slice(0, 32);
+      loadCosmeticsProfile(code).then(async (profile) => {
+        const result = Cosmetics.tryEquip(profile, kind, id);
+        if (result.ok) {
+          await saveCosmeticsProfile(code, result.profile);
+          send(ws, Object.assign({ type: 'cosmetics_equip_result', ok: true, kind, id }, cosmeticsStatePayload(result.profile)));
+        } else {
+          send(ws, Object.assign({ type: 'cosmetics_equip_result', ok: false, error: result.error, kind, id }, cosmeticsStatePayload(result.profile)));
+        }
+      }).catch(() => {
+        send(ws, { type: 'cosmetics_equip_result', ok: false, error: 'server' });
+      });
+      return;
+    }
+
     if (type === 'ping') {
       send(ws, { type: 'pong', t: data.t || Date.now() });
       const room = rooms.get(ws._matchId);

@@ -23,6 +23,7 @@ const MINIFY = !process.argv.includes('--no-minify');
 
 const MODULES = [
   'public/shared/rules.js',
+  'public/shared/cosmetics.js',
   'public/match-client.js',
   'public/js/00-state.js',
   'public/js/00-perf.js',
@@ -37,9 +38,13 @@ const MODULES = [
   'public/js/08-screens-gameplay.js',
   'public/js/09-offline-and-ranked.js',
   'public/js/10-match-handlers.js',
-  'public/js/11-private-rooms-ui.js',
   'public/js/12-boot.js',
   'public/js/13-performance.js'
+];
+
+/** Deferred chunk: private rooms UI — loaded after first paint / on demand */
+const DEFERRED_MODULES = [
+  'public/js/11-private-rooms-ui.js'
 ];
 
 function readVersion() {
@@ -200,6 +205,45 @@ function build() {
       classicRaw: Buffer.byteLength(bodyRaw)
     }
   };
+  // Deferred chunk (private rooms UI) — smaller main bundle, load after paint
+  let deferredBytes = 0;
+  if (typeof DEFERRED_MODULES !== 'undefined' && DEFERRED_MODULES.length) {
+    const dParts = [];
+    const dIncluded = [];
+    for (const rel of DEFERRED_MODULES) {
+      const abs = path.join(ROOT, rel);
+      if (!fs.existsSync(abs)) {
+        console.warn('[bundle] missing deferred', rel);
+        continue;
+      }
+      dParts.push(normalizeModule(rel, fs.readFileSync(abs, 'utf8')));
+      dIncluded.push(rel);
+    }
+    if (dParts.length) {
+      const dBodyRaw = dParts.join('\n');
+      const dBody = MINIFY ? lightMinify(dBodyRaw) : dBodyRaw;
+      const dHash = crypto.createHash('sha256').update(dBody).digest('hex').slice(0, 12);
+      const dBanner =
+        '/**\n * Block Puzzle deferred client chunk v' + VERSION + '\n' +
+        ' * private-rooms UI — DO NOT EDIT\n' +
+        ' * modules: ' + dIncluded.length + ' | sha256:' + dHash +
+        (MINIFY ? ' | minified' : '') + '\n */\n';
+      const dClassic =
+        dBanner +
+        '(function (global) {\n"use strict";\n' +
+        dBody +
+        '\n})(typeof globalThis !== "undefined" ? globalThis : (typeof window !== "undefined" ? window : this));\n';
+      fs.writeFileSync(path.join(OUT_DIR, 'client.deferred.js'), dClassic);
+      deferredBytes = Buffer.byteLength(dClassic);
+      manifest.deferred = {
+        file: 'client.deferred.js',
+        modules: dIncluded,
+        bytes: deferredBytes,
+        hash: dHash
+      };
+    }
+  }
+
   fs.writeFileSync(path.join(OUT_DIR, 'manifest.json'), JSON.stringify(manifest, null, 2));
   console.log(
     '[bundle] OK v' + VERSION + ' hash=' + hash +
@@ -207,6 +251,7 @@ function build() {
     (MINIFY ? ' minified' : '') +
     ' classic=' + manifest.bytes.classic + 'B' +
     ' esm=' + manifest.bytes.esm + 'B' +
+    (deferredBytes ? ' deferred=' + deferredBytes + 'B' : '') +
     (MINIFY && manifest.bytes.classicRaw
       ? ' (raw body ' + manifest.bytes.classicRaw + 'B)'
       : '')

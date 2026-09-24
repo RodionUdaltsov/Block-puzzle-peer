@@ -1,0 +1,9 @@
+/* Optional heavy board FX extras — loaded only when html.bp-full-board-fx is set.
+ * Core board styles remain in styles.css; this file is a hook for future split.
+ */
+html.bp-full-board-fx .board-wrap.board-fx-solar,
+html.bp-full-board-fx .board-wrap.board-fx-nebula,
+html.bp-full-board-fx .board-wrap.board-fx-quantum,
+html.bp-full-board-fx .board-wrap.board-fx-prismfield {
+  will-change: transform, filter;
+}

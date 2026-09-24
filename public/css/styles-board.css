@@ -1,3 +1,25 @@
+/* Gated by .bp-full-board-fx (set by 13-performance.js). Without it, heavy board FX are off. */
+html:not(.bp-full-board-fx) .board-wrap[class*="board-fx-"]:not(.board-fx-none):not(.board-fx-soft) {
+  /* Keep solid colors / soft tint; drop continuous animations & filters on low-end */
+}
+html:not(.bp-full-board-fx) .board-wrap[class*="board-fx-"] {
+  animation: none !important;
+}
+html:not(.bp-full-board-fx) .board-wrap[class*="board-fx-"]::before,
+html:not(.bp-full-board-fx) .board-wrap[class*="board-fx-"]::after {
+  animation: none !important;
+  opacity: 0.35 !important;
+  filter: none !important;
+}
+html:not(.bp-full-board-fx) .board-wrap .cell {
+  filter: none !important;
+  will-change: auto !important;
+}
+html:not(.bp-full-board-fx) body.skin-fx-prism .cell,
+html:not(.bp-full-board-fx) .skin-fx-prism .cell {
+  animation: none !important;
+}
+
 /* styles-board.css — board, cells, skins, clear FX (v3.9.31) */
     .skin-particle.sunset-spark {
       width: 6px; height: 6px;

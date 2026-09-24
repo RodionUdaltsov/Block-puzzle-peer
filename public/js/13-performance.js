@@ -19,6 +19,25 @@
 
   // Do not touch desktop unless it is clearly a low-end device.
   if (coarse && small) document.documentElement.classList.add('bp-mobile-perf');
+
+  // Full board FX (shimmer, filter, heavy keyframes) only on capable devices.
+  // Low-end / mobile-lite keep palette colors only — major lag fix on phones.
+  const prefersReduced = mm('(prefers-reduced-motion: reduce)');
+  if (!prefersReduced && !(coarse && small && lowEnd) && !mm('(max-width: 600px) and (pointer: coarse)')) {
+    document.documentElement.classList.add('bp-full-board-fx');
+  }
+  // Lazy-load optional heavy board FX stylesheet when full FX is enabled
+  if (document.documentElement.classList.contains('bp-full-board-fx')) {
+    try {
+      var link = document.createElement('link');
+      link.rel = 'stylesheet';
+      link.href = '/css/styles-board-fx.css?v=' + (document.querySelector('link[href*="styles.css"]') || {}).href;
+      // Prefer versioned path next to styles
+      link.href = 'css/styles-board-fx.css';
+      document.head.appendChild(link);
+    } catch (_) {}
+  }
+
   if ((coarse && small && lowEnd) || (lowEnd && !mm('(pointer: fine)'))) {
     document.documentElement.classList.add('bp-mobile-perf-lite');
   }
