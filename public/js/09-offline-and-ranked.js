@@ -331,6 +331,41 @@ function applyRoomState(data) {
       }).join(',');
     } catch (_) { return ''; }
   }
+  /** Prefer local slot order when remote is only a reordering of the same pieces (stops tray jump). */
+  function adoptHandStable(localArr, remoteSrc) {
+    const remote = adoptHand(remoteSrc);
+    if (!localArr || !localArr.length || localArr.length !== remote.length) return remote;
+    try {
+      const localSigs = localArr.map(p => {
+        if (!p) return 'X';
+        const sh = (p.shape || []).map(c => Array.isArray(c) ? (c[0] + ':' + c[1]) : String(c)).join(';');
+        return (p.color || '') + '|' + sh;
+      });
+      const remoteByKey = {};
+      for (let i = 0; i < remote.length; i++) {
+        const p = remote[i];
+        const sh = (p.shape || []).map(c => Array.isArray(c) ? (c[0] + ':' + c[1]) : String(c)).join(';');
+        const key = (p.color || '') + '|' + sh;
+        if (!remoteByKey[key]) remoteByKey[key] = [];
+        remoteByKey[key].push(p);
+      }
+      const out = [];
+      const usedKeys = {};
+      for (let i = 0; i < localSigs.length; i++) {
+        const key = localSigs[i];
+        const bucket = remoteByKey[key];
+        if (bucket && bucket.length) {
+          out.push(bucket.shift());
+          usedKeys[key] = true;
+        } else {
+          return remote; // shape multiset mismatch — fall back
+        }
+      }
+      return out;
+    } catch (_) {
+      return remote;
+    }
+  }
 
   try {
     // Prefer structured me/opp, then flat place_ok / opp_place fields
@@ -341,7 +376,7 @@ function applyRoomState(data) {
         if (gridSig(next) !== gridSig(grid)) { grid = next; myBoardChanged = true; }
       }
       if (Array.isArray(me.pieces) && !dragging) {
-        const next = adoptHand(me.pieces);
+        const next = adoptHandStable(pieces, me.pieces);
         const localU = (pieces || []).filter(p => p && !p.used).length;
         const remoteU = next.filter(p => p && !p.used).length;
         // Only adopt on real deal / unused-count change — never cosmetic reshuffle (causes lag + unpickable)
@@ -362,7 +397,7 @@ function applyRoomState(data) {
         if (gridSig(next) !== gridSig(grid)) { grid = next; myBoardChanged = true; }
       }
       if (Array.isArray(data.pieces) && !data.me && !dragging) {
-        const next = adoptHand(data.pieces);
+        const next = adoptHandStable(pieces, data.pieces);
         const localU = (pieces || []).filter(p => p && !p.used).length;
         const remoteU = next.filter(p => p && !p.used).length;
         const force = !!(data.deal || data._forceHand || data._rejoin);
@@ -387,7 +422,7 @@ function applyRoomState(data) {
         if (gridSig(next) !== gridSig(grid)) { grid = next; myBoardChanged = true; }
       }
       if (Array.isArray(data.mePieces) && !dragging) {
-        const next = adoptHand(data.mePieces);
+        const next = adoptHandStable(pieces, data.mePieces);
         if (handSig(next) !== handSig(pieces)) {
           const localU = (pieces || []).filter(p => p && !p.used).length;
           const remoteU = next.filter(p => p && !p.used).length;
@@ -403,15 +438,17 @@ function applyRoomState(data) {
     // Opp place animation owns the tray — never thrash opp hand mid-anim / from sync storms
     const oppAnimBusy = !!(typeof _oppPlaceAnimBusy !== 'undefined' && _oppPlaceAnimBusy);
     const fromSync = !!data._fromSync;
+    // place_ok must never overwrite opponent board/hand (concurrent place race)
+    const skipOppBoard = !!(data._fromPlaceOk || data._fromOppPlace);
 
     if (opp) {
       if (typeof opp.score === 'number' && (opp.score | 0) !== (oppScore | 0)) { oppScore = opp.score | 0; scoresChanged = true; }
-      if (Array.isArray(opp.grid) && !oppAnimBusy) {
+      if (Array.isArray(opp.grid) && !oppAnimBusy && !skipOppBoard) {
         const next = opp.grid.map(row => (row || []).slice());
         if (gridSig(next) !== gridSig(oppGrid)) { oppGrid = next; oppBoardChanged = true; }
       }
-      if (Array.isArray(opp.pieces) && !oppAnimBusy) {
-        const next = adoptHand(opp.pieces);
+      if (Array.isArray(opp.pieces) && !oppAnimBusy && !skipOppBoard) {
+        const next = adoptHandStable(oppPieces, opp.pieces);
         if (handSig(next) !== handSig(oppPieces)) {
           // On sync: only adopt if unused count differs (real deal / place), not cosmetic reshuffles
           const localU = (oppPieces || []).filter(p => p && !p.used).length;
@@ -421,29 +458,35 @@ function applyRoomState(data) {
           }
         }
       }
-      if (opp.name) { mpOppName = opp.name; oppName = opp.name; }
-      if (typeof opp.trophies === 'number') mpOppTrophies = opp.trophies | 0;
-      // Mutual cosmetics: skin / board / avatar from server state
-      if (opp.skinId && opp.skinId !== window.mpOppSkinId && typeof applyOppSkin === 'function') {
-        window.mpOppSkinId = opp.skinId;
-        try { applyOppSkin(opp.skinId); } catch (_) {}
-      }
-      if (opp.boardId && opp.boardId !== window.mpOppBoardId && typeof applyOppBoard === 'function') {
-        window.mpOppBoardId = opp.boardId;
-        try { applyOppBoard(opp.boardId); } catch (_) {}
-      }
-      if (opp.avatarId) {
-        window.mpOppAvatarId = opp.avatarId;
-        if (opp.avatarCustom) window.mpOppAvatarCustom = opp.avatarCustom;
-      }
+      // Mutual identity: name / trophies / skin / board / avatar from server
+      try {
+        if (typeof applyOppProfileFromServer === 'function') {
+          applyOppProfileFromServer(opp, { forcePaint: false });
+        } else {
+          if (opp.name) { mpOppName = opp.name; oppName = opp.name; }
+          if (typeof opp.trophies === 'number') mpOppTrophies = opp.trophies | 0;
+          if (opp.skinId && opp.skinId !== window.mpOppSkinId && typeof applyOppSkin === 'function') {
+            window.mpOppSkinId = opp.skinId;
+            try { applyOppSkin(opp.skinId); } catch (_) {}
+          }
+          if (opp.boardId && opp.boardId !== window.mpOppBoardId && typeof applyOppBoard === 'function') {
+            window.mpOppBoardId = opp.boardId;
+            try { applyOppBoard(opp.boardId); } catch (_) {}
+          }
+          if (opp.avatarId) {
+            window.mpOppAvatarId = opp.avatarId;
+            if (opp.avatarCustom) window.mpOppAvatarCustom = opp.avatarCustom;
+          }
+        }
+      } catch (_) {}
     }
     if (typeof data.oppScore === 'number' && (data.oppScore | 0) !== (oppScore | 0)) { oppScore = data.oppScore | 0; scoresChanged = true; }
-    if (Array.isArray(data.oppGrid) && !oppAnimBusy) {
+    if (Array.isArray(data.oppGrid) && !oppAnimBusy && !skipOppBoard) {
       const next = data.oppGrid.map(row => (row || []).slice());
       if (gridSig(next) !== gridSig(oppGrid)) { oppGrid = next; oppBoardChanged = true; }
     }
-    if (Array.isArray(data.oppPieces) && !oppAnimBusy) {
-      const next = adoptHand(data.oppPieces);
+    if (Array.isArray(data.oppPieces) && !oppAnimBusy && !skipOppBoard) {
+      const next = adoptHandStable(oppPieces, data.oppPieces);
       if (handSig(next) !== handSig(oppPieces)) {
         const localU = (oppPieces || []).filter(p => p && !p.used).length;
         const remoteU = next.filter(p => p && !p.used).length;

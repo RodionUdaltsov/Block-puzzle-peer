@@ -19,6 +19,7 @@ const Cosmetics = require('./shared/cosmetics');
 const { log, PKG_VERSION } = require('./lib/logger');
 const { allowWsConnection, allowWsMessage } = require('./lib/rate-limit');
 const { WS_ORIGINS, applySecurityHeaders, isOriginAllowed } = require('./lib/security');
+const { createAccounts } = require('./lib/accounts');
 
 // Shared authoritative rules (single source with client)
 const R = require('./shared/rules');
@@ -87,6 +88,7 @@ const PUBLIC = path.join(__dirname, 'public');
 
 /** @type {import('./lib/store').MemoryStore|null} */
 let store = null;
+let accountsApi = null;
 
 function persistRoom(room) {
   if (!store || !room) return;
@@ -152,12 +154,18 @@ function sendFile(req, res, filePath) {
       return;
     }
     const ext = path.extname(filePath).toLowerCase();
+    const base = path.basename(filePath).toLowerCase();
     const headers = { 'Content-Type': MIME[ext] || 'application/octet-stream' };
-    if (ext === '.html' || ext === '.js' || ext === '.css') {
-      // Prevent stale mobile WebView cache of gameplay/CSS (was causing "random" anim feel)
+    // Service worker must not be long-cached or browsers keep a stale install path
+    if (base === 'sw.js') {
       headers['Cache-Control'] = 'no-store, no-cache, must-revalidate';
       headers['Pragma'] = 'no-cache';
-    } else if (ext === '.svg' || ext === '.webmanifest' || ext === '.woff2' ||
+      headers['Service-Worker-Allowed'] = '/';
+    } else if (ext === '.html' || ext === '.js' || ext === '.css' || ext === '.webmanifest') {
+      // Prevent stale mobile WebView cache of gameplay/CSS/manifest
+      headers['Cache-Control'] = 'no-store, no-cache, must-revalidate';
+      headers['Pragma'] = 'no-cache';
+    } else if (ext === '.svg' || ext === '.woff2' ||
                ext === '.png' || ext === '.jpg' || ext === '.ico') {
       headers['Cache-Control'] = 'public, max-age=86400';
     }
@@ -1895,13 +1903,115 @@ const server = http.createServer((req, res) => {
   try {
     applySecurityHeaders(res);
     res.setHeader('Access-Control-Allow-Origin', '*');
-    res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PATCH, OPTIONS');
     if (req.method === 'OPTIONS') {
       res.writeHead(204);
       res.end();
       return;
     }
     const url = (req.url || '/').split('?')[0];
+
+    // —— JSON body helper ——
+    function readJsonBody(req, limit) {
+      limit = limit || 65536;
+      return new Promise((resolve, reject) => {
+        const chunks = [];
+        let size = 0;
+        req.on('data', (c) => {
+          size += c.length;
+          if (size > limit) {
+            reject(new Error('body_too_large'));
+            try { req.destroy(); } catch (_) {}
+            return;
+          }
+          chunks.push(c);
+        });
+        req.on('end', () => {
+          try {
+            const raw = Buffer.concat(chunks).toString('utf8');
+            if (!raw) return resolve({});
+            resolve(JSON.parse(raw));
+          } catch (e) {
+            reject(e);
+          }
+        });
+        req.on('error', reject);
+      });
+    }
+    function sendJson(res, code, obj) {
+      const body = JSON.stringify(obj);
+      res.writeHead(code, {
+        'Content-Type': 'application/json; charset=utf-8',
+        'Cache-Control': 'no-store'
+      });
+      res.end(body);
+    }
+    function bearerToken(req) {
+      const h = String((req.headers && (req.headers.authorization || req.headers.Authorization)) || '');
+      const m = /^Bearer\s+(.+)$/i.exec(h);
+      if (m) return m[1].trim();
+      // optional cookie
+      const cookie = String((req.headers && req.headers.cookie) || '');
+      const cm = /(?:^|;\s*)bp_token=([^;]+)/.exec(cookie);
+      return cm ? decodeURIComponent(cm[1]) : null;
+    }
+
+    // —— Accounts API ——
+    if (url.startsWith('/api/')) {
+      if (!accountsApi) {
+        sendJson(res, 503, { ok: false, error: 'accounts_unavailable', message: 'Сервис аккаунтов недоступен' });
+        return;
+      }
+      (async () => {
+        try {
+          if (url === '/api/auth/register' && req.method === 'POST') {
+            const body = await readJsonBody(req, 16384);
+            const result = await accountsApi.register({
+              login: body.login,
+              password: body.password,
+              nick: body.nick
+            });
+            if (!result.ok) return sendJson(res, 400, result);
+            return sendJson(res, 201, result);
+          }
+          if (url === '/api/auth/login' && req.method === 'POST') {
+            const body = await readJsonBody(req, 16384);
+            const result = await accountsApi.login({
+              login: body.login,
+              password: body.password
+            });
+            if (!result.ok) return sendJson(res, 401, result);
+            return sendJson(res, 200, result);
+          }
+          if (url === '/api/auth/logout' && req.method === 'POST') {
+            const token = bearerToken(req);
+            await accountsApi.logout(token);
+            return sendJson(res, 200, { ok: true });
+          }
+          if (url === '/api/me' && req.method === 'GET') {
+            const token = bearerToken(req);
+            const acc = await accountsApi.resolveSession(token);
+            if (!acc) return sendJson(res, 401, { ok: false, error: 'unauthorized', message: 'Требуется вход' });
+            return sendJson(res, 200, { ok: true, account: accountsApi.publicAccount(acc) });
+          }
+          if (url === '/api/me' && (req.method === 'PATCH' || req.method === 'POST')) {
+            const token = bearerToken(req);
+            const acc = await accountsApi.resolveSession(token);
+            if (!acc) return sendJson(res, 401, { ok: false, error: 'unauthorized', message: 'Требуется вход' });
+            const body = await readJsonBody(req, 65536);
+            const updated = await accountsApi.updateAccount(acc, body || {});
+            return sendJson(res, 200, { ok: true, account: updated });
+          }
+          sendJson(res, 404, { ok: false, error: 'not_found', message: 'Не найдено' });
+        } catch (e) {
+          try { log('error', 'api', { message: e && e.message }); } catch (_) {}
+          sendJson(res, 500, { ok: false, error: 'server_error', message: 'Ошибка сервера' });
+        }
+      })();
+      return;
+    }
+
     if (url === '/health') {
       let wsClients = 0;
       try { wsClients = wss.clients.size; } catch (_) {}
@@ -2580,9 +2690,11 @@ wss.on('connection', (ws) => {
       const raw = String(data.q || data.query || '').trim();
       const q = raw.toUpperCase().replace(/[^A-Z0-9А-ЯЁ\s\-_]/gi, '').slice(0, 24);
       const results = [];
+      const seenCodes = new Set();
       if (q.length >= 1) {
         const qCode = q.replace(/[^A-Z0-9]/g, '');
         const qName = raw.toLowerCase().slice(0, 24);
+        // 1) Online players from live presence
         for (const [code, p] of presence) {
           if (!p || !p.ws || p.ws.readyState !== 1) continue;
           if (ws._friendCode && code === ws._friendCode) continue; // self
@@ -2595,17 +2707,57 @@ wss.on('connection', (ws) => {
             code,
             name: name.slice(0, 24) || code,
             trophies: p.trophies | 0,
-            activity: String(p.activity || 'online').slice(0, 32)
+            activity: String(p.activity || 'online').slice(0, 32),
+            online: true
           });
+          seenCodes.add(code);
           if (results.length >= 20) break;
         }
-        // Prefer exact code match first
-        results.sort((a, b) => {
-          const ae = a.code === qCode ? 0 : 1;
-          const be = b.code === qCode ? 0 : 1;
-          if (ae !== be) return ae - be;
-          return (b.trophies | 0) - (a.trophies | 0);
-        });
+        // 2) Offline (and any registered) accounts from store — include players not currently online
+        const finishSearch = () => {
+          // Prefer exact code match first, then online, then trophies
+          results.sort((a, b) => {
+            const ae = a.code === qCode ? 0 : 1;
+            const be = b.code === qCode ? 0 : 1;
+            if (ae !== be) return ae - be;
+            const ao = a.online ? 0 : 1;
+            const bo = b.online ? 0 : 1;
+            if (ao !== bo) return ao - bo;
+            return (b.trophies | 0) - (a.trophies | 0);
+          });
+          send(ws, { type: 'presence_search_result', q: raw.slice(0, 24), results: results.slice(0, 20) });
+        };
+        if (store && typeof store.searchAccounts === 'function' && results.length < 20) {
+          store.searchAccounts(raw, 20).then((accs) => {
+            try {
+              for (const acc of (accs || [])) {
+                if (!acc || !acc.friendCode) continue;
+                const code = String(acc.friendCode).toUpperCase();
+                if (seenCodes.has(code)) continue;
+                if (ws._friendCode && code === ws._friendCode) continue;
+                const name = String(acc.nick || acc.login || code).slice(0, 24);
+                const login = String(acc.login || '').toLowerCase();
+                const nickL = String(acc.nick || '').toLowerCase();
+                const codeHit = qCode.length >= 2 && code.indexOf(qCode) === 0;
+                const nameHit = qName.length >= 2 && (login.indexOf(qName) !== -1 || nickL.indexOf(qName) !== -1);
+                if (!codeHit && !nameHit) continue;
+                results.push({
+                  code,
+                  name: name || code,
+                  trophies: (acc.trophies | 0),
+                  activity: 'offline',
+                  online: false
+                });
+                seenCodes.add(code);
+                if (results.length >= 20) break;
+              }
+            } catch (_) {}
+            finishSearch();
+          }).catch(() => finishSearch());
+          return;
+        }
+        finishSearch();
+        return;
       }
       send(ws, { type: 'presence_search_result', q: raw.slice(0, 24), results });
       return;
@@ -2885,9 +3037,11 @@ setInterval(() => {
 async function boot() {
   try {
     store = await createStore();
+    accountsApi = createAccounts(store);
   } catch (e) {
     log('warn', 'store init failed, using memory', { err: e && e.message });
     store = await createStore(); // createStore already falls back
+    try { accountsApi = createAccounts(store); } catch (_) {}
   }
 
   // Restore active rooms from persistence (rejoin after restart)

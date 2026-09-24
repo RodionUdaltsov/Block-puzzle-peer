@@ -436,6 +436,73 @@ try {
   }
 } catch (_) {}
 
+/**
+ * Apply opponent identity from authoritative server payload (match_found / state / lobby).
+ * Sets name, trophies, avatar, skin, board and refreshes versus labels.
+ */
+function applyOppProfileFromServer(opp, opts) {
+  if (!opp || typeof opp !== 'object') return false;
+  opts = opts || {};
+  let changed = false;
+  try {
+    if (opp.name) {
+      const nm = String(opp.name).slice(0, 24);
+      if (mpOppName !== nm || oppName !== nm) {
+        mpOppName = nm;
+        oppName = nm;
+        changed = true;
+      }
+    }
+    if (typeof opp.trophies === 'number' && isFinite(opp.trophies)) {
+      const t = Math.max(0, opp.trophies | 0);
+      if (mpOppTrophies !== t) {
+        mpOppTrophies = t;
+        changed = true;
+      }
+    }
+    // Avatar: always adopt when server sends a field (including 'init')
+    if (opp.avatarId != null && opp.avatarId !== '') {
+      const av = String(opp.avatarId).slice(0, 32);
+      if (window.mpOppAvatarId !== av) {
+        window.mpOppAvatarId = av;
+        changed = true;
+      }
+    } else if (!window.mpOppAvatarId) {
+      window.mpOppAvatarId = 'init';
+      changed = true;
+    }
+    if (Object.prototype.hasOwnProperty.call(opp, 'avatarCustom')) {
+      const custom = (typeof opp.avatarCustom === 'string') ? opp.avatarCustom : '';
+      if (window.mpOppAvatarCustom !== custom) {
+        window.mpOppAvatarCustom = custom;
+        changed = true;
+      }
+    }
+    if (opp.skinId && typeof applyOppSkin === 'function') {
+      if (window.mpOppSkinId !== opp.skinId) {
+        window.mpOppSkinId = opp.skinId;
+        try { applyOppSkin(opp.skinId); } catch (_) {}
+        changed = true;
+      }
+    }
+    if (opp.boardId && typeof applyOppBoard === 'function') {
+      if (window.mpOppBoardId !== opp.boardId) {
+        window.mpOppBoardId = opp.boardId;
+        try { applyOppBoard(opp.boardId); } catch (_) {}
+        changed = true;
+      }
+    }
+  } catch (_) {}
+  if (opts.forcePaint || changed || opts.alwaysPaint) {
+    try { updateVersusNameLabels(); } catch (_) {}
+    try {
+      const live = document.getElementById('trophiesLive');
+      if (live && typeof trophies === 'number') live.textContent = String(trophies);
+    } catch (_) {}
+  }
+  return changed;
+}
+
 function updateVersusNameLabels() {
   const nick = (typeof myNickname === 'string' && myNickname.trim()) ? myNickname.trim() : 'Гость';
   const t = (typeof trophies === 'number') ? trophies : 0;
@@ -450,8 +517,13 @@ function updateVersusNameLabels() {
     const nickEl = document.getElementById('vsMeNick');
     if (nickEl) nickEl.textContent = nick;
     if (avEl) {
-      try { renderAvatarInto(avEl, { avatarId: myAvatarId, nick: nick }); }
-      catch (_) { avEl.textContent = (nick[0] || '?').toUpperCase(); }
+      try {
+        renderAvatarInto(avEl, {
+          avatarId: myAvatarId || 'init',
+          nick: nick,
+          custom: (myAvatarId === 'custom' && myAvatarCustom) ? myAvatarCustom : null
+        });
+      } catch (_) { avEl.textContent = (nick[0] || '?').toUpperCase(); }
     }
   }
   const opp = document.getElementById('oppName');
@@ -470,7 +542,8 @@ function updateVersusNameLabels() {
   else if (!isOnline && currentBot && typeof currentBot.trophies === 'number') cups = currentBot.trophies;
   else if (typeof mpOppTrophies === 'number') cups = mpOppTrophies;
 
-  const avId = (isOnline ? (window.mpOppAvatarId || null) : null) || window.mpOppAvatarId || 'init';
+  const avId = window.mpOppAvatarId || 'init';
+  const avCustom = window.mpOppAvatarCustom || '';
   opp.classList.add('vs-opp-name', 'name');
   opp.innerHTML =
     '<span class="vs-opp-av" id="vsOppAv"></span>' +
@@ -483,15 +556,11 @@ function updateVersusNameLabels() {
   const oa = document.getElementById('vsOppAv');
   if (oa) {
     try {
-      if (isOnline) {
-        renderAvatarInto(oa, {
-          avatarId: window.mpOppAvatarId || 'init',
-          nick: nm,
-          custom: window.mpOppAvatarCustom || null
-        });
-      } else {
-        renderAvatarInto(oa, { avatarId: avId, nick: nm });
-      }
+      renderAvatarInto(oa, {
+        avatarId: avId,
+        nick: nm,
+        custom: (avId === 'custom' && avCustom) ? avCustom : null
+      });
     } catch (_) { oa.textContent = (nm[0] || '?').toUpperCase(); }
   }
 }
@@ -512,7 +581,8 @@ function clearBotMatchResidue() {
     const ghost = document.getElementById('aiGhost');
     if (ghost) { ghost.style.display = 'none'; ghost.innerHTML = ''; }
   } catch (_) {}
-  try { window.mpOppAvatarId = null; window.mpOppAvatarCustom = null; } catch (_) {}
+  // Do NOT wipe mpOppAvatar* here — online match_found / applyOppProfileFromServer
+  // re-applies from server. Clearing caused a flash of missing avatars.
 }
 
 

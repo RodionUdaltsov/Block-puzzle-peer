@@ -42,9 +42,18 @@ function bindMatchClientHandlers() {
       try { hideRematchOffer(); } catch (_) {}
       try { hideRematchWait(); } catch (_) {}
       try { hideRmToast && hideRmToast(false); } catch (_) {}
+      // Rematch / new match during score-duel or result modal: skip animation + final window
+      try { if (typeof dismissPostMatchResult === 'function') dismissPostMatchResult(); } catch (_) {}
       try {
         document.getElementById('versusResult')?.classList.remove('visible');
         document.getElementById('reviewBar')?.classList.remove('visible');
+        const sd = document.getElementById('scoreDuelOverlay');
+        if (sd) {
+          sd.classList.remove('visible', 'show-verdict', 'duel-win', 'duel-lose', 'duel-draw');
+          sd.setAttribute('aria-hidden', 'true');
+        }
+        document.getElementById('matchEndFreeze')?.classList.remove('visible', 'show');
+        document.body.classList.remove('match-ending');
       } catch (_) {}
       // Immediate formal loading so player always sees it
       try {
@@ -71,39 +80,18 @@ function bindMatchClientHandlers() {
       try { clearBotMatchResidue && clearBotMatchResidue(); } catch (_) {}
       try { document.body.classList.remove('vs-bots'); } catch (_) {}
       currentBot = null;
-      mpOppName = (data.opp && data.opp.name) || 'Соперник';
-      oppName = mpOppName;
-      if (data.opp && typeof data.opp.trophies === 'number') mpOppTrophies = data.opp.trophies;
-      else mpOppTrophies = (data.opp && data.opp.trophies) | 0;
+      // Authoritative opp identity from server (avatar, trophies, skin, board, name)
       try {
-        if (data.opp && data.opp.avatarId) window.mpOppAvatarId = data.opp.avatarId;
-        else window.mpOppAvatarId = null;
-        if (data.opp && data.opp.avatarCustom) window.mpOppAvatarCustom = data.opp.avatarCustom;
-        else window.mpOppAvatarCustom = '';
-        // Mutual skins / boards: both players must see each other's cosmetics
-        const oppSkin = (data.opp && data.opp.skinId) ? data.opp.skinId
-          : (data.skinId || null);
-        if (oppSkin) {
-          window.mpOppSkinId = oppSkin;
-          if (typeof applyOppSkin === 'function') applyOppSkin(oppSkin);
+        if (typeof applyOppProfileFromServer === 'function' && data && data.opp) {
+          applyOppProfileFromServer(data.opp, { alwaysPaint: true });
+        } else if (data && data.opp) {
+          mpOppName = data.opp.name || 'Соперник';
+          oppName = mpOppName;
+          if (typeof data.opp.trophies === 'number') mpOppTrophies = data.opp.trophies | 0;
+          if (data.opp.avatarId) window.mpOppAvatarId = data.opp.avatarId;
+          if (data.opp.avatarCustom) window.mpOppAvatarCustom = data.opp.avatarCustom;
+          try { updateVersusNameLabels && updateVersusNameLabels(); } catch (_) {}
         }
-        const oppBoard = (data.opp && data.opp.boardId) ? data.opp.boardId : null;
-        if (oppBoard) {
-          window.mpOppBoardId = oppBoard;
-          if (typeof applyOppBoard === 'function') applyOppBoard(oppBoard);
-        }
-        // Refresh duel avatar if UI present
-        try {
-          const avOpp = document.getElementById('avOpp') || document.querySelector('.player-panel.opp .avatar, .duel-avatar.opp');
-          if (avOpp && typeof renderAvatarInto === 'function') {
-            renderAvatarInto(avOpp, {
-              avatarId: window.mpOppAvatarId || 'init',
-              nick: mpOppName || 'Соперник',
-              custom: window.mpOppAvatarCustom || '',
-              size: 'duel'
-            });
-          }
-        } catch (_) {}
       } catch (_) {}
       vsDuration = data.duration || vsDuration || 120;
       // Clock not started yet — wait for match_go
@@ -419,6 +407,9 @@ function bindMatchClientHandlers() {
       try { if (BPState.pendingPlaceTimer) { clearTimeout(BPState.pendingPlaceTimer); BPState.pendingPlaceTimer = null; } } catch (_) {}
       const willAnimClear = ((typeof data.cleared === 'number') ? (data.cleared | 0) : 0) > 0
         && window._lastPendingPlaceSnap && window._lastPendingPlaceSnap.gridBefore;
+      // CRITICAL: never apply oppGrid from place_ok — concurrent places make it stale
+      // (server snapshot of opp was taken before their simultaneous place was processed).
+      // Opponent board/hand must only update via opp_place / opp_deal / periodic state.
       const statePayload = {
         score: data.score,
         // Skip grid when we animate clear — paint path below owns the board
@@ -426,10 +417,10 @@ function bindMatchClientHandlers() {
         pieces: data.pieces,
         deal: data.deal,
         oppScore: data.oppScore,
-        oppGrid: data.oppGrid,
         vsTimeLeft: data.vsTimeLeft,
         clockEndTs: data.clockEndTs,
-        _forceHand: true
+        _forceHand: true,
+        _fromPlaceOk: true
       };
       applyRoomState(statePayload);
       try {
@@ -533,18 +524,9 @@ function bindMatchClientHandlers() {
           }
         }
 
-        if (Array.isArray(data.oppGrid)) {
-          // Don't thrash opp board mid their clear anim
-          const oppBusy = !!(typeof _oppPlaceAnimBusy !== 'undefined' && _oppPlaceAnimBusy);
-          if (!oppBusy) {
-            oppGrid = data.oppGrid.map(row => (row || []).slice());
-            const bo = (typeof boardOpp !== 'undefined' && boardOpp) ? boardOpp : document.getElementById('boardOpp');
-            if (bo) {
-              if (typeof softRenderGrid === 'function') softRenderGrid(oppGrid, bo);
-              else if (typeof renderGrid === 'function') renderGrid(oppGrid, bo);
-            }
-          }
-        }
+        // Do NOT apply data.oppGrid here — concurrent place races make place_ok's
+        // opp snapshot stale and wipe the opponent's just-placed pieces.
+        // opp_place / state sync own the opponent board.
         if (Array.isArray(data.pieces)) {
           pieces = data.pieces.map(p => ({
             shape: (p.shape || []).map(c => Array.isArray(c) ? c.slice() : c),
@@ -1214,25 +1196,22 @@ function beginRoomRankedMatch(data, opts) {
 
     try { clearBotMatchResidue && clearBotMatchResidue(); } catch (_) {}
     currentBot = null;
-    if (data && data.opp && data.opp.name) {
-      mpOppName = data.opp.name;
-      oppName = mpOppName;
-    }
-    if (data && data.opp && typeof data.opp.trophies === 'number') {
-      mpOppTrophies = data.opp.trophies;
-    }
     try {
-      if (data && data.opp && data.opp.avatarId) window.mpOppAvatarId = data.opp.avatarId;
-      if (data && data.opp && data.opp.avatarCustom) window.mpOppAvatarCustom = data.opp.avatarCustom;
-      const oppSkin = data && data.opp && data.opp.skinId;
-      if (oppSkin) {
-        window.mpOppSkinId = oppSkin;
-        if (typeof applyOppSkin === 'function') applyOppSkin(oppSkin);
-      }
-      const oppBoard = data && data.opp && data.opp.boardId;
-      if (oppBoard) {
-        window.mpOppBoardId = oppBoard;
-        if (typeof applyOppBoard === 'function') applyOppBoard(oppBoard);
+      if (typeof applyOppProfileFromServer === 'function' && data && data.opp) {
+        applyOppProfileFromServer(data.opp, { alwaysPaint: true });
+      } else if (data && data.opp) {
+        if (data.opp.name) { mpOppName = data.opp.name; oppName = mpOppName; }
+        if (typeof data.opp.trophies === 'number') mpOppTrophies = data.opp.trophies | 0;
+        if (data.opp.avatarId) window.mpOppAvatarId = data.opp.avatarId;
+        if (data.opp.avatarCustom) window.mpOppAvatarCustom = data.opp.avatarCustom;
+        if (data.opp.skinId && typeof applyOppSkin === 'function') {
+          window.mpOppSkinId = data.opp.skinId;
+          applyOppSkin(data.opp.skinId);
+        }
+        if (data.opp.boardId && typeof applyOppBoard === 'function') {
+          window.mpOppBoardId = data.opp.boardId;
+          applyOppBoard(data.opp.boardId);
+        }
       }
     } catch (_) {}
 
@@ -1292,10 +1271,12 @@ function beginRoomRankedMatch(data, opts) {
     try { updateVersusNameLabels && updateVersusNameLabels(); } catch (_) {}
     try { updateTimerDisplay && updateTimerDisplay(); } catch (_) {}
 
-    // Cosmetics helper (shared)
+    // Cosmetics helper (shared) — opp identity always from server payload
     const applyCosmetics = () => {
       try {
-        if (data && data.opp) {
+        if (data && data.opp && typeof applyOppProfileFromServer === 'function') {
+          applyOppProfileFromServer(data.opp, { alwaysPaint: true });
+        } else if (data && data.opp) {
           if (data.opp.skinId && typeof applyOppSkin === 'function') {
             window.mpOppSkinId = data.opp.skinId;
             applyOppSkin(data.opp.skinId);
@@ -1306,23 +1287,13 @@ function beginRoomRankedMatch(data, opts) {
           }
           if (data.opp.avatarId) window.mpOppAvatarId = data.opp.avatarId;
           if (data.opp.avatarCustom) window.mpOppAvatarCustom = data.opp.avatarCustom;
+          try { updateVersusNameLabels && updateVersusNameLabels(); } catch (_) {}
         }
         if (typeof applyEquippedSkin === 'function') applyEquippedSkin();
         if (typeof applyEquippedBoard === 'function') applyEquippedBoard();
         try {
           if (typeof boardMe !== 'undefined' && boardMe) renderGrid(grid, boardMe);
           if (typeof boardOpp !== 'undefined' && boardOpp) renderGrid(oppGrid, boardOpp);
-        } catch (_) {}
-        try {
-          const avOpp = document.getElementById('avOpp') || document.querySelector('.player-panel.opp .avatar, .duel-avatar.opp');
-          if (avOpp && typeof renderAvatarInto === 'function') {
-            renderAvatarInto(avOpp, {
-              avatarId: window.mpOppAvatarId || 'init',
-              nick: (data && data.opp && data.opp.name) || mpOppName || 'Соперник',
-              custom: window.mpOppAvatarCustom || '',
-              size: 'duel'
-            });
-          }
         } catch (_) {}
       } catch (_) {}
     };

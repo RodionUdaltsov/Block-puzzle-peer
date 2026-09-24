@@ -1619,12 +1619,21 @@ function renderNickSearchResults(results, q) {
     const code = normalizeFriendCode(r.code);
     if (!code) continue;
     const name = String(r.name || code).slice(0, 20);
+    const isOnline = r.online !== false && String(r.activity || '') !== 'offline';
+    const statusLabel = isOnline
+      ? activityFindLabel(r.activity)
+      : (typeof globalThis.t === 'function' ? globalThis.t('friends.offline', 'Не в сети') : 'Не в сети');
     const card = document.createElement('div');
     card.className = 'friend-req-card';
     card.style.cssText = 'display:flex;align-items:center;justify-content:space-between;gap:8px;padding:10px;margin-bottom:6px;border-radius:12px;background:var(--surface2)';
     card.innerHTML =
-      '<div style="min-width:0"><div style="font-weight:800">' + name.replace(/</g, '') + '</div>' +
-      '<div style="font-size:0.75rem;opacity:0.7">' + code + (r.trophies != null ? ' · 🏆 ' + (r.trophies | 0) : '') + '</div></div>';
+      '<div style="min-width:0"><div style="font-weight:800">' + name.replace(/</g, '') +
+      (isOnline ? ' <span style="color:#3dce6a;font-size:0.7rem">●</span>' : ' <span style="opacity:0.45;font-size:0.7rem">○</span>') +
+      '</div>' +
+      '<div style="font-size:0.75rem;opacity:0.7">' + code +
+      (r.trophies != null ? ' · 🏆 ' + (r.trophies | 0) : '') +
+      ' · ' + statusLabel +
+      '</div></div>';
     const btn = document.createElement('button');
     btn.type = 'button';
     btn.className = 'primary';
@@ -2340,3 +2349,346 @@ function cloneHand(arr) {
   }));
 }
 
+
+/* ========== Server accounts (API) ========== */
+let authToken = null;
+try { authToken = localStorage.getItem('bp_auth_token') || null; } catch (_) {}
+let authAccount = null;
+let authMode = 'login'; // 'login' | 'register'
+
+function apiBase() {
+  try {
+    if (typeof location !== 'undefined' && location.origin && location.protocol !== 'file:') {
+      return location.origin;
+    }
+  } catch (_) {}
+  return '';
+}
+
+async function apiFetch(path, opts) {
+  opts = opts || {};
+  const headers = Object.assign({ 'Content-Type': 'application/json' }, opts.headers || {});
+  if (authToken) headers.Authorization = 'Bearer ' + authToken;
+  let res;
+  try {
+    res = await fetch(apiBase() + path, {
+      method: opts.method || 'GET',
+      headers,
+      body: opts.body != null ? JSON.stringify(opts.body) : undefined
+    });
+  } catch (netErr) {
+    return { status: 0, ok: false, data: null, networkError: true };
+  }
+  let data = null;
+  const ct = String((res.headers && res.headers.get && res.headers.get('content-type')) || '');
+  try {
+    data = await res.json();
+  } catch (_) {
+    data = null;
+  }
+  return { status: res.status, ok: res.ok, data, contentType: ct };
+}
+
+function applyServerAccount(account) {
+  if (!account) return;
+  authAccount = account;
+  try {
+    if (account.nick) {
+      myNickname = String(account.nick).slice(0, 24);
+      localStorage.setItem('bp_nickname', myNickname);
+    }
+    if (typeof account.trophies === 'number') {
+      trophies = Math.max(0, account.trophies | 0);
+      localStorage.setItem('bp_trophies', String(trophies));
+    }
+    if (account.friendCode) {
+      myFriendCode = String(account.friendCode).toUpperCase();
+      localStorage.setItem('bp_my_code', myFriendCode);
+    }
+    if (account.avatarId) {
+      myAvatarId = account.avatarId;
+      localStorage.setItem('bp_avatar', myAvatarId);
+    }
+    if (typeof account.avatarCustom === 'string') {
+      myAvatarCustom = account.avatarCustom;
+      if (myAvatarCustom) localStorage.setItem('bp_avatar_custom', myAvatarCustom);
+      else localStorage.removeItem('bp_avatar_custom');
+    }
+    if (typeof account.status === 'string') {
+      myStatus = account.status;
+      localStorage.setItem('bp_status', myStatus);
+    }
+    if (account.skinId && typeof equippedSkinId !== 'undefined') {
+      try {
+        equippedSkinId = account.skinId;
+        localStorage.setItem('bp_skin', equippedSkinId);
+        if (typeof applyEquippedSkin === 'function') applyEquippedSkin();
+      } catch (_) {}
+    }
+    if (account.boardId && typeof equippedBoardId !== 'undefined') {
+      try {
+        equippedBoardId = account.boardId;
+        localStorage.setItem('bp_board', equippedBoardId);
+        if (typeof applyEquippedBoard === 'function') applyEquippedBoard();
+      } catch (_) {}
+    }
+  } catch (_) {}
+  try { if (typeof refreshProfileUI === 'function') refreshProfileUI(); } catch (_) {}
+  try { if (typeof updateMenuStats === 'function') updateMenuStats(); } catch (_) {}
+  try { if (typeof updateVersusNameLabels === 'function') updateVersusNameLabels(); } catch (_) {}
+  updateAccountUI();
+}
+
+function updateAccountUI() {
+  const guest = document.getElementById('accountGuestBlock');
+  const logged = document.getElementById('accountLoggedBlock');
+  const label = document.getElementById('accountLoginLabel');
+  const pill = document.getElementById('profileGuestPill');
+  const isIn = !!(authToken && authAccount);
+  if (guest) guest.hidden = isIn;
+  if (logged) logged.hidden = !isIn;
+  if (label && authAccount) {
+    label.textContent = '@' + (authAccount.login || '') + ' · код ' + (authAccount.friendCode || myFriendCode || '—');
+  }
+  if (pill) {
+    if (isIn) {
+      pill.textContent = '✓ Аккаунт';
+      pill.style.color = 'var(--accent, #00d4aa)';
+    } else {
+      pill.textContent = '👤 Гость';
+      pill.style.color = '';
+    }
+  }
+}
+
+function openAuthModal(mode) {
+  authMode = mode === 'register' ? 'register' : 'login';
+  const modal = document.getElementById('authModal');
+  const nickField = document.getElementById('authNickField');
+  const title = document.getElementById('authModalTitle');
+  const submit = document.getElementById('authSubmit');
+  const err = document.getElementById('authError');
+  document.querySelectorAll('.auth-tab').forEach((tab) => {
+    tab.classList.toggle('on', tab.getAttribute('data-auth-tab') === authMode);
+  });
+  if (nickField) nickField.hidden = authMode !== 'register';
+  if (title) title.textContent = authMode === 'register' ? 'Регистрация' : 'Вход';
+  if (submit) submit.textContent = authMode === 'register' ? 'Создать аккаунт' : 'Войти';
+  if (err) { err.hidden = true; err.textContent = ''; }
+  const pass = document.getElementById('authPassword');
+  if (pass) pass.setAttribute('autocomplete', authMode === 'register' ? 'new-password' : 'current-password');
+  if (modal) {
+    modal.hidden = false;
+    modal.removeAttribute('hidden');
+    modal.setAttribute('aria-hidden', 'false');
+    modal.style.display = 'flex';
+    modal.classList.add('visible');
+  }
+  try { setTimeout(() => document.getElementById('authLogin')?.focus(), 30); } catch (_) {}
+}
+// Expose for inline onclick / console
+try { window.openAuthModal = openAuthModal; } catch (_) {}
+
+function closeAuthModal() {
+  const modal = document.getElementById('authModal');
+  if (modal) {
+    modal.hidden = true;
+    modal.setAttribute('hidden', '');
+    modal.setAttribute('aria-hidden', 'true');
+    modal.style.display = 'none';
+    modal.classList.remove('visible');
+  }
+}
+try { window.closeAuthModal = closeAuthModal; } catch (_) {}
+
+async function submitAuthForm(e) {
+  if (e) e.preventDefault();
+  const login = (document.getElementById('authLogin')?.value || '').trim();
+  const password = document.getElementById('authPassword')?.value || '';
+  const nick = (document.getElementById('authNick')?.value || '').trim();
+  const err = document.getElementById('authError');
+  const submit = document.getElementById('authSubmit');
+  if (err) { err.hidden = true; err.textContent = ''; }
+  if (submit) submit.disabled = true;
+  try {
+    const path = authMode === 'register' ? '/api/auth/register' : '/api/auth/login';
+    const body = { login, password };
+    if (authMode === 'register' && nick) body.nick = nick;
+    const { ok, data, status, networkError, contentType } = await apiFetch(path, { method: 'POST', body });
+    if (!ok || !data || !data.ok) {
+      let msg = (data && (data.message || data.error)) || null;
+      if (!msg) {
+        if (networkError || status === 0) {
+          msg = 'Нет связи с сервером. Откройте игру через http://localhost:9000 (не file://) и убедитесь, что node server.js запущен.';
+        } else if (status === 503) {
+          msg = 'Сервис аккаунтов недоступен';
+        } else if (status === 404 || (contentType && contentType.indexOf('json') === -1)) {
+          msg = 'API недоступен (сервер отдаёт не JSON). Нужен Node-сервер (server.js), а не только статические файлы на хостинге.';
+        } else if (status >= 500) {
+          msg = 'Ошибка сервера (' + status + ')';
+        } else {
+          msg = 'Ошибка (код ' + status + ')';
+        }
+      }
+      // Humanize known error codes
+      if (msg === 'accounts_unavailable') msg = 'Сервис аккаунтов недоступен';
+      if (msg === 'server_error') msg = 'Ошибка сервера';
+      if (msg === 'not_found') msg = 'API не найден — обновите страницу или перезапустите сервер';
+      if (err) { err.textContent = msg; err.hidden = false; }
+      try { console.warn('[auth]', status, data, contentType); } catch (_) {}
+      return;
+    }
+    authToken = data.token;
+    try { localStorage.setItem('bp_auth_token', authToken); } catch (_) {}
+    applyServerAccount(data.account);
+    closeAuthModal();
+    try {
+      if (typeof showInfoToast === 'function') {
+        showInfoToast('Аккаунт', authMode === 'register' ? 'Регистрация успешна' : 'Вход выполнен', 'ok');
+      }
+    } catch (_) {}
+    try { if (typeof ensureFriendPresence === 'function') ensureFriendPresence(); } catch (_) {}
+  } catch (ex) {
+    if (err) {
+      err.textContent = 'Нет связи с сервером';
+      err.hidden = false;
+    }
+  } finally {
+    if (submit) submit.disabled = false;
+  }
+}
+
+async function logoutAccount() {
+  try {
+    if (authToken) await apiFetch('/api/auth/logout', { method: 'POST' });
+  } catch (_) {}
+  authToken = null;
+  authAccount = null;
+  try { localStorage.removeItem('bp_auth_token'); } catch (_) {}
+  updateAccountUI();
+  try {
+    if (typeof showInfoToast === 'function') showInfoToast('Аккаунт', 'Вы вышли', 'info');
+  } catch (_) {}
+}
+
+/** Push local profile fields to server (when logged in). */
+async function syncProfileToServer(extra) {
+  if (!authToken) return null;
+  const body = Object.assign({
+    nick: typeof myNickname !== 'undefined' ? myNickname : undefined,
+    status: typeof myStatus !== 'undefined' ? myStatus : undefined,
+    avatarId: typeof myAvatarId !== 'undefined' ? myAvatarId : undefined,
+    avatarCustom: (typeof myAvatarId !== 'undefined' && myAvatarId === 'custom' && myAvatarCustom) ? myAvatarCustom : '',
+    trophies: typeof trophies === 'number' ? trophies : undefined,
+    skinId: typeof equippedSkinId !== 'undefined' ? equippedSkinId : undefined,
+    boardId: typeof equippedBoardId !== 'undefined' ? equippedBoardId : undefined
+  }, extra || {});
+  try {
+    const { ok, data } = await apiFetch('/api/me', { method: 'PATCH', body });
+    if (ok && data && data.account) {
+      authAccount = data.account;
+      return data.account;
+    }
+  } catch (_) {}
+  return null;
+}
+
+async function restoreSessionFromToken() {
+  if (!authToken) {
+    updateAccountUI();
+    return;
+  }
+  try {
+    const { ok, data } = await apiFetch('/api/me');
+    if (ok && data && data.account) {
+      applyServerAccount(data.account);
+    } else {
+      authToken = null;
+      authAccount = null;
+      try { localStorage.removeItem('bp_auth_token'); } catch (_) {}
+      updateAccountUI();
+    }
+  } catch (_) {
+    updateAccountUI();
+  }
+}
+
+function bindAccountUI() {
+  const bindBtn = document.getElementById('btnProfileBind');
+  if (bindBtn && !bindBtn._authBound) {
+    bindBtn._authBound = true;
+    bindBtn.addEventListener('click', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      openAuthModal('login');
+    });
+  }
+  const logoutBtn = document.getElementById('btnAccountLogout');
+  if (logoutBtn && !logoutBtn._authBound) {
+    logoutBtn._authBound = true;
+    logoutBtn.addEventListener('click', () => logoutAccount());
+  }
+  const closeBtn = document.getElementById('authModalClose');
+  if (closeBtn && !closeBtn._authBound) {
+    closeBtn._authBound = true;
+    closeBtn.addEventListener('click', closeAuthModal);
+  }
+  const backdrop = document.getElementById('authModalBackdrop');
+  if (backdrop && !backdrop._authBound) {
+    backdrop._authBound = true;
+    backdrop.addEventListener('click', closeAuthModal);
+  }
+  const form = document.getElementById('authForm');
+  if (form && !form._authBound) {
+    form._authBound = true;
+    form.addEventListener('submit', submitAuthForm);
+  }
+  document.querySelectorAll('.auth-tab').forEach((tab) => {
+    if (tab._authBound) return;
+    tab._authBound = true;
+    tab.addEventListener('click', () => {
+      openAuthModal(tab.getAttribute('data-auth-tab') === 'register' ? 'register' : 'login');
+    });
+  });
+}
+
+// Delegation: works even if profile DOM is re-rendered later
+if (!window._authDelegateBound) {
+  window._authDelegateBound = true;
+  document.addEventListener('click', (e) => {
+    const t = e.target && e.target.closest && e.target.closest('#btnProfileBind, #btnAccountLogout, #authModalClose, .auth-tab');
+    if (!t) return;
+    if (t.id === 'btnProfileBind') {
+      e.preventDefault();
+      openAuthModal('login');
+    } else if (t.id === 'btnAccountLogout') {
+      e.preventDefault();
+      logoutAccount();
+    } else if (t.id === 'authModalClose') {
+      closeAuthModal();
+    } else if (t.classList && t.classList.contains('auth-tab')) {
+      openAuthModal(t.getAttribute('data-auth-tab') === 'register' ? 'register' : 'login');
+    }
+  }, true);
+}
+
+function scheduleAuthBind() {
+  try { bindAccountUI(); } catch (e) { console.warn('bindAccountUI', e); }
+  try { restoreSessionFromToken(); } catch (e) { console.warn('restoreSession', e); }
+}
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', scheduleAuthBind);
+} else {
+  scheduleAuthBind();
+}
+window.addEventListener('load', () => { try { bindAccountUI(); } catch (_) {} });
+
+/** Hook: after profile save, sync to cloud */
+(function patchProfileSaveSync() {
+  const btn = document.getElementById('btnProfileSave');
+  if (!btn || btn._authSyncBound) return;
+  btn._authSyncBound = true;
+  btn.addEventListener('click', () => {
+    setTimeout(() => { try { syncProfileToServer(); } catch (_) {} }, 50);
+  });
+})();

@@ -121,13 +121,24 @@ function softRenderPieces(areaEl) {
             try {
               slot.style.width = '0';
               slot.style.minWidth = '0';
+              slot.style.maxWidth = '0';
+              slot.style.height = '0';
               slot.style.opacity = '0';
-              slot.innerHTML = '';
+              slot.style.margin = '0';
+              slot.style.padding = '0';
+              slot.style.border = 'none';
+              slot.style.pointerEvents = 'none';
+              // Keep handSig so later sync doesn't force full rebuild
+              if (pSig) slot.dataset.handSig = pSig;
+              setTimeout(() => { try { slot.innerHTML = ''; } catch (_) {} }, 260);
             } catch (_) {}
           } else {
             needsFull = true;
             break;
           }
+        } else if (domSig && pSig && domSig !== pSig && p.used) {
+          // used piece sig drift — update quietly without rebuild
+          try { slot.dataset.handSig = pSig; } catch (_) {}
         }
       }
       if (!needsFull) {
@@ -142,7 +153,12 @@ function softRenderPieces(areaEl) {
             s.style.touchAction = 'none';
             s.style.width = '';
             s.style.minWidth = '';
+            s.style.maxWidth = '';
+            s.style.height = '';
             s.style.filter = '';
+            s.style.margin = '';
+            s.style.padding = '';
+            s.style.border = '';
           }
         });
         return;
@@ -150,6 +166,23 @@ function softRenderPieces(areaEl) {
     }
   } catch (_) {}
   try {
+    // Debounce rapid full rebuilds (concurrent place_ok + state + deal storms)
+    const now = Date.now();
+    if (window._lastSoftHandFullAt && (now - window._lastSoftHandFullAt) < 80) {
+      if (window._softHandFullTimer) clearTimeout(window._softHandFullTimer);
+      window._softHandFullTimer = setTimeout(() => {
+        try {
+          window._lastSoftHandFullAt = Date.now();
+          BPState.quietPieceRender = true;
+          renderPieces(areaEl);
+          BPState.quietPieceRender = false;
+        } catch (_) {
+          try { BPState.quietPieceRender = false; } catch (_2) {}
+        }
+      }, 90);
+      return;
+    }
+    window._lastSoftHandFullAt = now;
     // Quiet full rebuild: skip staggered fade-in (sync/rejoin)
     BPState.quietPieceRender = true;
     renderPieces(areaEl);
@@ -191,8 +224,14 @@ function softRenderOppPieces() {
             try {
               slot.style.width = '0';
               slot.style.minWidth = '0';
+              slot.style.maxWidth = '0';
+              slot.style.height = '0';
               slot.style.opacity = '0';
-              slot.innerHTML = '';
+              slot.style.margin = '0';
+              slot.style.padding = '0';
+              slot.style.border = 'none';
+              slot.style.pointerEvents = 'none';
+              setTimeout(() => { try { slot.innerHTML = ''; } catch (_) {} }, 260);
             } catch (_) {}
           } else {
             needsFull = true;
@@ -207,11 +246,32 @@ function softRenderOppPieces() {
             s.classList.add('show');
             s.style.opacity = '1';
             s.style.visibility = '';
+            s.style.width = '';
+            s.style.minWidth = '';
+            s.style.maxWidth = '';
+            s.style.height = '';
           }
         });
         return;
       }
     }
+    // Debounce rapid full rebuilds
+    const now = Date.now();
+    if (window._lastSoftOppHandFullAt && (now - window._lastSoftOppHandFullAt) < 80) {
+      if (window._softOppHandFullTimer) clearTimeout(window._softOppHandFullTimer);
+      window._softOppHandFullTimer = setTimeout(() => {
+        try {
+          window._lastSoftOppHandFullAt = Date.now();
+          BPState.quietPieceRender = true;
+          renderOppPieces();
+          BPState.quietPieceRender = false;
+        } catch (_) {
+          try { BPState.quietPieceRender = false; } catch (_2) {}
+        }
+      }, 90);
+      return;
+    }
+    window._lastSoftOppHandFullAt = now;
     BPState.quietPieceRender = true;
     renderOppPieces();
     BPState.quietPieceRender = false;

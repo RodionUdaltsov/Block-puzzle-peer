@@ -1541,8 +1541,17 @@ function showScoreDuel(my, opp, won, draw, oppLabel, bot) {
         avOppInner.innerHTML = botAvatarSVG(bot, 64);
         avOppInner.style.display = 'block';
       } else {
-        const ini = (oppLabel || 'С').slice(0, 2).toUpperCase();
-        avOppInner.textContent = ini;
+        try {
+          renderAvatarInto(avOppInner, {
+            avatarId: window.mpOppAvatarId || 'init',
+            nick: oppLabel || mpOppName || 'Соперник',
+            custom: (window.mpOppAvatarId === 'custom' && window.mpOppAvatarCustom) ? window.mpOppAvatarCustom : null,
+            size: 'duel'
+          });
+        } catch (_) {
+          const ini = (oppLabel || 'С').slice(0, 2).toUpperCase();
+          avOppInner.textContent = ini;
+        }
         avOppInner.style.display = '';
       }
     }

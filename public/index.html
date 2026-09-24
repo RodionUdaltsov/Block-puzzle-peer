@@ -19,13 +19,44 @@
   <link rel="apple-touch-icon" href="/icons/icon-192.svg" />
   <link rel="manifest" href="/site.webmanifest" />
   <!-- Multiplayer: WebSocket MatchClient -->
-  <link rel="stylesheet" href="styles.css?v3934" />
+  <link rel="stylesheet" href="styles.css?v3951b" />
 </head>
 <body>
 
   <a class="skip-link" href="#screenMenu" data-i18n="skip.menu">Перейти к меню</a>
 
   <!-- Boot loader -->
+  
+  <!-- Auth modal (register / login) -->
+  <div id="authModal" class="auth-modal" hidden aria-hidden="true" style="display:none">
+    <div class="auth-modal-backdrop" id="authModalBackdrop"></div>
+    <div class="auth-modal-card" role="dialog" aria-labelledby="authModalTitle">
+      <button type="button" class="auth-modal-close" id="authModalClose" aria-label="Закрыть">×</button>
+      <h2 id="authModalTitle">Аккаунт</h2>
+      <div class="auth-tabs">
+        <button type="button" class="auth-tab on" data-auth-tab="login" id="authTabLogin">Вход</button>
+        <button type="button" class="auth-tab" data-auth-tab="register" id="authTabRegister">Регистрация</button>
+      </div>
+      <form id="authForm" autocomplete="on">
+        <div class="profile-field">
+          <label for="authLogin">Логин</label>
+          <input id="authLogin" name="username" maxlength="24" placeholder="player_1" autocomplete="username" spellcheck="false" required />
+          <div class="hint">3–24 символа: a-z, 0-9, _</div>
+        </div>
+        <div class="profile-field" id="authNickField" hidden>
+          <label for="authNick">Ник в игре</label>
+          <input id="authNick" maxlength="9" placeholder="Необязательно" autocomplete="nickname" />
+        </div>
+        <div class="profile-field">
+          <label for="authPassword">Пароль</label>
+          <input id="authPassword" name="password" type="password" maxlength="72" placeholder="минимум 6 символов" autocomplete="current-password" required />
+        </div>
+        <div id="authError" class="auth-error" hidden></div>
+        <button type="submit" class="primary" id="authSubmit" style="width:100%;min-height:42px;margin-top:8px">Войти</button>
+      </form>
+    </div>
+  </div>
+
   <div id="bootLoader" aria-busy="true" aria-label="Загрузка" data-i18n-aria="boot.loading">
     <div class="boot-bg" aria-hidden="true"></div>
     <div class="boot-orbs" aria-hidden="true"><i></i><i></i><i></i></div>
@@ -331,9 +362,16 @@
 
     <div class="profile-card profile-bind">
       <h3 data-i18n="profile.account">Аккаунт</h3>
-      <div style="font-size:0.82rem;font-weight:700;color:var(--text)" data-i18n="profile.guestAccess">Гостевой доступ · данные на устройстве</div>
-      <div class="soon" data-i18n="profile.cloudSoon">Привязка к облаку — скоро</div>
-      <button type="button" class="ghost" id="btnProfileBind" disabled style="width:100%;margin-top:8px;opacity:0.5;min-height:38px" data-i18n="profile.bindSoon">Привязать · скоро</button>
+      <div id="accountGuestBlock">
+        <div style="font-size:0.82rem;font-weight:700;color:var(--text)" data-i18n="profile.guestAccess">Гостевой доступ · данные на устройстве</div>
+        <div class="hint" style="margin-top:6px">Зарегистрируйся, чтобы сохранять кубки и профиль на сервере</div>
+        <button type="button" class="primary" id="btnProfileBind" style="width:100%;margin-top:10px;min-height:40px" onclick="try{openAuthModal('login')}catch(e){console.error(e)}">Войти / Регистрация</button>
+      </div>
+      <div id="accountLoggedBlock" hidden>
+        <div style="font-size:0.82rem;font-weight:700;color:var(--accent)">✓ Аккаунт на сервере</div>
+        <div class="hint" id="accountLoginLabel" style="margin-top:4px"></div>
+        <button type="button" class="ghost" id="btnAccountLogout" style="width:100%;margin-top:10px;min-height:38px">Выйти</button>
+      </div>
     </div>
     </div>
   </div>
@@ -1137,7 +1175,7 @@
   </div>
 
   <!-- Client bundle (ESM pipeline → dist/client.bundle.js). Sources: public/js/* -->
-  <script src="dist/client.bundle.js?v3950"></script>
+  <script src="dist/client.bundle.js?v3951b"></script>
   <script>
   /* menu-delegate: clicks work even if late game.js bindings failed */
   (function () {
@@ -1220,5 +1258,110 @@
     }, true);
   })();
   </script>
+
+  <!-- PWA: installable on phone & desktop -->
+  <div id="pwaInstallBar" class="pwa-install-bar" hidden aria-live="polite">
+    <span class="pwa-install-text">Установить игру на устройство</span>
+    <button type="button" id="btnPwaInstall" class="pwa-install-btn">Установить</button>
+    <button type="button" id="btnPwaInstallDismiss" class="pwa-install-dismiss" aria-label="Закрыть">×</button>
+  </div>
+  <script>
+  (function () {
+    'use strict';
+    // Service Worker — automatic updates for installed / PWA
+    if ('serviceWorker' in navigator) {
+      var _swRefreshing = false;
+      // When a new SW takes control, reload so the user gets the new assets
+      navigator.serviceWorker.addEventListener('controllerchange', function () {
+        if (_swRefreshing) return;
+        _swRefreshing = true;
+        try { window.location.reload(); } catch (_) {}
+      });
+      window.addEventListener('load', function () {
+        navigator.serviceWorker.register('/sw.js', { scope: '/', updateViaCache: 'none' }).then(function (reg) {
+          try {
+            // Check for updates immediately and periodically
+            try { reg.update(); } catch (_) {}
+            setInterval(function () {
+              try { reg.update(); } catch (_) {}
+            }, 60 * 60 * 1000); // every hour
+            if (reg.waiting) reg.waiting.postMessage({ type: 'SKIP_WAITING' });
+            reg.addEventListener('updatefound', function () {
+              var nw = reg.installing;
+              if (!nw) return;
+              nw.addEventListener('statechange', function () {
+                if (nw.state === 'installed' && navigator.serviceWorker.controller) {
+                  try { nw.postMessage({ type: 'SKIP_WAITING' }); } catch (_) {}
+                }
+              });
+            });
+          } catch (_) {}
+        }).catch(function () {});
+      });
+    }
+    // Install prompt (Chrome / Edge / Android)
+    var deferred = null;
+    var bar = document.getElementById('pwaInstallBar');
+    var btn = document.getElementById('btnPwaInstall');
+    var dismiss = document.getElementById('btnPwaInstallDismiss');
+    function isStandalone() {
+      try {
+        return window.matchMedia('(display-mode: standalone)').matches
+          || window.navigator.standalone === true;
+      } catch (_) { return false; }
+    }
+    function hideBar() {
+      if (bar) { bar.hidden = true; bar.classList.remove('visible'); }
+    }
+    function showBar() {
+      if (!bar || isStandalone()) return;
+      try {
+        if (localStorage.getItem('bp_pwa_dismiss') === '1') return;
+      } catch (_) {}
+      bar.hidden = false;
+      bar.classList.add('visible');
+    }
+    window.addEventListener('beforeinstallprompt', function (e) {
+      e.preventDefault();
+      deferred = e;
+      showBar();
+    });
+    window.addEventListener('appinstalled', function () {
+      deferred = null;
+      hideBar();
+      try { localStorage.setItem('bp_pwa_dismiss', '1'); } catch (_) {}
+    });
+    if (btn) {
+      btn.addEventListener('click', function () {
+        if (!deferred) return;
+        deferred.prompt();
+        deferred.userChoice.then(function () {
+          deferred = null;
+          hideBar();
+        }).catch(function () { hideBar(); });
+      });
+    }
+    if (dismiss) {
+      dismiss.addEventListener('click', function () {
+        hideBar();
+        try { localStorage.setItem('bp_pwa_dismiss', '1'); } catch (_) {}
+      });
+    }
+    // iOS: cannot programmatic install — show gentle tip once
+    try {
+      var ua = navigator.userAgent || '';
+      var isIOS = /iPad|iPhone|iPod/.test(ua) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+      if (isIOS && !isStandalone() && !localStorage.getItem('bp_pwa_ios_tip')) {
+        setTimeout(function () {
+          if (typeof showInfoToast === 'function') {
+            showInfoToast('Установка', 'На iPhone: «Поделиться» → «На экран Домой»', 'info');
+            localStorage.setItem('bp_pwa_ios_tip', '1');
+          }
+        }, 2500);
+      }
+    } catch (_) {}
+  })();
+  </script>
 </body>
+
 </html>

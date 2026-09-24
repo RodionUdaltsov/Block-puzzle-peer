@@ -1,8 +1,8 @@
 {
-  "version": "3.9.50",
-  "hash": "5542c14357c7",
+  "version": "3.9.52",
+  "hash": "9ce2276d9d92",
   "minified": true,
-  "generatedAt": "2026-09-24T18:13:21.383Z",
+  "generatedAt": "2026-09-24T23:48:49.222Z",
   "modules": [
     "public/shared/rules.js",
     "public/match-client.js",
@@ -75,67 +75,67 @@
     {
       "file": "public/js/04-profile-friends.js",
       "startLine": 4777,
-      "endLine": 7120,
-      "bytes": 91831
+      "endLine": 7472,
+      "bytes": 105556
     },
     {
       "file": "public/js/05-soft-render.js",
-      "startLine": 7121,
-      "endLine": 8982,
-      "bytes": 68877
+      "startLine": 7473,
+      "endLine": 9394,
+      "bytes": 71419
     },
     {
       "file": "public/js/06-match-liveness.js",
-      "startLine": 8983,
-      "endLine": 10932,
-      "bytes": 70596
+      "startLine": 9395,
+      "endLine": 11414,
+      "bytes": 72907
     },
     {
       "file": "public/js/07-match-flow-ui.js",
-      "startLine": 10933,
-      "endLine": 12877,
-      "bytes": 75517
+      "startLine": 11415,
+      "endLine": 13368,
+      "bytes": 75883
     },
     {
       "file": "public/js/08-screens-gameplay.js",
-      "startLine": 12878,
-      "endLine": 15366,
-      "bytes": 99962
+      "startLine": 13369,
+      "endLine": 15859,
+      "bytes": 100122
     },
     {
       "file": "public/js/09-offline-and-ranked.js",
-      "startLine": 15367,
-      "endLine": 15902,
-      "bytes": 20579
+      "startLine": 15860,
+      "endLine": 16438,
+      "bytes": 22465
     },
     {
       "file": "public/js/10-match-handlers.js",
-      "startLine": 15903,
-      "endLine": 17667,
-      "bytes": 73628
+      "startLine": 16439,
+      "endLine": 18174,
+      "bytes": 72948
     },
     {
       "file": "public/js/11-private-rooms-ui.js",
-      "startLine": 17668,
-      "endLine": 21923,
-      "bytes": 168788
+      "startLine": 18175,
+      "endLine": 22437,
+      "bytes": 169307
     },
     {
       "file": "public/js/12-boot.js",
-      "startLine": 21924,
-      "endLine": 22054,
+      "startLine": 22438,
+      "endLine": 22568,
       "bytes": 5035
     },
     {
       "file": "public/js/13-performance.js",
-      "startLine": 22055,
-      "endLine": 22206,
+      "startLine": 22569,
+      "endLine": 22720,
       "bytes": 5372
     }
   ],
   "bytes": {
-    "classic": 968059,
-    "esm": 968102,
-    "classicRaw": 983750
+    "classic": 988439,
+    "esm": 988482,
+    "classicRaw": 1004579
   }
 }

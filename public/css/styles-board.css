@@ -141,7 +141,7 @@ html:not(.bp-full-board-fx) .skin-fx-prism .cell {
       0%   { opacity: 1; background: linear-gradient(160deg, rgba(255,255,255,0.85) 0%, rgba(255,255,255,0.25) 40%, transparent 70%); }
       100% { opacity: 0.88; }
     }
-    /* —— Field clear FX. Desktop keeps snappy 110ms; mobile (touch-ui) uses softer 360ms —— */
+    /* —— Field clear FX. Desktop: snappy 110ms; mobile: readable ~300ms soft clear —— */
     .cell.clearing,
     .cell[class*="clearing-"],
     .cell.filled[class*="clearing-"],
@@ -162,17 +162,17 @@ html:not(.bp-full-board-fx) .skin-fx-prism .cell {
     body.touch-ui .cell[class*="clearing-"],
     body.touch-ui .cell.filled[class*="clearing-"],
     body.touch-ui .board-wrap .cell[class*="clearing-"] {
-      animation-duration: 0.15s !important;
-      animation-timing-function: cubic-bezier(0.22, 0.08, 0.18, 1) !important;
+      animation-duration: 0.3s !important;
+      animation-timing-function: cubic-bezier(0.22, 0.12, 0.18, 1) !important;
       will-change: opacity, transform !important;
       filter: none !important;
     }
     body.touch-ui .cell.clearing-mobile-soft {
       animation-name: clearMobileSoft !important;
-      animation-duration: 0.15s !important;
+      animation-duration: 0.3s !important;
     }
-body.touch-ui .clear-beam.row { animation-duration: 0.4s !important; opacity: 0.95; }
-body.touch-ui .clear-beam.col { animation-duration: 0.4s !important; opacity: 0.95; }
+body.touch-ui .clear-beam.row { animation-duration: 0.32s !important; opacity: 0.95; }
+body.touch-ui .clear-beam.col { animation-duration: 0.32s !important; opacity: 0.95; }
 /* Mobile clear: no pseudo-element FX thrash */
 body.touch-ui .cell[class*="clearing-"]::before,
 body.touch-ui .cell[class*="clearing-"]::after,
@@ -200,11 +200,13 @@ body.touch-ui .cell.clearing::after {
     }
     @keyframes clearCommon { 0% { opacity: 1; } 100% { opacity: 0; } }
 
-    /* Mobile-only: compositor-cheap clear (no filter / clip-path / box-shadow anim) */
+    /* Mobile-only: compositor-cheap clear (no filter / clip-path / box-shadow anim).
+       Hold brightness a beat, then scale+fade so the clear is readable on small screens. */
     @keyframes clearMobileSoft {
       0%   { opacity: 1; transform: scale(1); }
-      25%  { opacity: 1; transform: scale(1.06); }
-      100% { opacity: 0; transform: scale(0.82); }
+      18%  { opacity: 1; transform: scale(1.08); }
+      55%  { opacity: 0.72; transform: scale(0.94); }
+      100% { opacity: 0; transform: scale(0.78); }
     }
     /* Highest specificity so themed clearing-* never overrides on mobile */
     body.touch-ui .cell.clearing-mobile-soft,
@@ -212,8 +214,8 @@ body.touch-ui .cell.clearing::after {
     body.touch-ui .board-wrap .cell.clearing-mobile-soft,
     body.touch-ui .cell.clearing.clearing-mobile-soft {
       animation-name: clearMobileSoft !important;
-      animation-duration: 0.15s !important;
-      animation-timing-function: cubic-bezier(0.2, 0.7, 0.2, 1) !important;
+      animation-duration: 0.3s !important;
+      animation-timing-function: cubic-bezier(0.2, 0.55, 0.2, 1) !important;
       animation-fill-mode: forwards !important;
       filter: none !important;
       clip-path: none !important;

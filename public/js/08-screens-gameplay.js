@@ -333,10 +333,12 @@ function findBestMove(g, piecesArr, skill) {
   return best;
 }
 /** Clear anim from equipped FIELD only (not piece skin). Duration FIXED for fair play. */
-/** Desktop 110ms; mobile ~150ms — close to PC, still visible */
+/** Desktop 110ms; mobile ~300ms — readable scale-fade without blocking play */
 function getClearAnimMs() {
   try {
-    if (document.body && document.body.classList.contains('touch-ui')) return 150;
+    // Mobile: longer readable clear (simple scale-fade needs time to be visible).
+    // Keep under ~350ms so it does not block the next place.
+    if (document.body && document.body.classList.contains('touch-ui')) return 300;
   } catch (_) {}
   return 110;
 }

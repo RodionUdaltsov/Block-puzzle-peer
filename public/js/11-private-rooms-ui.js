@@ -31,20 +31,24 @@ function bindPrivateLobbyHandlers() {
       }
       if (data.opp) {
         mpOppConnected = true;
-        mpOppName = data.opp.name || 'Соперник';
-        oppName = mpOppName;
-        if (typeof data.opp.trophies === 'number') mpOppTrophies = data.opp.trophies | 0;
         try {
-          if (data.opp.skinId) {
-            window.mpOppSkinId = data.opp.skinId;
-            if (typeof applyOppSkin === 'function') applyOppSkin(data.opp.skinId);
+          if (typeof applyOppProfileFromServer === 'function') {
+            applyOppProfileFromServer(data.opp, { alwaysPaint: true });
+          } else {
+            mpOppName = data.opp.name || 'Соперник';
+            oppName = mpOppName;
+            if (typeof data.opp.trophies === 'number') mpOppTrophies = data.opp.trophies | 0;
+            if (data.opp.skinId) {
+              window.mpOppSkinId = data.opp.skinId;
+              if (typeof applyOppSkin === 'function') applyOppSkin(data.opp.skinId);
+            }
+            if (data.opp.boardId) {
+              window.mpOppBoardId = data.opp.boardId;
+              if (typeof applyOppBoard === 'function') applyOppBoard(data.opp.boardId);
+            }
+            if (data.opp.avatarId) window.mpOppAvatarId = data.opp.avatarId;
+            if (data.opp.avatarCustom) window.mpOppAvatarCustom = data.opp.avatarCustom;
           }
-          if (data.opp.boardId) {
-            window.mpOppBoardId = data.opp.boardId;
-            if (typeof applyOppBoard === 'function') applyOppBoard(data.opp.boardId);
-          }
-          if (data.opp.avatarId) window.mpOppAvatarId = data.opp.avatarId;
-          if (data.opp.avatarCustom) window.mpOppAvatarCustom = data.opp.avatarCustom;
         } catch (_) {}
       } else {
         mpOppConnected = false;
@@ -1356,6 +1360,7 @@ function endVersus(opts) {
     actualDelta = delta >= 0 ? delta : -Math.min(trophiesBefore, Math.abs(delta));
     trophies = Math.max(0, trophiesBefore + actualDelta);
     try { localStorage.setItem('bp_trophies', String(trophies)); } catch (_) {}
+    try { if (typeof syncProfileToServer === 'function') syncProfileToServer({ trophies: trophies }); } catch (_) {}
     BPState.rankedDeltaApplied = true;
     // Ranked score record (best points in a single ranked match)
     if (my > rankedBest) {
@@ -4009,6 +4014,8 @@ function acceptRematchInvite() {
   if (rematchOfferRetryTimer) { clearTimeout(rematchOfferRetryTimer); rematchOfferRetryTimer = null; }
   hideRematchOffer();
   hideRmToast(false);
+  // If score-duel / result still on screen — skip them immediately (match_found will also clean up)
+  try { if (typeof dismissPostMatchResult === 'function') dismissPostMatchResult(); } catch (_) {}
   // Server room rematch
   if (roomMatchMode || BPState.roomMatchMode || (typeof MatchClient !== 'undefined' && MatchClient.matchId)) {
     try { MatchClient.rematchAccept(); } catch (_) {}
