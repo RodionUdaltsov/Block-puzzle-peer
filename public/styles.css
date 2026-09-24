@@ -11391,20 +11391,28 @@ body.touch-ui #ghost {
   -webkit-transform: translate3d(0,0,0);
   backface-visibility: hidden;
   -webkit-backface-visibility: hidden;
-  /* Lighter shadow — drop-shadow every frame is costly on mid GPUs */
-  filter: drop-shadow(0 4px 10px rgba(0,0,0,0.35));
-  /* JS owns position every frame; keep transform transition OFF so lerp is smooth */
-  transition: opacity 0.2s ease !important;
+  filter: none; /* filter on moving layer tanks high-Hz */
+  transition: opacity 0.15s ease !important;
   will-change: transform;
+  contain: layout style;
 }
 body.touch-ui #ghost.cell-glide,
 body.touch-ui #ghost.no-glide {
-  /* Both modes: no CSS transform lag — pure JS lerp between cells */
-  transition: opacity 0.16s ease, transform 0s linear !important;
+  transition: opacity 0.12s ease, transform 0s linear !important;
 }
 body.touch-ui.is-dragging #ghost {
-  /* During drag: skip filter for max FPS */
-  filter: none;
+  filter: none !important;
+  will-change: transform;
+}
+/* High-refresh: isolate board layers, avoid whole-tree invalidation */
+body.touch-ui.is-dragging .board,
+body.touch-ui.is-dragging .board-wrap {
+  contain: layout style;
+  content-visibility: visible;
+}
+body.is-dragging #ghost {
+  will-change: transform;
+  filter: none !important;
 }
 body.touch-ui .cell.placing,
 body.touch-ui .cell[class*="clearing-"] {

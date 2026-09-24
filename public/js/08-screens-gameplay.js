@@ -572,17 +572,11 @@ function startFxMaintenance() {
           } catch (_) {}
         });
       }
-      // Drop will-change on cells that finished anim
-      document.querySelectorAll('.cell').forEach(cell => {
+      // Drop will-change only where it was set (cheap)
+      document.querySelectorAll('.cell[style*="will-change"]').forEach(cell => {
         try {
           if (cell.classList.contains('placing')) return;
-          let clearing = false;
-          if (typeof CLEARING_CLASSES !== 'undefined') {
-            for (let i = 0; i < CLEARING_CLASSES.length; i++) {
-              if (cell.classList.contains(CLEARING_CLASSES[i])) { clearing = true; break; }
-            }
-          }
-          if (clearing) return;
+          if (cell.className.indexOf('clearing') !== -1) return;
           cell.style.removeProperty('will-change');
         } catch (_) {}
       });
@@ -1302,6 +1296,8 @@ function startDrag(e, idx, areaEl) {
   activeDragPointerId = (e && e.pointerId != null) ? e.pointerId : 'mouse';
   _ghostLerpInit = false;
   _ghostCellKey = '';
+  _dragLastTs = 0;
+  _ghostNoGlideOn = false;
   SFX.pick();
   const xy0 = eventClientXY(e);
   pointerX = xy0.x; pointerY = xy0.y;
@@ -1334,12 +1330,29 @@ function startDrag(e, idx, areaEl) {
   } catch(_){}
   const onMove = ev => {
     if (!isDragging) return;
-    const xy = eventClientXY(ev);
-    pointerX = xy.x; pointerY = xy.y;
-    // Stop scroll / rubber-band while aiming (touch + coarse pointer)
+    // High-refresh: use last coalesced sample (smoother on 120/144Hz + precision trackpads)
+    try {
+      if (ev.getCoalescedEvents) {
+        const coalesced = ev.getCoalescedEvents();
+        if (coalesced && coalesced.length) {
+          const last = coalesced[coalesced.length - 1];
+          const xyC = eventClientXY(last);
+          pointerX = xyC.x; pointerY = xyC.y;
+        } else {
+          const xy = eventClientXY(ev);
+          pointerX = xy.x; pointerY = xy.y;
+        }
+      } else {
+        const xy = eventClientXY(ev);
+        pointerX = xy.x; pointerY = xy.y;
+      }
+    } catch (_) {
+      const xy = eventClientXY(ev);
+      pointerX = xy.x; pointerY = xy.y;
+    }
     if (ev.cancelable) {
-      const t = ev.type || '';
-      if (t.indexOf('touch') === 0 || t === 'pointermove') {
+      const typ = ev.type || '';
+      if (typ.indexOf('touch') === 0 || typ === 'pointermove') {
         try { ev.preventDefault(); } catch (_) {}
       }
     }
@@ -1490,16 +1503,24 @@ let _ghostTargetX = 0, _ghostTargetY = 0;
 function _isTouchUi() {
   try { return !!(document.body && document.body.classList.contains('touch-ui')); } catch (_) { return false; }
 }
-function dragFrame() {
+let _dragLastTs = 0;
+let _ghostNoGlideOn = false;
+function dragFrame(ts) {
   rafId = 0; if (!isDragging) return;
-  // Cache board rect for the whole drag — measuring every frame forces layout on mobile
-  ensureBoardMetrics();
+  // Metrics only when dirty — never getBoundingClientRect every frame (kills 120/144Hz)
+  if (_metricsDirty) ensureBoardMetrics();
   const aim = aimFromPointer(pointerX, pointerY);
   updatePreview(aim.x, aim.y);
   const touchUi = _isTouchUi();
 
+  // Frame-time for rate-independent lerp (60Hz and 144Hz feel the same)
+  const now = (typeof ts === 'number' && ts > 0) ? ts : performance.now();
+  let dt = _dragLastTs ? (now - _dragLastTs) / 1000 : 1 / 60;
+  _dragLastTs = now;
+  if (dt > 0.05) dt = 0.05; // clamp after tab-switch
+  if (dt < 0.001) dt = 0.001;
+
   if (touchUi) {
-    // Pure JS soft follow — never CSS snap between cells (WebKit cancels transitions)
     let targetX = aim.x, targetY = aim.y;
     let onCell = false;
     if (lastPreview && dragPiece && boardRect && boardRect.width > 8) {
@@ -1522,25 +1543,23 @@ function dragFrame() {
       _ghostLerpY = targetY;
       _ghostLerpInit = true;
     }
-    // Fast & smooth: ~40–55ms cell border cross, no hard snap
-    const k = onCell ? 0.34 : 0.48;
+    // lambda tuned so ~45ms cell settle / ~30ms free follow (same at 60 or 144Hz)
+    const lambda = onCell ? 22 : 32;
+    const k = 1 - Math.exp(-lambda * dt);
     _ghostLerpX += (targetX - _ghostLerpX) * k;
     _ghostLerpY += (targetY - _ghostLerpY) * k;
-    // Keep no CSS transition interference during continuous lerp
-    if (!ghost.classList.contains('no-glide')) {
+    if (!_ghostNoGlideOn) {
       ghost.classList.add('no-glide');
       ghost.classList.remove('cell-glide');
+      _ghostNoGlideOn = true;
     }
     moveGhost(_ghostLerpX, _ghostLerpY);
-    const dx = targetX - _ghostLerpX, dy = targetY - _ghostLerpY;
-    // Keep raf while moving OR finger still down (smooth coast into cell)
-    if (isDragging && (dx * dx + dy * dy) > 0.16) {
-      rafId = requestAnimationFrame(dragFrame);
-    }
+    // Keep rAF while finger is down — saturates 120/144Hz displays
+    if (isDragging) rafId = requestAnimationFrame(dragFrame);
     return;
   }
 
-  // Desktop: CSS cell-glide path (unchanged)
+  // Desktop: CSS cell-glide path
   if (lastPreview && dragPiece && boardRect && boardRect.width > 8) {
     const key = lastPreview.baseR + ',' + lastPreview.baseC + ',' + (lastPreview.valid ? 1 : 0);
     const center = placementWorldCenter(lastPreview, dragPiece.shape);
@@ -1549,7 +1568,7 @@ function dragFrame() {
         _ghostCellKey = key;
         ghost.classList.remove('no-glide');
         ghost.classList.add('cell-glide');
-        try { void ghost.offsetWidth; } catch (_) {}
+        _ghostNoGlideOn = false;
         moveGhost(center.x, center.y);
       }
       return;
@@ -1559,6 +1578,7 @@ function dragFrame() {
     _ghostCellKey = '';
     ghost.classList.add('no-glide');
     ghost.classList.remove('cell-glide');
+    _ghostNoGlideOn = true;
   }
   moveGhost(aim.x, aim.y);
 }
@@ -1601,9 +1621,7 @@ function showGhost(piece) {
   _ghostCellKey = '';
 }
 function moveGhost(x, y) {
-  // Compositor path: --gx/--gy drive translate3d (see #ghost CSS)
-  ghost.style.setProperty('--gx', x + 'px');
-  ghost.style.setProperty('--gy', y + 'px');
+  // Single compositor write — avoid extra CSS vars (costly at 120/144Hz)
   const scale = ghost.classList.contains('visible') ? 1 : 0.7;
   ghost.style.transform = 'translate3d(' + x + 'px,' + y + 'px,0) translate(-50%,-50%) scale(' + scale + ')';
 }
