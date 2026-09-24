@@ -23,7 +23,6 @@ const MINIFY = !process.argv.includes('--no-minify');
 
 const MODULES = [
   'public/shared/rules.js',
-  'public/shared/cosmetics.js',
   'public/match-client.js',
   'public/js/00-state.js',
   'public/js/00-perf.js',
@@ -38,14 +37,13 @@ const MODULES = [
   'public/js/08-screens-gameplay.js',
   'public/js/09-offline-and-ranked.js',
   'public/js/10-match-handlers.js',
+  'public/js/11-private-rooms-ui.js',
   'public/js/12-boot.js',
   'public/js/13-performance.js'
 ];
 
-/** Deferred chunk: private rooms UI — loaded after first paint / on demand */
-const DEFERRED_MODULES = [
-  'public/js/11-private-rooms-ui.js'
-];
+/** Reserved for future true code-split (modules must not rely on shared IIFE scope). */
+const DEFERRED_MODULES = [];
 
 function readVersion() {
   try {
