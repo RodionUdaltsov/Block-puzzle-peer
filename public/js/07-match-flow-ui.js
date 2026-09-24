@@ -13,7 +13,7 @@ let _matchLoad = null; // state object
 function showMatchLoading(label, title, sub) {
   // After «Старт!» is locked in — ignore any further loading text (no «Почти готово» flash)
   try {
-    if (window._matchStartPhase || window._matchStartLocked) return;
+    if (BPState.matchStartPhase || BPState.matchStartLocked) return;
   } catch (_) {}
   const el = document.getElementById('matchIntro');
   if (!el) return;
@@ -39,7 +39,7 @@ function showMatchLoading(label, title, sub) {
 
 function updateMatchLoading(title, sub) {
   try {
-    if (window._matchStartPhase || window._matchStartLocked) return;
+    if (BPState.matchStartPhase || BPState.matchStartLocked) return;
   } catch (_) {}
   try {
     const tit = document.getElementById('miTitle');
@@ -87,7 +87,7 @@ function beginVersusMatchMp(isHost) {
     return;
   }
   try {
-    if (roomMatchMode || window._roomMatchMode || (typeof MatchClient !== 'undefined' && MatchClient.matchId)) {
+    if (roomMatchMode || BPState.roomMatchMode || (typeof MatchClient !== 'undefined' && MatchClient.matchId)) {
       _beginVersusMatchMpBody(isHost, { skipLoad: true });
       return;
     }
@@ -110,7 +110,7 @@ function _prepareVersusBoardsUnderLoad() {
   matchLog = [];
   matchStartTs = Date.now();
   replayMode = false;
-  try { window._matchHadAnyPlace = false; } catch (_) {}
+  try { BPState.matchHadAnyPlace = false; } catch (_) {}
 
   grid = Array.from({ length: SIZE }, () => Array(SIZE).fill(null));
   oppGrid = Array.from({ length: SIZE }, () => Array(SIZE).fill(null));
@@ -198,7 +198,7 @@ function _finishMatchLoadAndGoLive() {
   window._matchLoadCooldown = Date.now() + 5000;
 
   // Online server path uses finishRoomMatchLoadAndGo — do not flash a second «Старт!»
-  if (roomMatchMode || window._roomMatchMode || (typeof MatchClient !== 'undefined' && MatchClient.matchId)) {
+  if (roomMatchMode || BPState.roomMatchMode || (typeof MatchClient !== 'undefined' && MatchClient.matchId)) {
     try { hideMatchLoading(); } catch (_) {}
     // Fall through to unlock without second overlay
   } else {
@@ -210,15 +210,15 @@ function _finishMatchLoadAndGoLive() {
       abortPreMatchMissingPeer('Соперник отключился до начала матча');
       return;
     }
-    window._matchEnded = false;
+    BPState.matchEnded = false;
     vsActive = true;
     placingLock = false;
     matchStartTs = Date.now();
     try { window._matchWentLiveAt = matchStartTs; } catch (_) {}
-    try { window._leftForRankedSearch = 0; } catch (_) {}
-    try { window._forceCancelPreMoveLock = false; } catch (_) {}
-    try { window._matchHadAnyPlace = false; } catch (_) {}
-    try { window._matchHadAnyPlace = false; } catch (_) {}
+    try { BPState.leftForRankedSearch = 0; } catch (_) {}
+    try { BPState.forceCancelPreMoveLock = false; } catch (_) {}
+    try { BPState.matchHadAnyPlace = false; } catch (_) {}
+    try { BPState.matchHadAnyPlace = false; } catch (_) {}
     // Snapshot immediately so pagehide/leave during the same tick still records history
     try { persistLiveMatch(); } catch (_) {}
     const piecesEl = document.getElementById('piecesAreaVs');
@@ -247,8 +247,8 @@ function _finishMatchLoadAndGoLive() {
       } catch (_) {}
       return;
     }
-    window._matchClockEndTs = Date.now() + Math.max(0, vsTimeLeft || vsDuration || 120) * 1000;
-    try { startMatchWallClock(window._matchClockEndTs); } catch (_) {}
+    BPState.matchClockEndTs = Date.now() + Math.max(0, vsTimeLeft || vsDuration || 120) * 1000;
+    try { startMatchWallClock(BPState.matchClockEndTs); } catch (_) {}
     vsIntroLock = false;
     try { mpMatchStarting = false; } catch (_) {}
   }, 500);
@@ -257,7 +257,7 @@ function _finishMatchLoadAndGoLive() {
 /** Opponent left during loading / before vsActive — cancel, no AFK, no history.
  *  Also used right after go-live race when opponent leaved during "Старт!" (empty board). */
 function abortPreMatchMissingPeer(reason) {
-  if (window._preMatchAborting) return;
+  if (BPState.preMatchAborting) return;
 
   let emptyBoard = false;
   let stillLoading = false;
@@ -276,7 +276,7 @@ function abortPreMatchMissingPeer(reason) {
   // _leftForRankedSearch is set at EVERY ranked queue start — must NOT block
   // cancel while loading or on empty board (this froze Opera after a fast match).
   try {
-    if (window._leftForRankedSearch && (Date.now() - window._leftForRankedSearch) < 15000) {
+    if (BPState.leftForRankedSearch && (Date.now() - BPState.leftForRankedSearch) < 15000) {
       const vr = document.getElementById('versusResult');
       const onResult = !!(vr && vr.classList.contains('visible'));
       if (onResult && !stillLoading && !emptyBoard) return;
@@ -294,8 +294,8 @@ function abortPreMatchMissingPeer(reason) {
   } catch (_) {
     if (vsActive && !mpLoading) return;
   }
-  window._preMatchAborting = true;
-  try { window._leftForRankedSearch = 0; } catch (_) {}
+  BPState.preMatchAborting = true;
+  try { BPState.leftForRankedSearch = 0; } catch (_) {}
   
   try { vsActive = false; } catch (_) {}
   clearMatchLoadState();
@@ -306,7 +306,7 @@ function abortPreMatchMissingPeer(reason) {
   try { mode = null; } catch (_) {}
   try { mpMatchStarting = false; } catch (_) {}
   try { window._matchLoadCooldown = 0; } catch (_) {}
-  try { window._matchEnded = true; } catch (_) {}
+  try { BPState.matchEnded = true; } catch (_) {}
   try { window._pendingIntroOppDeal = null; } catch (_) {}
   try {
     if (vsTimerId) { clearInterval(vsTimerId); vsTimerId = null; }
@@ -359,18 +359,18 @@ function abortPreMatchMissingPeer(reason) {
     mmActive = false;
     if (!onResultScreen && wasInRankedFlow) {
       try {
-        window._preMatchAborting = false;
+        BPState.preMatchAborting = false;
         startOnlineMatchmaking();
         mmSetStatus('Соперник отключился до начала матча', 'Ищем снова…');
       } catch (_) {
-        window._preMatchAborting = false;
+        BPState.preMatchAborting = false;
         try {
           showScreen('duration');
           mmSetStatus('Соперник отключился до начала матча', 'Попробуй поиск снова');
         } catch (_2) {}
       }
     } else {
-      window._preMatchAborting = false;
+      BPState.preMatchAborting = false;
       try {
         if (onResultScreen) {
           /* keep result UI */
@@ -399,7 +399,7 @@ function abortPreMatchMissingPeer(reason) {
   } catch (_) {
     try { destroyMp(); } catch (_2) {}
   }
-  window._preMatchAborting = false;
+  BPState.preMatchAborting = false;
 }
 
 // Message handlers for loading protocol
@@ -419,7 +419,7 @@ function onMatchLoadBegin(data) {
     return;
   }
   // Join loading only once if peer started and we have not
-  if (!vsActive && !window._matchEnded && !(window._matchLoadCooldown && Date.now() < window._matchLoadCooldown)) {
+  if (!vsActive && !BPState.matchEnded && !(window._matchLoadCooldown && Date.now() < window._matchLoadCooldown)) {
     if (!mpLoading && !vsIntroLock) {
       try { beginVersusMatchMp(false); } catch (_) {}
     }
@@ -496,7 +496,7 @@ let _pendingOppPlaces = [];
 function applyOppRemoteDeal(data) {
   if (!data || !data.pieces) return;
   if (typeof replayMode !== 'undefined' && replayMode) return;
-  const loading = !vsActive || mpLoading || mpMatchStarting || window._matchAwaitingGo || window._matchIntroSeqRunning;
+  const loading = !vsActive || mpLoading || mpMatchStarting || BPState.matchAwaitingGo || BPState.matchIntroSeqRunning;
   // Wait until current opp place is logged + tray collapse done (live only)
   if (!loading && _oppPlaceAnimBusy) {
     _pendingOppDeal = data;
@@ -520,11 +520,11 @@ function applyOppRemoteDeal(data) {
     };
   });
   try {
-    window._animateDealIn = !loading;
-    window._quietPieceRender = !!loading;
+    BPState.animateDealIn = !loading;
+    BPState.quietPieceRender = !!loading;
   } catch (_) {}
   try { renderOppPieces(); } catch (_) {}
-  try { window._animateDealIn = false; window._quietPieceRender = false; } catch (_) {}
+  try { BPState.animateDealIn = false; BPState.quietPieceRender = false; } catch (_) {}
   try { logDeal('opp', oppPieces); } catch (_) {}
 }
 
@@ -544,7 +544,7 @@ function flushPendingOppDeal() {
 
 function applyOppRemotePlace(data) {
   if (!data || !data.shape) return;
-  if (!vsActive && !(roomMatchMode || window._roomMatchMode)) return;
+  if (!vsActive && !(roomMatchMode || BPState.roomMatchMode)) return;
   if (!vsActive) vsActive = true;
   // Queue while a previous fly is on screen — never skip a move
   if (_oppPlaceAnimBusy) {
@@ -1403,14 +1403,14 @@ let scoreDuelSkippable = false;
 // Guards against late showResultModal after user already left (menu / again)
 let resultModalEpoch = 0;
 let resultModalSafetyTimer = null;
-window._resultDismissed = false;
+BPState.resultDismissed = false;
 function clearScoreDuelTimers() {
   scoreDuelTimers.forEach(t => clearTimeout(t));
   scoreDuelTimers = [];
 }
 /** Cancel pending result modal + score duel (user went to menu / started new match). */
 function dismissPostMatchResult() {
-  window._resultDismissed = true;
+  BPState.resultDismissed = true;
   resultModalEpoch++;
   if (resultModalSafetyTimer) {
     try { clearTimeout(resultModalSafetyTimer); } catch (_) {}
@@ -1899,8 +1899,8 @@ function renderOppPieces() {
     }
     slot.appendChild(gridEl);
     area.appendChild(slot);
-    const quiet = !!(window._quietPieceRender);
-    const animateIn = !quiet && !!(window._animateDealIn);
+    const quiet = !!(BPState.quietPieceRender);
+    const animateIn = !quiet && !!(BPState.animateDealIn);
     if (animateIn) {
       slot.classList.add('deal-in');
       slot.style.opacity = '0';
@@ -1924,7 +1924,7 @@ function renderOppPieces() {
       try { slot.style.animation = 'none'; } catch (_) {}
     }
   });
-  try { window._animateDealIn = false; } catch (_) {}
+  try { BPState.animateDealIn = false; } catch (_) {}
 }
 const boardEl = document.getElementById('board');
 const boardMe = document.getElementById('boardMe');

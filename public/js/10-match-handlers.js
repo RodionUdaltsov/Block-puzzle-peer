@@ -17,26 +17,26 @@ function bindMatchClientHandlers() {
       try { if (typeof scrubTransientFx === 'function') scrubTransientFx(); } catch (_) {}
       window._lastMatchWasVoid = false;
       roomMatchMode = true;
-      window._roomMatchMode = true;
+      BPState.roomMatchMode = true;
       rematchIWant = false;
       rematchTheyWant = false;
       rematchPending = false;
       try { rematchClickCount = 0; } catch (_) {}
       try {
-        window._matchStartPhase = false;
-        window._matchStartLocked = false;
-        window._matchGoFinishing = false;
-        window._matchIntroSeqDone = false;
-        window._matchIntroSeqRunning = false;
+        BPState.matchStartPhase = false;
+        BPState.matchStartLocked = false;
+        BPState.matchGoFinishing = false;
+        BPState.matchIntroSeqDone = false;
+        BPState.matchIntroSeqRunning = false;
         window._introCompletedMatchId = null;
-        window._introStartShownForId = null;
-        if (window._matchIntroTimer) {
-          clearTimeout(window._matchIntroTimer);
-          window._matchIntroTimer = null;
+        BPState.introStartShownForId = null;
+        if (BPState.matchIntroTimer) {
+          clearTimeout(BPState.matchIntroTimer);
+          BPState.matchIntroTimer = null;
         }
-        if (window._matchGoFallbackTimer) {
-          clearTimeout(window._matchGoFallbackTimer);
-          window._matchGoFallbackTimer = null;
+        if (BPState.matchGoFallbackTimer) {
+          clearTimeout(BPState.matchGoFallbackTimer);
+          BPState.matchGoFallbackTimer = null;
         }
       } catch (_) {}
       try { hideRematchOffer(); } catch (_) {}
@@ -57,9 +57,9 @@ function bindMatchClientHandlers() {
       mmFound = true;
       mmActive = false;
       try {
-        if (window._roomExpandIv) {
-          clearInterval(window._roomExpandIv);
-          window._roomExpandIv = null;
+        if (BPState.roomExpandIv) {
+          clearInterval(BPState.roomExpandIv);
+          BPState.roomExpandIv = null;
         }
       } catch (_) {}
       const isLobby = !!(data && data.source === 'lobby');
@@ -107,12 +107,12 @@ function bindMatchClientHandlers() {
       } catch (_) {}
       vsDuration = data.duration || vsDuration || 120;
       // Clock not started yet — wait for match_go
-      window._matchClockEndTs = 0;
+      BPState.matchClockEndTs = 0;
       vsTimeLeft = vsDuration;
       score = 0; oppScore = 0;
-      window._matchEnded = false;
-      window._rankedDeltaApplied = false;
-      window._matchAwaitingGo = true;
+      BPState.matchEnded = false;
+      BPState.rankedDeltaApplied = false;
+      BPState.matchAwaitingGo = true;
       try { closeRoomLobby(); } catch (_) {}
       try {
         let statusMsg = isLobby ? 'Матч начинается…' : 'Соперник найден!';
@@ -143,31 +143,31 @@ function bindMatchClientHandlers() {
   MatchClient.on('match_go', (data) => {
     try {
       // Already ran intro for this match — ignore duplicate match_go
-      if (window._matchIntroSeqDone || window._matchIntroSeqRunning
-          || window._matchStartPhase || window._matchGoFinishing) return;
-      window._matchAwaitingGo = false;
+      if (BPState.matchIntroSeqDone || BPState.matchIntroSeqRunning
+          || BPState.matchStartPhase || BPState.matchGoFinishing) return;
+      BPState.matchAwaitingGo = false;
       if (typeof data.clockEndTs === 'number' && data.clockEndTs > 0) {
-        window._matchClockEndTs = data.clockEndTs;
+        BPState.matchClockEndTs = data.clockEndTs;
       }
       if (typeof data.duration === 'number') vsDuration = data.duration;
       if (typeof data.introMs === 'number') window._matchIntroMs = data.introMs | 0;
       vsTimeLeft = typeof data.vsTimeLeft === 'number'
         ? data.vsTimeLeft
-        : Math.max(0, Math.ceil(((window._matchClockEndTs || 0) - Date.now()) / 1000));
+        : Math.max(0, Math.ceil(((BPState.matchClockEndTs || 0) - Date.now()) / 1000));
       runMatchIntroSequence({ reason: 'match_go' });
     } catch (e) { console.warn('match_go', e); }
   });
 
   MatchClient.on('match_peer_ready', () => {
     try {
-      if (window._matchStartPhase || window._matchStartLocked || window._matchGoFinishing) return;
+      if (BPState.matchStartPhase || BPState.matchStartLocked || BPState.matchGoFinishing) return;
       updateMatchLoading && updateMatchLoading('Ожидание…', 'Соперник на месте');
     } catch (_) {}
   });
 
   MatchClient.on('match_ready_ack', () => {
     try {
-      if (window._matchStartPhase || window._matchStartLocked || window._matchGoFinishing) return;
+      if (BPState.matchStartPhase || BPState.matchStartLocked || BPState.matchGoFinishing) return;
       updateMatchLoading && updateMatchLoading('Ожидание соперника…', 'Вы готовы');
     } catch (_) {}
   });
@@ -177,7 +177,7 @@ function bindMatchClientHandlers() {
       // Periodic sync — server snapshot is authoritative
       data._fromSync = true;
       // While waiting for our place_ok, don't thrash pending local preview
-      if (window._pendingServerPlace) return;
+      if (BPState.pendingServerPlace) return;
       if (data.me && Array.isArray(data.me.pieces)) data._forceHand = true;
       applyRoomState(data);
     } catch (e) { console.warn('state', e); }
@@ -185,7 +185,7 @@ function bindMatchClientHandlers() {
   MatchClient.on('rejoin_ok', (data) => {
     try {
       roomMatchMode = true;
-      window._roomMatchMode = true;
+      BPState.roomMatchMode = true;
       if (data && data.seat) MatchClient.seat = data.seat;
       if (data && data.matchId) MatchClient.matchId = data.matchId;
       if (data && data.token) MatchClient.token = data.token;
@@ -194,9 +194,9 @@ function bindMatchClientHandlers() {
       mode = 'versus';
       mpFromMatchmaking = (data && data.source !== 'lobby');
       mpGameSource = (data && data.source === 'lobby') ? 'lobby' : 'ranked';
-      window._matchEnded = false;
-      window._rejoinLoading = false;
-      window._rejoinInputLock = false;
+      BPState.matchEnded = false;
+      BPState.rejoinLoading = false;
+      BPState.rejoinInputLock = false;
       // Keep locked until «Старт!» finishes — prevents early play
       placingLock = true;
       vsActive = false;
@@ -209,7 +209,7 @@ function bindMatchClientHandlers() {
           data._rejoin = true;
           data._fromSync = false;
         }
-        try { window._paintFrozen = true; } catch (_) {}
+        try { BPState.paintFrozen = true; } catch (_) {}
         // Import server move log for history continuity after refresh
         try {
           if (data && Array.isArray(data.moves) && data.moves.length
@@ -221,20 +221,20 @@ function bindMatchClientHandlers() {
         beginRoomRankedMatch(data, { waitForGo: true, rejoin: true, quietLoad: true });
 
         const mid = (data && data.matchId) || (typeof MatchClient !== 'undefined' && MatchClient.matchId) || '';
-        const startDone = !!(mid && window._introStartShownForId === mid);
-        const introRunning = !!(window._matchIntroSeqRunning && window._matchIntroTimer);
+        const startDone = !!(mid && BPState.introStartShownForId === mid);
+        const introRunning = !!(BPState.matchIntroSeqRunning && BPState.matchIntroTimer);
 
         try {
-          if (window._matchGoFallbackTimer) {
-            clearTimeout(window._matchGoFallbackTimer);
-            window._matchGoFallbackTimer = null;
+          if (BPState.matchGoFallbackTimer) {
+            clearTimeout(BPState.matchGoFallbackTimer);
+            BPState.matchGoFallbackTimer = null;
           }
         } catch (_) {}
 
         if (startDone) {
           // Intro already finished for this match — quiet unlock only
           try {
-            window._matchAwaitingGo = false;
+            BPState.matchAwaitingGo = false;
             vsActive = true;
             placingLock = false;
             vsIntroLock = false;
@@ -246,11 +246,11 @@ function bindMatchClientHandlers() {
         } else {
           // First rejoin for this match — single intro
           try {
-            window._matchStartPhase = false;
-            window._matchStartLocked = false;
-            window._matchGoFinishing = false;
-            window._matchIntroSeqDone = false;
-            window._matchIntroSeqRunning = false;
+            BPState.matchStartPhase = false;
+            BPState.matchStartLocked = false;
+            BPState.matchGoFinishing = false;
+            BPState.matchIntroSeqDone = false;
+            BPState.matchIntroSeqRunning = false;
           } catch (_) {}
           runMatchIntroSequence({ reason: 'rejoin', minMs: 1100 });
         }
@@ -284,8 +284,8 @@ function bindMatchClientHandlers() {
       // Do NOT noteMyAction — AFK continues until real place
       try {
         // Clear only local rejoin locks/overlays; keep play locked until «Старт!»
-        window._rejoinLoading = false;
-        window._rejoinInputLock = false;
+        BPState.rejoinLoading = false;
+        BPState.rejoinInputLock = false;
         document.body.classList.remove('rejoin-loading');
         hideBoardDisconnectOverlay('me');
         if (typeof dismissStatusToast === 'function') {
@@ -309,7 +309,7 @@ function bindMatchClientHandlers() {
   MatchClient.on('opp_place', (data) => {
     try {
       roomMatchMode = true;
-      window._roomMatchMode = true;
+      BPState.roomMatchMode = true;
       vsActive = true;
       // Keep opp cosmetics in sync from place packets
       try {
@@ -329,19 +329,25 @@ function bindMatchClientHandlers() {
         hideBoardDisconnectOverlay();
       } catch (_) {}
       try { noteOppAction && noteOppAction(); } catch (_) {}
-      // Scores / my board / hands only — DO NOT apply oppGrid yet.
-      // applyOppRemotePlace paints the piece then clearLinesOn; if we pre-load
-      // the already-cleared server grid, re-placing the piece leaves stuck blocks.
-      // Do NOT push oppPieces here — applyOppRemotePlace marks used + animates.
-      // Full hand replace causes jump/disappear. Deals arrive via opp_deal.
-      applyRoomState({
-        meScore: data.meScore,
-        meGrid: data.meGrid,
-        mePieces: data.mePieces,
+      // Scores / clock only for OUR side when we have an optimistic place in flight.
+      // Applying meGrid/mePieces from opp_place while pendingServerPlace is set
+      // rolls back our local preview (piece jumps back to hand) because the server
+      // snapshot was taken before our concurrent place was processed.
+      // Never pre-load oppGrid here — applyOppRemotePlace paints then clears.
+      // Deals arrive via opp_deal.
+      const myPlacePending = !!BPState.pendingServerPlace;
+      const roomPatch = {
         oppScore: data.score,
         vsTimeLeft: data.vsTimeLeft,
-        clockEndTs: data.clockEndTs
-      });
+        clockEndTs: data.clockEndTs,
+        _fromOppPlace: true
+      };
+      if (!myPlacePending) {
+        if (typeof data.meScore === 'number') roomPatch.meScore = data.meScore;
+        if (Array.isArray(data.meGrid)) roomPatch.meGrid = data.meGrid;
+        if (Array.isArray(data.mePieces)) roomPatch.mePieces = data.mePieces;
+      }
+      applyRoomState(roomPatch);
       try { window._lastRoomApplyAt = Date.now(); } catch (_) {}
       try {
         if (data.shape && typeof applyOppRemotePlace === 'function') {
@@ -389,28 +395,28 @@ function bindMatchClientHandlers() {
           dismissStatusToast('need-move');
         }
       } catch (_) {}
-      if (!roomMatchMode && !window._roomMatchMode) return;
+      if (!roomMatchMode && !BPState.roomMatchMode) return;
       try { noteMyAction && noteMyAction(); } catch (_) {}
       // Snapshot pending place for clear animation (before clearing flag)
       try {
-        if (window._pendingServerPlace) {
+        if (BPState.pendingServerPlace) {
           window._lastPendingPlaceSnap = {
-            r: window._pendingServerPlace.r,
-            c: window._pendingServerPlace.c,
-            shape: (window._pendingServerPlace.shape || []).map(s => s.slice()),
-            color: window._pendingServerPlace.color,
-            pieceIdx: window._pendingServerPlace.pieceIdx,
-            legendFx: !!window._pendingServerPlace.legendFx,
-            skinId: window._pendingServerPlace.skinId || null,
-            gridBefore: window._pendingServerPlace.gridBefore
-              ? window._pendingServerPlace.gridBefore.map(row => row.slice())
+            r: BPState.pendingServerPlace.r,
+            c: BPState.pendingServerPlace.c,
+            shape: (BPState.pendingServerPlace.shape || []).map(s => s.slice()),
+            color: BPState.pendingServerPlace.color,
+            pieceIdx: BPState.pendingServerPlace.pieceIdx,
+            legendFx: !!BPState.pendingServerPlace.legendFx,
+            skinId: BPState.pendingServerPlace.skinId || null,
+            gridBefore: BPState.pendingServerPlace.gridBefore
+              ? BPState.pendingServerPlace.gridBefore.map(row => row.slice())
               : null
           };
         }
       } catch (_) {}
       // Authoritative apply — server owns score, grid, hand
-      window._pendingServerPlace = null;
-      try { if (window._pendingPlaceTimer) { clearTimeout(window._pendingPlaceTimer); window._pendingPlaceTimer = null; } } catch (_) {}
+      BPState.pendingServerPlace = null;
+      try { if (BPState.pendingPlaceTimer) { clearTimeout(BPState.pendingPlaceTimer); BPState.pendingPlaceTimer = null; } } catch (_) {}
       const willAnimClear = ((typeof data.cleared === 'number') ? (data.cleared | 0) : 0) > 0
         && window._lastPendingPlaceSnap && window._lastPendingPlaceSnap.gridBefore;
       const statePayload = {
@@ -428,8 +434,8 @@ function bindMatchClientHandlers() {
       applyRoomState(statePayload);
       try {
         placingLock = false;
-        window._rejoinLoading = false;
-        window._rejoinInputLock = false;
+        BPState.rejoinLoading = false;
+        BPState.rejoinInputLock = false;
         document.body.classList.remove('rejoin-loading');
       } catch (_) {}
       // History replay log (online) — offline path already logs in tryPlace
@@ -548,16 +554,16 @@ function bindMatchClientHandlers() {
           const area = document.getElementById('piecesAreaVs');
           if (area) {
             if (data.deal) {
-              window._animateDealIn = true;
-              window._quietPieceRender = false;
+              BPState.animateDealIn = true;
+              BPState.quietPieceRender = false;
               if (typeof renderPieces === 'function') renderPieces(area);
-              window._animateDealIn = false;
+              BPState.animateDealIn = false;
             } else if (typeof softRenderPieces === 'function') {
               softRenderPieces(area);
             } else if (typeof renderPieces === 'function') {
-              window._quietPieceRender = true;
+              BPState.quietPieceRender = true;
               renderPieces(area);
-              window._quietPieceRender = false;
+              BPState.quietPieceRender = false;
             }
           }
         }
@@ -601,9 +607,9 @@ function bindMatchClientHandlers() {
           }));
           const area = document.getElementById('piecesAreaVs');
           if (area && typeof renderPieces === 'function') {
-            window._quietPieceRender = true;
+            BPState.quietPieceRender = true;
             renderPieces(area);
-            window._quietPieceRender = false;
+            BPState.quietPieceRender = false;
           }
         }
         if (typeof data.score === 'number') {
@@ -612,17 +618,17 @@ function bindMatchClientHandlers() {
         }
       } catch (_) {}
       placingLock = false;
-      window._pendingServerPlace = null;
+      BPState.pendingServerPlace = null;
       try {
-        window._rejoinLoading = false;
-        window._rejoinInputLock = false;
+        BPState.rejoinLoading = false;
+        BPState.rejoinInputLock = false;
         document.body.classList.remove('rejoin-loading');
       } catch (_) {}
     } catch (e) { console.warn('place_reject', e); }
   });
   MatchClient.on('deal', (data) => {
     try {
-      if (!roomMatchMode && !window._roomMatchMode) return;
+      if (!roomMatchMode && !BPState.roomMatchMode) return;
       if (!Array.isArray(data.pieces)) return;
       try { unlockRoomPlay(); } catch (_) {}
       pieces = data.pieces.map(p => ({
@@ -633,10 +639,10 @@ function bindMatchClientHandlers() {
       try {
         const area = document.getElementById('piecesAreaVs');
         // Fresh deal → animate appearance (not quiet)
-        window._quietPieceRender = false;
-        window._animateDealIn = true;
+        BPState.quietPieceRender = false;
+        BPState.animateDealIn = true;
         if (area && typeof renderPieces === 'function') renderPieces(area);
-        window._animateDealIn = false;
+        BPState.animateDealIn = false;
         if (typeof logDeal === 'function') logDeal('me', pieces);
       } catch (_) {}
       placingLock = false;
@@ -663,7 +669,7 @@ function bindMatchClientHandlers() {
     try {
       if (!data) return;
       roomMatchMode = true;
-      window._roomMatchMode = true;
+      BPState.roomMatchMode = true;
       const mySeat = MatchClient.seat || null;
       const isOpp = mySeat ? (data.seat && data.seat !== mySeat) : !!data.seat;
       const isMe = mySeat ? (data.seat === mySeat) : false;
@@ -732,12 +738,12 @@ function bindMatchClientHandlers() {
           // Soft safety: only clear sticky rejoin flags if we somehow inherited them;
           // never force-unlock mid pending local place.
           try {
-            if (!window._pendingServerPlace) {
-              window._rejoinLoading = false;
-              window._rejoinInputLock = false;
+            if (!BPState.pendingServerPlace) {
+              BPState.rejoinLoading = false;
+              BPState.rejoinInputLock = false;
               try { document.body.classList.remove('rejoin-loading'); } catch (_) {}
               if (placingLock && !isDragging) placingLock = false;
-              if (!window._matchEnded && !vsActive) vsActive = true;
+              if (!BPState.matchEnded && !vsActive) vsActive = true;
             }
           } catch (_) {}
           // AFK resume after quick refresh: keep / refresh opponent AFK toast
@@ -785,11 +791,11 @@ function bindMatchClientHandlers() {
     try {
       // Authoritative end timestamp only — avoids timer jump from vsTimeLeft alone
       if (typeof data.clockEndTs === 'number' && data.clockEndTs > 0) {
-        window._matchClockEndTs = data.clockEndTs;
+        BPState.matchClockEndTs = data.clockEndTs;
         vsTimeLeft = Math.max(0, Math.ceil((data.clockEndTs - Date.now()) / 1000));
       } else if (typeof data.vsTimeLeft === 'number') {
         vsTimeLeft = data.vsTimeLeft | 0;
-        window._matchClockEndTs = Date.now() + vsTimeLeft * 1000;
+        BPState.matchClockEndTs = Date.now() + vsTimeLeft * 1000;
       }
       try { updateTimerDisplay && updateTimerDisplay(); } catch (_) {}
       try { ensureMatchClockRunning && ensureMatchClockRunning(); } catch (_) {}
@@ -797,7 +803,7 @@ function bindMatchClientHandlers() {
   });
   MatchClient.on('afk_warn', (data) => {
     try {
-      if (!roomMatchMode && !window._roomMatchMode) return;
+      if (!roomMatchMode && !BPState.roomMatchMode) return;
       // Do not show AFK while opponent is under disconnect / rejoin-pending
       if (oppDisconnected) return;
       const mySeat = MatchClient.seat;
@@ -820,18 +826,18 @@ function bindMatchClientHandlers() {
         window._lastMatchWasVoid = !!(data && (data.void || data.preStart || data.reason === 'void'));
       } catch (_) { window._lastMatchWasVoid = false; }
       try { stopServerAuthSync(); } catch (_) {}
-      window._matchAwaitingGo = false;
-      window._matchGoFinishing = false;
+      BPState.matchAwaitingGo = false;
+      BPState.matchGoFinishing = false;
       try {
-        if (window._matchGoFallbackTimer) {
-          clearTimeout(window._matchGoFallbackTimer);
-          window._matchGoFallbackTimer = null;
+        if (BPState.matchGoFallbackTimer) {
+          clearTimeout(BPState.matchGoFallbackTimer);
+          BPState.matchGoFallbackTimer = null;
         }
       } catch (_) {}
       try { hideMatchLoading && hideMatchLoading(); } catch (_) {}
       // Keep roomMatchMode true while matchId lives — needed for rematch window
       // (cleared on leave / new queue / match_found will re-set)
-      if (window._matchEnded) return;
+      if (BPState.matchEnded) return;
       let mySeat = MatchClient.seat;
       // Fallback: compare names / tokens if seat missing
       if (!mySeat && data) {
@@ -982,8 +988,8 @@ try {
   if (window._roomSyncIv) clearInterval(window._roomSyncIv);
   window._roomSyncIv = setInterval(() => {
     try {
-      if (!(roomMatchMode || window._roomMatchMode)) return;
-      if (!vsActive || window._matchEnded) return;
+      if (!(roomMatchMode || BPState.roomMatchMode)) return;
+      if (!vsActive || BPState.matchEnded) return;
       // Skip heartbeat while player is dragging a piece
       if (typeof isDragging !== 'undefined' && isDragging) return;
       if (typeof MatchClient !== 'undefined') MatchClient.sync({ _fromSync: 1 });
@@ -1027,7 +1033,7 @@ try {
 
 
 function rollbackPendingServerPlace() {
-  const pend = window._pendingServerPlace;
+  const pend = BPState.pendingServerPlace;
   if (!pend) return;
   try {
     if (Array.isArray(pend.gridBefore)) {
@@ -1043,9 +1049,9 @@ function rollbackPendingServerPlace() {
       }));
       const area = document.getElementById('piecesAreaVs');
       if (area && typeof renderPieces === 'function') {
-        window._quietPieceRender = true;
+        BPState.quietPieceRender = true;
         renderPieces(area);
-        window._quietPieceRender = false;
+        BPState.quietPieceRender = false;
       }
     }
     if (typeof pend.scoreBefore === 'number') {
@@ -1053,7 +1059,7 @@ function rollbackPendingServerPlace() {
       try { document.getElementById('myScore').textContent = String(score); } catch (_) {}
     }
   } catch (e) { console.warn('rollbackPendingServerPlace', e); }
-  window._pendingServerPlace = null;
+  BPState.pendingServerPlace = null;
   placingLock = false;
 }
 
@@ -1061,17 +1067,17 @@ function rollbackPendingServerPlace() {
 /** Periodic soft sync — server is source of truth for board/hand/score. */
 function startServerAuthSync() {
   try {
-    if (window._serverAuthSyncIv) {
-      clearInterval(window._serverAuthSyncIv);
-      window._serverAuthSyncIv = null;
+    if (BPState.serverAuthSyncIv) {
+      clearInterval(BPState.serverAuthSyncIv);
+      BPState.serverAuthSyncIv = null;
     }
   } catch (_) {}
-  window._serverAuthSyncIv = setInterval(() => {
+  BPState.serverAuthSyncIv = setInterval(() => {
     try {
-      if (!vsActive || window._matchEnded) return;
-      if (!(roomMatchMode || window._roomMatchMode)) return;
+      if (!vsActive || BPState.matchEnded) return;
+      if (!(roomMatchMode || BPState.roomMatchMode)) return;
       if (typeof isDragging !== 'undefined' && isDragging) return;
-      if (window._pendingServerPlace) return;
+      if (BPState.pendingServerPlace) return;
       if (typeof MatchClient === 'undefined' || !MatchClient.connected) return;
       MatchClient.sync({});
     } catch (_) {}
@@ -1079,9 +1085,9 @@ function startServerAuthSync() {
 }
 function stopServerAuthSync() {
   try {
-    if (window._serverAuthSyncIv) {
-      clearInterval(window._serverAuthSyncIv);
-      window._serverAuthSyncIv = null;
+    if (BPState.serverAuthSyncIv) {
+      clearInterval(BPState.serverAuthSyncIv);
+      BPState.serverAuthSyncIv = null;
     }
   } catch (_) {}
 }
@@ -1104,25 +1110,25 @@ function roomSendDeal(payload) {
 
 function beginRoomRankedMatch(data, opts) {
   opts = opts || {};
-  const waitForGo = !!(opts.waitForGo || (data && data.loading) || window._matchAwaitingGo);
+  const waitForGo = !!(opts.waitForGo || (data && data.loading) || BPState.matchAwaitingGo);
   try {
     try {
-      window._rejoinLoading = false;
-      window._rejoinInputLock = false;
-      window._mpRejoiningMatch = false;
+      BPState.rejoinLoading = false;
+      BPState.rejoinInputLock = false;
+      BPState.mpRejoiningMatch = false;
       document.body.classList.remove('rejoin-loading');
       isDragging = false;
       selectedIdx = -1;
     } catch (_) {}
     roomMatchMode = true;
-    window._roomMatchMode = true;
+    BPState.roomMatchMode = true;
     mpMode = true;
     vsModeType = 'online';
     mode = 'versus';
     mpFromMatchmaking = !(data && data.source === 'lobby');
     mpGameSource = (data && data.source === 'lobby') ? 'lobby' : 'ranked';
-    window._matchHadAnyPlace = false;
-    try { window._matchEnded = false; } catch (_) {}
+    BPState.matchHadAnyPlace = false;
+    try { BPState.matchEnded = false; } catch (_) {}
     try {
       if (!(opts && opts.rejoin)) {
         matchLog = [];
@@ -1191,7 +1197,7 @@ function beginRoomRankedMatch(data, opts) {
 
     if (data && data.duration) vsDuration = data.duration;
     // Do not start clock while loading — full duration shown frozen
-    window._matchClockEndTs = 0;
+    BPState.matchClockEndTs = 0;
     vsTimeLeft = vsDuration || 120;
     matchStartTs = 0;
 
@@ -1242,16 +1248,16 @@ function beginRoomRankedMatch(data, opts) {
       const area = document.getElementById('piecesAreaVs');
       try {
         if (opts.rejoin || opts.quietLoad) {
-          window._animateDealIn = false;
-          window._quietPieceRender = true;
+          BPState.animateDealIn = false;
+          BPState.quietPieceRender = true;
         } else {
-          window._animateDealIn = true;
-          window._quietPieceRender = false;
+          BPState.animateDealIn = true;
+          BPState.quietPieceRender = false;
         }
       } catch (_) {}
       if (area && typeof renderPieces === 'function') renderPieces(area);
       if (typeof renderOppPieces === 'function') renderOppPieces();
-      try { window._quietPieceRender = false; } catch (_) {}
+      try { BPState.quietPieceRender = false; } catch (_) {}
       if (area) {
         area.style.opacity = '1';
         area.style.filter = 'none';
@@ -1354,13 +1360,13 @@ function beginRoomRankedMatch(data, opts) {
     // Fallback: only for NEW matches waiting on match_go — never on rejoin
     if (waitForGo && !(opts && (opts.rejoin || opts.quietLoad))) {
       try {
-        if (window._matchGoFallbackTimer) clearTimeout(window._matchGoFallbackTimer);
+        if (BPState.matchGoFallbackTimer) clearTimeout(BPState.matchGoFallbackTimer);
       } catch (_) {}
-      window._matchGoFallbackTimer = setTimeout(() => {
-        if (window._matchAwaitingGo && !window._matchIntroSeqDone && !window._matchIntroSeqRunning) {
+      BPState.matchGoFallbackTimer = setTimeout(() => {
+        if (BPState.matchAwaitingGo && !BPState.matchIntroSeqDone && !BPState.matchIntroSeqRunning) {
           console.warn('match_go fallback — unlocking locally');
-          window._matchAwaitingGo = false;
-          window._matchClockEndTs = Date.now() + (vsDuration || 120) * 1000;
+          BPState.matchAwaitingGo = false;
+          BPState.matchClockEndTs = Date.now() + (vsDuration || 120) * 1000;
           runMatchIntroSequence({ reason: 'fallback' });
         }
       }, 3000);
@@ -1391,21 +1397,21 @@ function runMatchIntroSequence(opts) {
   const key = _currentMatchIntroKey();
   try {
     // Start already shown for this match — never replay
-    if (key && window._introStartShownForId === key) return;
-    if (window._matchGoFinishing) return;
+    if (key && BPState.introStartShownForId === key) return;
+    if (BPState.matchGoFinishing) return;
     // Already mid-intro with a live timer — do not restart or kill it
-    if (window._matchIntroSeqRunning && window._matchIntroTimer) return;
-    if (window._matchStartPhase) return;
+    if (BPState.matchIntroSeqRunning && BPState.matchIntroTimer) return;
+    if (BPState.matchStartPhase) return;
   } catch (_) {}
-  try { window._matchIntroSeqRunning = true; } catch (_) {}
+  try { BPState.matchIntroSeqRunning = true; } catch (_) {}
   // Claim "running" for this match (NOT completed — that is set only when Start shows)
   try {
     if (key) window._introRunningMatchId = key;
   } catch (_) {}
   try {
-    window._matchStartLocked = false;
-    window._matchStartPhase = false;
-    window._matchIntroSeqDone = false;
+    BPState.matchStartLocked = false;
+    BPState.matchStartPhase = false;
+    BPState.matchIntroSeqDone = false;
   } catch (_) {}
 
   const sub = opts.sub
@@ -1422,8 +1428,8 @@ function runMatchIntroSequence(opts) {
       if (typeof applyEquippedSkin === 'function') applyEquippedSkin();
       if (typeof applyEquippedBoard === 'function') applyEquippedBoard();
       try {
-        window._quietPieceRender = true;
-        window._animateDealIn = false;
+        BPState.quietPieceRender = true;
+        BPState.animateDealIn = false;
         if (typeof boardMe !== 'undefined' && boardMe && typeof grid !== 'undefined')
           renderGrid(grid, boardMe);
         if (typeof boardOpp !== 'undefined' && boardOpp && typeof oppGrid !== 'undefined')
@@ -1433,7 +1439,7 @@ function runMatchIntroSequence(opts) {
           renderPieces(area);
         if (typeof renderOppPieces === 'function' && oppPieces && oppPieces.length)
           renderOppPieces();
-        window._quietPieceRender = false;
+        BPState.quietPieceRender = false;
       } catch (_) {}
       // Opening hands for replay — must exist even if deal arrived before vsActive
       try {
@@ -1453,10 +1459,10 @@ function runMatchIntroSequence(opts) {
 
   const goStart = () => {
     try {
-      if (window._matchIntroTimer) clearTimeout(window._matchIntroTimer);
+      if (BPState.matchIntroTimer) clearTimeout(BPState.matchIntroTimer);
     } catch (_) {}
-    window._matchIntroTimer = setTimeout(() => {
-      window._matchIntroTimer = null;
+    BPState.matchIntroTimer = setTimeout(() => {
+      BPState.matchIntroTimer = null;
       try { finishRoomMatchLoadAndGo(); } catch (e) {
         console.warn('runMatchIntroSequence', e);
         try { forceUnlockAfterIntroStuck(); } catch (_) {}
@@ -1473,8 +1479,8 @@ function runMatchIntroSequence(opts) {
         done = true;
         try {
           // Final quiet paint with whatever state we have
-          window._quietPieceRender = true;
-          window._animateDealIn = false;
+          BPState.quietPieceRender = true;
+          BPState.animateDealIn = false;
           if (typeof boardMe !== 'undefined' && boardMe && grid)
             (typeof softRenderGrid === 'function' ? softRenderGrid : renderGrid)(grid, boardMe);
           if (typeof boardOpp !== 'undefined' && boardOpp && oppGrid)
@@ -1486,7 +1492,7 @@ function runMatchIntroSequence(opts) {
           const oppEl = document.getElementById('oppScore');
           if (myEl) myEl.textContent = String(score | 0);
           if (oppEl) oppEl.textContent = String(oppScore | 0);
-          window._quietPieceRender = false;
+          BPState.quietPieceRender = false;
         } catch (_) {}
         resolve();
       };
@@ -1528,12 +1534,12 @@ function runMatchIntroSequence(opts) {
 
   // Safety net
   try {
-    if (window._matchIntroSafetyTimer) clearTimeout(window._matchIntroSafetyTimer);
+    if (BPState.matchIntroSafetyTimer) clearTimeout(BPState.matchIntroSafetyTimer);
   } catch (_) {}
-  window._matchIntroSafetyTimer = setTimeout(() => {
-    window._matchIntroSafetyTimer = null;
+  BPState.matchIntroSafetyTimer = setTimeout(() => {
+    BPState.matchIntroSafetyTimer = null;
     try {
-      if (!window._introStartShownForId || window._introStartShownForId !== key) {
+      if (!BPState.introStartShownForId || BPState.introStartShownForId !== key) {
         console.warn('intro safety — force Start/unlock');
         finishRoomMatchLoadAndGo();
       }
@@ -1553,16 +1559,16 @@ function forceUnlockAfterIntroStuck() {
     }
   } catch (_) {}
   try {
-    window._matchStartPhase = false;
-    window._matchStartLocked = true;
-    window._matchIntroSeqRunning = false;
-    window._matchIntroSeqDone = true;
-    window._matchGoFinishing = false;
-    window._matchAwaitingGo = false;
+    BPState.matchStartPhase = false;
+    BPState.matchStartLocked = true;
+    BPState.matchIntroSeqRunning = false;
+    BPState.matchIntroSeqDone = true;
+    BPState.matchGoFinishing = false;
+    BPState.matchAwaitingGo = false;
     const key = _currentMatchIntroKey();
     if (key) {
       window._introCompletedMatchId = key;
-      window._introStartShownForId = key;
+      BPState.introStartShownForId = key;
     }
   } catch (_) {}
   try {
@@ -1572,8 +1578,8 @@ function forceUnlockAfterIntroStuck() {
     mpLoading = false;
     mpMatchStarting = false;
     unlockRoomPlay && unlockRoomPlay();
-    if (typeof startMatchWallClock === 'function' && window._matchClockEndTs)
-      startMatchWallClock(window._matchClockEndTs);
+    if (typeof startMatchWallClock === 'function' && BPState.matchClockEndTs)
+      startMatchWallClock(BPState.matchClockEndTs);
     else if (typeof ensureMatchClockRunning === 'function') ensureMatchClockRunning();
   } catch (_) {}
 }
@@ -1581,36 +1587,36 @@ function forceUnlockAfterIntroStuck() {
 /** After loading: flash "Старт!", then unlock and start the match timer. */
 function finishRoomMatchLoadAndGo() {
   try {
-    if (window._matchGoFallbackTimer) {
-      clearTimeout(window._matchGoFallbackTimer);
-      window._matchGoFallbackTimer = null;
+    if (BPState.matchGoFallbackTimer) {
+      clearTimeout(BPState.matchGoFallbackTimer);
+      BPState.matchGoFallbackTimer = null;
     }
   } catch (_) {}
   // Only one «Старт!» per match / rejoin session
   const key = _currentMatchIntroKey();
-  if (key && window._introStartShownForId === key) return;
-  if (window._matchGoFinishing) return;
-  window._matchGoFinishing = true;
+  if (key && BPState.introStartShownForId === key) return;
+  if (BPState.matchGoFinishing) return;
+  BPState.matchGoFinishing = true;
   try {
-    window._matchIntroSeqDone = true;
+    BPState.matchIntroSeqDone = true;
     if (key) {
       window._introCompletedMatchId = key;
-      window._introStartShownForId = key;
+      BPState.introStartShownForId = key;
     }
-    if (window._matchIntroSafetyTimer) {
-      clearTimeout(window._matchIntroSafetyTimer);
-      window._matchIntroSafetyTimer = null;
+    if (BPState.matchIntroSafetyTimer) {
+      clearTimeout(BPState.matchIntroSafetyTimer);
+      BPState.matchIntroSafetyTimer = null;
     }
   } catch (_) {}
   try {
     mpLoading = false;
     mpMatchStarting = false;
-    window._matchAwaitingGo = false;
+    BPState.matchAwaitingGo = false;
 
     // «Старт!» is final — lock so nothing can change the overlay text afterward
     try {
-      window._matchStartPhase = true;
-      window._matchStartLocked = true;
+      BPState.matchStartPhase = true;
+      BPState.matchStartLocked = true;
     } catch (_) {}
     try {
       const el = document.getElementById('matchIntro');
@@ -1634,9 +1640,9 @@ function finishRoomMatchLoadAndGo() {
     const startHoldMs = 1100;
     // While «Старт!» is on screen — finalize ALL DOM under the overlay (invisible to user)
     try {
-      window._animateDealIn = false;
-      window._quietPieceRender = true;
-      window._paintFrozen = false; // allow one quiet final paint under overlay
+      BPState.animateDealIn = false;
+      BPState.quietPieceRender = true;
+      BPState.paintFrozen = false; // allow one quiet final paint under overlay
       if (typeof boardMe !== 'undefined' && boardMe && typeof grid !== 'undefined') {
         if (typeof softRenderGrid === 'function') softRenderGrid(grid, boardMe);
         else if (typeof renderGrid === 'function') renderGrid(grid, boardMe);
@@ -1656,9 +1662,9 @@ function finishRoomMatchLoadAndGo() {
       if (oppEl) oppEl.textContent = String(oppScore | 0);
       try { updateVersusNameLabels && updateVersusNameLabels(); } catch (_) {}
       try { unlockRoomPlay && unlockRoomPlay(); } catch (_) {}
-      window._quietPieceRender = false;
+      BPState.quietPieceRender = false;
       // Freeze again so nothing can paint between now and hide
-      window._paintFrozen = true;
+      BPState.paintFrozen = true;
     } catch (_) {}
 
     setTimeout(() => {
@@ -1673,7 +1679,7 @@ function finishRoomMatchLoadAndGo() {
         }
       } catch (_) {}
 
-      window._matchEnded = false;
+      BPState.matchEnded = false;
       vsActive = true;
       placingLock = false;
       vsIntroLock = false;
@@ -1690,21 +1696,21 @@ function finishRoomMatchLoadAndGo() {
       if (!matchStartTs) matchStartTs = Date.now();
       try { window._matchWentLiveAt = matchStartTs || Date.now(); } catch (_) {}
 
-      if (!(typeof window._matchClockEndTs === 'number' && window._matchClockEndTs > 0)) {
-        window._matchClockEndTs = Date.now() + Math.max(0, vsTimeLeft || vsDuration || 120) * 1000;
+      if (!(typeof BPState.matchClockEndTs === 'number' && BPState.matchClockEndTs > 0)) {
+        BPState.matchClockEndTs = Date.now() + Math.max(0, vsTimeLeft || vsDuration || 120) * 1000;
       }
-      vsTimeLeft = Math.max(0, Math.ceil((window._matchClockEndTs - Date.now()) / 1000));
+      vsTimeLeft = Math.max(0, Math.ceil((BPState.matchClockEndTs - Date.now()) / 1000));
 
       // Keep paint frozen + start phase a bit longer so no jumps right after overlay hides
       try {
-        window._animateDealIn = false;
-        window._quietPieceRender = true;
-        window._paintFrozen = true;
-        window._matchStartPhase = true;
+        BPState.animateDealIn = false;
+        BPState.quietPieceRender = true;
+        BPState.paintFrozen = true;
+        BPState.matchStartPhase = true;
       } catch (_) {}
 
       try {
-        if (typeof startMatchWallClock === 'function') startMatchWallClock(window._matchClockEndTs);
+        if (typeof startMatchWallClock === 'function') startMatchWallClock(BPState.matchClockEndTs);
         else if (typeof ensureMatchClockRunning === 'function') ensureMatchClockRunning();
       } catch (_) {}
       try { startAfkWatch && startAfkWatch(); } catch (_) {}
@@ -1718,18 +1724,18 @@ function finishRoomMatchLoadAndGo() {
         requestAnimationFrame(() => {
           setTimeout(() => {
             try {
-              window._matchStartPhase = false;
-              window._matchIntroSeqRunning = false;
-              window._paintFrozen = false;
-              window._quietPieceRender = false;
+              BPState.matchStartPhase = false;
+              BPState.matchIntroSeqRunning = false;
+              BPState.paintFrozen = false;
+              BPState.quietPieceRender = false;
             } catch (_) {}
-            window._matchGoFinishing = false;
+            BPState.matchGoFinishing = false;
           }, 120);
         });
       });
     }, startHoldMs);
   } catch (e) {
-    window._matchGoFinishing = false;
+    BPState.matchGoFinishing = false;
     console.warn('finishRoomMatchLoadAndGo', e);
     // Emergency unlock
     try {

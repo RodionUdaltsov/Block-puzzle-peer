@@ -1,85 +1,53 @@
 # Block Puzzle
 
-Online multiplayer is **server-authoritative** over WebSocket (`MatchClient` ↔ `server.js`).
+Server-authoritative multiplayer block puzzle (Node.js HTTP + WebSocket).
 
-Game rules (shapes, place, clear, score, deal) live in **`shared/rules.js`** — one source for server and client.
+**Version:** see `package.json`  
+**Node:** >= 18  
+**Dependencies:** none (vendor WebSocket, optional Redis via mini client)
 
-## Run
+## Quick start
+
 ```bash
-node server.js
+# Build client bundle + start server (port 9000)
+npm start
+
+# Persistence modes
+npm run start:file    # JSON files under data/
+npm run start:redis   # REDIS_URL=redis://127.0.0.1:6379
+
+# Checks & tests
+npm run check
+npm test
 ```
-Open http://localhost:9000
 
-Windows: `start-server.bat`
+Open `http://127.0.0.1:9000/`. WebSocket path: `/ws`.
 
-Docker:
+## Environment
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `PORT` | `9000` | HTTP + WS port |
+| `BP_STORE` / `STORE` | `memory` | `memory` \| `file` \| `redis` |
+| `REDIS_URL` | — | Required when store is `redis` |
+| `BP_WS_ORIGINS` | (any) | Comma-separated allowed Origin values; empty = allow all |
+| `BP_MAX_WS_MSG` | `65536` | Max WebSocket message size (bytes) |
+
+## Architecture
+
+- **`server.js`** — HTTP static files, WS matchmaking, rooms, private lobbies, presence
+- **`shared/rules.js`** — placement, clears, scoring (mirrored to `public/shared/rules.js`)
+- **`shared/skins.js`** — piece color palettes (server deals from this)
+- **`lib/store.js`** — memory / file / Redis persistence
+- **`public/js/*`** — client modules → `public/dist/client.bundle.js`
+
+## Docker
+
 ```bash
 docker build -t block-puzzle .
-docker run -p 9000:9000 block-puzzle
+docker run -p 9000:9000 -e BP_STORE=file block-puzzle
 ```
 
-## Features
-Ranked · private rooms · **crossplay** (phone ↔ PC, any OS) · authoritative moves · rejoin · forfeit · AFK/disconnect · rematch · friends
+## Protocol notes
 
-## Crossplay
-- One WebSocket protocol and one `shared/rules.js` for all clients.
-- Ranked queue is **not** split by platform or OS — phone can match desktop and vice versa.
-- Private room codes work the same on mobile and PC (same server).
-- Match clock and scoring are **server-side** (fair across devices).
-- Clients report `platform` / `os` for UI only; never used to segregate matchmaking.
-
-Open the same server URL on both devices (e.g. `http://<lan-ip>:9000` on phone and PC).
-
-## Online smoothness
-- Soft differential renders on place/sync (no full DOM wipe).
-- Local hand not rebuilt while dragging.
-- Sync every 6s, skipped while dragging; client throttle.
-- softRenderGrid fully clears cell styles (fixes stuck squares after line clear until next place).
-- place_ok forces board soft-sync so cleared cells never linger.
-- Classic intro 1200ms → 450ms.
-
-## Layout
-- `server.js` — HTTP + WebSocket, MatchRoom, queue, private, presence
-- `shared/rules.js` — authoritative puzzle rules (Node + browser)
-- `public/shared/rules.js` — same file served to client
-- `public/match-client.js` — WebSocket client
-- `public/game.js` — UI + local/bot modes + online glue
-- `vendor/ws` — vendored WebSocket library (no npm install required)
-
-## Persistence
-
-By default state is **in-memory** (restart loses active matches).
-
-| Mode | How | Survives restart |
-|------|-----|------------------|
-| `memory` | default | no |
-| `file` | `BP_STORE=file` | yes (JSON in `data/`) |
-| `redis` | `REDIS_URL=redis://…` or `BP_STORE=redis` | yes |
-
-```bash
-# File (zero deps)
-BP_STORE=file node server.js
-
-# Redis (no npm — mini RESP client)
-REDIS_URL=redis://127.0.0.1:6379 node server.js
-# or
-BP_STORE=redis REDIS_HOST=127.0.0.1 REDIS_PORT=6379 node server.js
-```
-
-What is stored:
-- Active / recently-ended match rooms (grids, scores, hands, clock) → rejoin after restart
-- Token → matchId index
-- Offline social queue (friend requests, challenges)
-
-Queues and presence stay in memory (players re-queue / re-register).
-
-## Client modules (`public/js/`)
-
-The former monolithic `game.js` (~19k lines) is split into ordered scripts
-`01`…`12` under `public/js/`. They share global scope (no bundler). See `public/js/README.md`.
-
-## P2P / PeerJS
-
-Disabled (v3.6.2). PeerJS handlers are empty stubs; online is **only** WebSocket `MatchClient` ↔ `server.js`.
-No ICE/dataChannel watches, no `mpSend` traffic.
-
+Clients receive `hello` with `token` and `protocolVersion`. Match moves are server-validated (`pieceIdx`, `r`, `c` only). Health: `GET /health`.

@@ -1,3 +1,8 @@
+/* =============================================================================
+   Block Puzzle styles — v3.9.31 (production bundle; dead rules purged)
+   Modular sources: public/css/styles-{base,home,board,match}.css
+   ============================================================================= */
+
     /* Cross-platform base */
     html {
       -webkit-text-size-adjust: 100%;
@@ -1074,16 +1079,6 @@
       visibility: hidden !important;
       pointer-events: none !important;
     }
-
-    .menu-logo {
-      font-size: clamp(1.45rem, 6vw, 2rem); font-weight: 800; letter-spacing: -0.03em;
-      background: linear-gradient(135deg, var(--accent), var(--accent2));
-      -webkit-background-clip: text; -webkit-text-fill-color: transparent;
-      margin: 12px 0 6px; text-align: center;
-      padding-top: 4px;
-    }
-    .menu-sub { color: var(--text-dim); font-size: 0.9rem; margin-bottom: 20px; text-align: center; }
-    .menu-cards { display: flex; flex-wrap: wrap; gap: 14px; justify-content: center; width: 100%; max-width: 520px; }
     .menu-card {
       background: var(--surface); border: 1px solid var(--border); border-radius: 18px;
       padding: 22px 20px; width: 230px; cursor: pointer;
@@ -1092,8 +1087,6 @@
     .menu-card:hover { transform: translateY(-3px); border-color: var(--accent); box-shadow: 0 8px 24px rgba(0,212,170,0.12); }
     .menu-card h3 { font-size: 1.15rem; margin-bottom: 6px; }
     .menu-card p { color: var(--text-dim); font-size: 0.82rem; line-height: 1.4; }
-    .menu-stats { margin-top: 28px; display: flex; gap: 20px; color: var(--text-dim); font-size: 0.9rem; flex-wrap: wrap; justify-content: center; }
-    .menu-stats strong { color: var(--text); }
 
     /* —— Modern home menu —— */
     #screenMenu {
@@ -1150,18 +1143,6 @@
       justify-content: space-between;
       padding: 6px 6px 12px;
       gap: 10px;
-    }
-    .home-brand {
-      font-size: 1.08rem;
-      font-weight: 800;
-      letter-spacing: -0.02em;
-      background: linear-gradient(120deg, var(--accent) 0%, color-mix(in srgb, var(--accent) 70%, #fff) 35%, var(--accent2) 70%, var(--accent) 100%);
-      background-size: 220% 100%;
-      -webkit-background-clip: text;
-      -webkit-text-fill-color: transparent;
-      background-clip: text;
-      animation: brandShift 8s ease-in-out infinite;
-      filter: drop-shadow(0 0 14px var(--glow-a));
     }
     @keyframes brandShift {
       0%, 100% { background-position: 0% 50%; }
@@ -1710,20 +1691,6 @@
       background: rgba(94,231,255,0.1);
       border: 1px solid rgba(94,231,255,0.3);
     }
-    .shop-tabs {
-      width: 100%;
-      max-width: 440px;
-      display: flex;
-      gap: 8px;
-      padding: 0 2px 12px;
-    }
-    .shop-tab {
-      flex: 1;
-      min-height: 40px;
-      border-radius: 12px;
-      font-weight: 700;
-      font-size: 0.85rem;
-    }
     .shop-tab.on {
       background: var(--accent-soft);
       border-color: var(--accent-border);
@@ -2121,7 +2088,6 @@
       box-shadow: none;
     }
     .skin-action:not(:disabled):not(.on):active { transform: scale(0.96); }
-    .skin-card, .skin-preview, .skin-badge, .skin-desc, .skin-price { display: none !important; }
     .inv-empty {
       text-align: center;
       color: var(--text-dim);
@@ -2130,24 +2096,6 @@
       border-radius: 16px;
       border: 1px dashed var(--border);
       background: rgba(0,0,0,0.12);
-    }
-    .shelf-label {
-      font-size: 0.68rem;
-      font-weight: 800;
-      text-transform: uppercase;
-      letter-spacing: 0.08em;
-      color: var(--text-dim);
-      padding: 0 4px;
-      display: flex;
-      align-items: center;
-      gap: 8px;
-    }
-    .shelf-label::after {
-      content: '';
-      flex: 1;
-      height: 1px;
-      background: linear-gradient(90deg, var(--border), transparent);
-      opacity: 0.85;
     }
 
     /* Collapsible skin shelf (shop / inventory) — like achievements */
@@ -2533,10 +2481,6 @@
     }
     .mm-found .mm-ring { animation-duration: 1.2s; border-top-color: var(--accent); }
     @keyframes spin { to { transform: rotate(360deg); } }
-    .mm-spinner {
-      width: 48px; height: 48px; border: 3px solid var(--border); border-top-color: var(--accent);
-      border-radius: 50%; animation: spin 0.8s linear infinite; margin: 0 auto 18px;
-    }
 
     .header {
       width: 100%; max-width: 920px;
@@ -3651,20 +3595,6 @@
       margin-top: 4px;
       line-height: 1.35;
     }
-    .profile-save-bar {
-      width: 100%;
-      max-width: 400px;
-      display: flex;
-      gap: 8px;
-      margin-top: 2px;
-      padding-bottom: 8px;
-      position: sticky;
-      bottom: 0;
-      z-index: 4;
-      background: linear-gradient(to top, var(--bg) 60%, transparent);
-      padding-top: 8px;
-    }
-    .profile-save-bar button { flex: 1; min-height: 42px; }
     #profileAvatarFile { display: none; }
 
     #bootLoader {
@@ -8416,16 +8346,6 @@ body.touch-ui .cell.clearing::after {
     #btnForfeit {
       opacity: 0.85;
     }
-
-    .friend-code-box {
-      width: 100%; max-width: 420px;
-      background: var(--surface);
-      border: 1px solid var(--border);
-      border-radius: 16px;
-      padding: 14px 16px;
-      margin: 10px 0;
-      text-align: center;
-    }
     /* Compact friends panel */
     .fr-panel {
       width: 100%;
@@ -8495,13 +8415,6 @@ body.touch-ui .cell.clearing::after {
       text-align: center;
       max-width: 420px;
       min-height: 0;
-    }
-    .duration-row-modern {
-      width: 100%;
-      max-width: 440px;
-      display: grid;
-      grid-template-columns: repeat(3, 1fr);
-      gap: 10px;
     }
     .duration-row-modern .dur-btn {
       width: 100%;
@@ -9776,12 +9689,6 @@ body.touch-ui .cell.clearing::after {
       flex: 1; min-height: 36px; font-size: 0.82rem;
       border-radius: 10px;
     }
-    .note-box {
-      width: 100%; max-width: 420px;
-      font-size: 0.78rem; color: var(--text-dim); line-height: 1.45;
-      background: rgba(124,92,255,0.08); border: 1px solid rgba(124,92,255,0.25);
-      border-radius: 12px; padding: 12px 14px; margin-top: 8px; text-align: left;
-    }
 
     .ach-list {
       width: 100%;
@@ -9922,15 +9829,6 @@ body.touch-ui .cell.clearing::after {
         transition: none !important;
         animation: none !important;
       }
-    }
-    .ach-section-title {
-      font-size: 0.68rem;
-      font-weight: 800;
-      text-transform: uppercase;
-      letter-spacing: 0.07em;
-      color: var(--text-dim);
-      padding: 6px 4px 2px;
-      margin: 0;
     }
     .ach-card {
       background: color-mix(in srgb, var(--surface) 92%, transparent);
@@ -10179,13 +10077,6 @@ body.touch-ui .cell.clearing::after {
       width: 100%;
       margin: 8px 0 10px;
     }
-
-    .score-row {
-      display: inline-flex; align-items: center; gap: 6px;
-      position: relative;
-      z-index: 60;
-      pointer-events: auto;
-    }
     .flag-btn, #btnForfeit.flag-btn {
       background: rgba(255, 92, 122, 0.1) !important;
       border: 1px solid rgba(255, 92, 122, 0.35) !important;
@@ -10250,12 +10141,6 @@ body.touch-ui .cell.clearing::after {
       25%  { opacity: 1; transform: translate(-50%, -50%) scale(1.15) rotate(-8deg); }
       55%  { opacity: 1; transform: translate(-50%, -48%) scale(1) rotate(12deg); filter: grayscale(0.4); }
       100% { opacity: 0; transform: translate(-50%, -20%) scale(0.7) rotate(25deg); filter: grayscale(1); }
-    }
-    .diamond-flash {
-      position: fixed; z-index: 200; pointer-events: none;
-      font-weight: 800; font-size: 1.2rem; color: var(--diamond);
-      text-shadow: 0 2px 10px rgba(0,0,0,0.5);
-      animation: floatUp 0.9s ease forwards;
     }
     @keyframes floatUp {
       0% { opacity: 0; transform: translate(-50%, 8px) scale(0.9); }
@@ -11062,10 +10947,6 @@ body.touch-ui .cell.clearing::after {
     }
     .shop-balance {
       box-shadow: 0 4px 14px color-mix(in srgb, var(--diamond) 18%, transparent);
-    }
-    .shop-tab {
-      background: color-mix(in srgb, var(--surface2) 90%, transparent);
-      border: 1px solid var(--border);
     }
     .skin-item.equipped {
       border-color: var(--accent-border) !important;

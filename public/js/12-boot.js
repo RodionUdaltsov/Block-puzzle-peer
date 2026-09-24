@@ -121,7 +121,7 @@ try {
 } catch (_) {}
 try {
   // Clear stale rejoin session so menu is never locked behind rejoin overlay
-  if (!window._roomMatchMode) {
+  if (!BPState.roomMatchMode) {
     sessionStorage.removeItem('bp_match_id');
     sessionStorage.removeItem('bp_match_token');
   }

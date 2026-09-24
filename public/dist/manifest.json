@@ -1,0 +1,28 @@
+{
+  "version": "3.9.34",
+  "hash": "3c186bae7d07",
+  "generatedAt": "2026-09-24T13:50:45.050Z",
+  "modules": [
+    "public/shared/rules.js",
+    "public/match-client.js",
+    "public/js/00-state.js",
+    "public/js/00-perf.js",
+    "public/js/01-cosmetics.js",
+    "public/js/02-bots-achievements-settings.js",
+    "public/js/03-audio.js",
+    "public/js/04-profile-friends.js",
+    "public/js/05-soft-render.js",
+    "public/js/06-match-liveness.js",
+    "public/js/07-match-flow-ui.js",
+    "public/js/08-screens-gameplay.js",
+    "public/js/09-offline-and-ranked.js",
+    "public/js/10-match-handlers.js",
+    "public/js/11-private-rooms-ui.js",
+    "public/js/12-boot.js",
+    "public/js/13-performance.js"
+  ],
+  "bytes": {
+    "classic": 928905,
+    "esm": 928990
+  }
+}

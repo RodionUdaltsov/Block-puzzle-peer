@@ -151,11 +151,11 @@ function softRenderPieces(areaEl) {
   } catch (_) {}
   try {
     // Quiet full rebuild: skip staggered fade-in (sync/rejoin)
-    window._quietPieceRender = true;
+    BPState.quietPieceRender = true;
     renderPieces(areaEl);
-    window._quietPieceRender = false;
+    BPState.quietPieceRender = false;
   } catch (_) {
-    try { window._quietPieceRender = false; } catch (_2) {}
+    try { BPState.quietPieceRender = false; } catch (_2) {}
   }
 }
 function _pieceHandSig(p) {
@@ -212,11 +212,11 @@ function softRenderOppPieces() {
         return;
       }
     }
-    window._quietPieceRender = true;
+    BPState.quietPieceRender = true;
     renderOppPieces();
-    window._quietPieceRender = false;
+    BPState.quietPieceRender = false;
   } catch (_) {
-    try { window._quietPieceRender = false; renderOppPieces(); } catch (_2) {}
+    try { BPState.quietPieceRender = false; renderOppPieces(); } catch (_2) {}
   }
 }
 
@@ -244,7 +244,7 @@ function applyRemoteMatchState(data) {
       const nextLeft = Math.max(0, Math.ceil((data.clockEndTs - Date.now()) / 1000));
       // Only adopt clock if it does not jump more than 3s (quiet)
       if (Math.abs(nextLeft - (vsTimeLeft | 0)) >= 1) {
-        window._matchClockEndTs = data.clockEndTs;
+        BPState.matchClockEndTs = data.clockEndTs;
         vsTimeLeft = nextLeft;
       }
     } else if (typeof data.vsTimeLeft === 'number') {
@@ -542,7 +542,7 @@ function preferHand(localArr, remoteArr) {
 function recoverHandsFromMatchLog() {
   // Server-authoritative match: never invent hands from local matchLog
   try {
-    if (roomMatchMode || window._roomMatchMode || (typeof MatchClient !== 'undefined' && MatchClient.matchId)) {
+    if (roomMatchMode || BPState.roomMatchMode || (typeof MatchClient !== 'undefined' && MatchClient.matchId)) {
       return;
     }
   } catch (_) {}
@@ -644,19 +644,19 @@ function forceShowForfeitLoss(myScoreNow, oppScoreNow) {
 
 function surrenderLiveMatch() {
   // Idempotent — second click does nothing harmful
-  if (window._matchEnded) {
+  if (BPState.matchEnded) {
     try { hideMatchRejoinPanel(); } catch (_) {}
     return;
   }
 
   // Room mode first: server notifies opponent
   try {
-    if ((roomMatchMode || window._roomMatchMode) && typeof MatchClient !== 'undefined') {
+    if ((roomMatchMode || BPState.roomMatchMode) && typeof MatchClient !== 'undefined') {
       MatchClient.forfeit();
     }
   } catch (_) {}
 
-  window._matchEnded = true;
+  BPState.matchEnded = true;
 
   const snap = readLiveMatch();
   killAllMatchTimers();
@@ -699,7 +699,7 @@ function surrenderLiveMatch() {
   }
   vsActive = false;
   killAllMatchTimers();
-  window._matchEnded = true;
+  BPState.matchEnded = true;
   try { hideMatchRejoinPanel(); } catch (_) {}
 }
 
@@ -726,7 +726,7 @@ function bindMatchRejoinUI() {
         return !!(r && r.classList.contains('visible'));
       } catch (_) { return false; }
     })();
-    if (!snap && rawSnap && !vsActive && !resultUp && !window._matchEnded) {
+    if (!snap && rawSnap && !vsActive && !resultUp && !BPState.matchEnded) {
       // Reconnect window already elapsed → finish match + history + toast
       try {
         if (typeof resolveBothAwayFromSnap === 'function' && resolveBothAwayFromSnap(rawSnap, true)) {
@@ -753,14 +753,14 @@ function bindMatchRejoinUI() {
         const leftSec = (typeof snap.vsTimeLeft === 'number') ? snap.vsTimeLeft : 120;
         const reconnectMs = Math.min(60000, Math.max(0, leftSec) * 1000);
         const remain = Math.max(0, leftAt + reconnectMs - Date.now());
-        if (window._bothAwayResolveTimer) {
-          try { clearTimeout(window._bothAwayResolveTimer); } catch (_) {}
+        if (BPState.bothAwayResolveTimer) {
+          try { clearTimeout(BPState.bothAwayResolveTimer); } catch (_) {}
         }
-        window._bothAwayResolveTimer = setTimeout(() => {
-          window._bothAwayResolveTimer = null;
-          if (window._matchEnded) return;
+        BPState.bothAwayResolveTimer = setTimeout(() => {
+          BPState.bothAwayResolveTimer = null;
+          if (BPState.matchEnded) return;
           // If user is mid-rejoin attempt, let it finish; otherwise end the match
-          if (window._mpRejoiningMatch && vsActive) return;
+          if (BPState.mpRejoiningMatch && vsActive) return;
           try {
             let expired = null;
             try {
@@ -881,7 +881,7 @@ function failJoinRoom(reason, silentAlert) {
 
 function mpIsLinked() {
   try {
-    if (roomMatchMode || window._roomMatchMode) return true;
+    if (roomMatchMode || BPState.roomMatchMode) return true;
     if (typeof MatchClient !== "undefined" && MatchClient.connected) return true;
   } catch (_) {}
   return false;
@@ -904,7 +904,7 @@ function destroyMp() {
   try {
     if (typeof MatchClient !== 'undefined') {
       MatchClient.leavePrivate();
-      if (!(roomMatchMode || window._roomMatchMode)) {
+      if (!(roomMatchMode || BPState.roomMatchMode)) {
         /* keep matchId for rematch if room mode ended */
       }
     }
@@ -1456,7 +1456,7 @@ function ensureBoardDcOverlay(which) {
 function showBoardDisconnectOverlay(sec, which, opts) {
   opts = opts || {};
   try {
-    if (!(roomMatchMode || window._roomMatchMode)) {
+    if (!(roomMatchMode || BPState.roomMatchMode)) {
       if (isRejoinCalm()) return;
       if (sessionStorage.getItem('bp_rejoin_storm') === '1') return;
       if (bothAwayMode) return;
@@ -1510,13 +1510,13 @@ function clearDisconnectTimer() {
     mpDisconnectTimer = null;
   }
   try {
-    if (window._soloOverlayIv) { clearInterval(window._soloOverlayIv); window._soloOverlayIv = null; }
+    if (BPState.soloOverlayIv) { clearInterval(BPState.soloOverlayIv); BPState.soloOverlayIv = null; }
   } catch (_) {}
   try {
-    if (window._soloDeadlineTimer) { clearTimeout(window._soloDeadlineTimer); window._soloDeadlineTimer = null; }
+    if (BPState.soloDeadlineTimer) { clearTimeout(BPState.soloDeadlineTimer); BPState.soloDeadlineTimer = null; }
   } catch (_) {}
   try {
-    if (window._soloDialIv) { clearInterval(window._soloDialIv); window._soloDialIv = null; }
+    if (BPState.soloDialIv) { clearInterval(BPState.soloDialIv); BPState.soloDialIv = null; }
   } catch (_) {}
   oppDisconnected = false;
   dcDeadlineTs = 0;
@@ -1525,7 +1525,7 @@ function clearDisconnectTimer() {
   oppDcAt = 0;
   myDcAt = 0;
   bothAwayMode = false;
-  try { window._soloRejoinActive = false; } catch (_) {}
+  try { BPState.soloRejoinActive = false; } catch (_) {}
   // Only clear disconnect / need-move toasts — NEVER wipe AFK banners on opp moves
   try {
     if (typeof dismissStatusToast === 'function') {
@@ -1540,7 +1540,7 @@ function clearDisconnectTimer() {
 /** Resolve when disconnect wait ends. Supports dual-away score/timer rules. */
 function isServerAuthMatch() {
   try {
-    return !!(roomMatchMode || window._roomMatchMode
+    return !!(roomMatchMode || BPState.roomMatchMode
       || (typeof MatchClient !== 'undefined' && MatchClient.matchId));
   } catch (_) { return false; }
 }
@@ -1549,7 +1549,7 @@ function resolveDisconnectWin() {
   // Server-authoritative room: client NEVER ends the match on local DC timer.
   // Wait for match_end from server only — prevents one-sided 0:0 / false forfeit.
   try {
-    if (roomMatchMode || window._roomMatchMode || (typeof MatchClient !== 'undefined' && MatchClient.matchId)) {
+    if (roomMatchMode || BPState.roomMatchMode || (typeof MatchClient !== 'undefined' && MatchClient.matchId)) {
       try { softRedial && softRedial(); } catch (_) {}
       try {
         if (typeof MatchClient !== 'undefined' && MatchClient.connected) {
@@ -1578,14 +1578,14 @@ function resolveDisconnectWin() {
       oppDisconnected = false;
       return;
     }
-    if (window._lastOppPacketAt && (Date.now() - window._lastOppPacketAt) < 12000) {
+    if (BPState.lastOppPacketAt && (Date.now() - BPState.lastOppPacketAt) < 12000) {
       clearDisconnectTimer();
       hideBoardDisconnectOverlay();
       oppDisconnected = false;
       try { softRedial(); } catch (_) {}
       return;
     }
-    if (window._mpRejoiningMatch) {
+    if (BPState.mpRejoiningMatch) {
       return;
     }
   } catch (_) {}
@@ -1623,7 +1623,7 @@ function resolveDisconnectWin() {
   const wasAfk = dcWasAfk;
   clearDisconnectTimer();
   stopAfkWatch();
-  window._soloRejoinActive = false;
+  BPState.soloRejoinActive = false;
   const reason = wasAfk ? 'afk' : 'disconnect';
 
   // If the player is still looking at the match screen, always show result UI
@@ -1667,14 +1667,14 @@ function resolveDisconnectWin() {
       try {
         oppDisconnected = true;
         // Wait only until match clock ends — then fair score, never DC win
-        const clockEnd = (typeof window._matchClockEndTs === 'number' && window._matchClockEndTs > 0)
-          ? window._matchClockEndTs
+        const clockEnd = (typeof BPState.matchClockEndTs === 'number' && BPState.matchClockEndTs > 0)
+          ? BPState.matchClockEndTs
           : (Date.now() + left * 1000);
         dcDeadlineTs = clockEnd;
         if (mpDisconnectTimer) { clearInterval(mpDisconnectTimer); mpDisconnectTimer = null; }
         mpDisconnectTimer = setInterval(() => {
           try {
-            if (window._matchEnded || !vsActive) {
+            if (BPState.matchEnded || !vsActive) {
               clearDisconnectTimer();
               return;
             }
@@ -1683,7 +1683,7 @@ function resolveDisconnectWin() {
               hideBoardDisconnectOverlay();
               return;
             }
-            if (window._lastOppPacketAt && (Date.now() - window._lastOppPacketAt) < 8000) {
+            if (BPState.lastOppPacketAt && (Date.now() - BPState.lastOppPacketAt) < 8000) {
               clearDisconnectTimer();
               hideBoardDisconnectOverlay();
               return;
@@ -1736,11 +1736,11 @@ function resolveDisconnectWin() {
 /** Offline resolve when rejoin window expired (both away / no peer).
  *  force=true skips the "window still open" guard (used by expiry timer). */
 function resolveBothAwayFromSnap(snap, force) {
-  if (!snap || window._matchEnded) return false;
+  if (!snap || BPState.matchEnded) return false;
   // Server owns the match — never resolve from localStorage snapshot
   try {
     if (snap.serverAuth || snap.matchId
-        || roomMatchMode || window._roomMatchMode
+        || roomMatchMode || BPState.roomMatchMode
         || (typeof MatchClient !== 'undefined' && MatchClient.matchId)) {
       return false;
     }
@@ -1763,9 +1763,9 @@ function resolveBothAwayFromSnap(snap, force) {
     }
   } catch (_) {}
   try {
-    if (window._bothAwayResolveTimer) {
-      clearTimeout(window._bothAwayResolveTimer);
-      window._bothAwayResolveTimer = null;
+    if (BPState.bothAwayResolveTimer) {
+      clearTimeout(BPState.bothAwayResolveTimer);
+      BPState.bothAwayResolveTimer = null;
     }
   } catch (_) {}
 
@@ -1788,8 +1788,8 @@ function resolveBothAwayFromSnap(snap, force) {
 
   const reason = 'time';
   vsActive = true;
-  window._mpRejoiningMatch = false;
-  window._soloRejoinActive = false;
+  BPState.mpRejoiningMatch = false;
+  BPState.soloRejoinActive = false;
   try {
     // Score-based end (both left) — never "Обрыв связи".
     // If the player is still on the match screen, show the result UI.
@@ -1822,3 +1822,32 @@ function resolveBothAwayFromSnap(snap, force) {
   try { clearLiveMatch(); } catch (_) {}
   return true;
 }
+
+/* BPPerf hooks (v3.9.30) */
+(function () {
+  if (typeof softRenderGrid !== 'function') return;
+  var _sg = softRenderGrid;
+  softRenderGrid = function (g, boardEl) {
+    var t0 = (typeof performance !== 'undefined' && performance.now) ? performance.now() : 0;
+    try { return _sg.apply(this, arguments); }
+    finally {
+      if (typeof BPPerf !== 'undefined' && BPPerf.sample) {
+        var dt = ((typeof performance !== 'undefined' && performance.now) ? performance.now() : 0) - t0;
+        BPPerf.sample('softGrid', dt);
+        BPPerf.sample('softRender', dt);
+      }
+    }
+  };
+  if (typeof softRenderPieces === 'function') {
+    var _sp = softRenderPieces;
+    softRenderPieces = function (areaEl) {
+      var t0 = (typeof performance !== 'undefined' && performance.now) ? performance.now() : 0;
+      try { return _sp.apply(this, arguments); }
+      finally {
+        if (typeof BPPerf !== 'undefined' && BPPerf.sample) {
+          BPPerf.sample('softPieces', ((typeof performance !== 'undefined' && performance.now) ? performance.now() : 0) - t0);
+        }
+      }
+    };
+  }
+})();

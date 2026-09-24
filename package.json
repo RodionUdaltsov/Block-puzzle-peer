@@ -1,12 +1,14 @@
 {
   "name": "block-puzzle-server",
-  "version": "3.9.29",
-  "description": "Block Puzzle — modular client + server + persistence",
+  "version": "3.9.34",
+  "description": "Block Puzzle — ESM client pipeline + zero-dep bundler",
   "main": "server.js",
   "scripts": {
-    "start": "node server.js",
-    "start:file": "BP_STORE=file node server.js",
-    "start:redis": "BP_STORE=redis node server.js",
+    "build": "node scripts/bundle-client.js",
+    "build:watch": "node scripts/bundle-client.js --watch",
+    "start": "node scripts/bundle-client.js && node server.js",
+    "start:file": "node scripts/bundle-client.js && BP_STORE=file node server.js",
+    "start:redis": "node scripts/bundle-client.js && BP_STORE=redis node server.js",
     "check": "node scripts/check.js",
     "test": "node --test test/*.test.js"
   },

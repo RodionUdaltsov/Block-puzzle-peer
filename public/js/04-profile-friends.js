@@ -345,7 +345,7 @@ function detectMyActivity() {
       myActivity = 'ranked';
       return myActivity;
     }
-    if ((typeof roomMatchMode !== 'undefined' && roomMatchMode) || window._roomMatchMode) {
+    if ((typeof roomMatchMode !== 'undefined' && roomMatchMode) || BPState.roomMatchMode) {
       if (typeof vsActive !== 'undefined' && vsActive) {
         myActivity = 'match';
         return myActivity;
@@ -1733,7 +1733,7 @@ document.addEventListener('visibilitychange', () => {
   if (document.hidden) {
     // Opera/Chromium: tab hide often fires before pagehide; send leave while channel is still open
     try {
-      if (mpMode && !window._matchEnded && (typeof isPreStartOrEmptyMatchLeave === 'function')
+      if (mpMode && !BPState.matchEnded && (typeof isPreStartOrEmptyMatchLeave === 'function')
         && isPreStartOrEmptyMatchLeave()) {
         
         
@@ -1743,7 +1743,7 @@ document.addEventListener('visibilitychange', () => {
     try { ensureFriendPresence(); } catch (_) {}
     // Both left → one rejoined already: other must still see rejoin toast on return
     try {
-      if (!vsActive && !window._matchEnded && !window._mpRejoiningMatch) {
+      if (!vsActive && !BPState.matchEnded && !BPState.mpRejoiningMatch) {
         const s = (typeof readLiveMatch === 'function') ? readLiveMatch() : null;
         if (s) {
           showMatchRejoinPanel(s);
@@ -1762,7 +1762,7 @@ function persistLiveMatch(opts) {
     // Rejoin uses MatchClient credentials + server snapshot only.
     const serverMatch = !!(
       (typeof roomMatchMode !== 'undefined' && roomMatchMode)
-      || window._roomMatchMode
+      || BPState.roomMatchMode
       || (typeof MatchClient !== 'undefined' && MatchClient.matchId)
     );
     if (serverMatch && !opts.forceLeave && !opts.force) {
@@ -1788,7 +1788,7 @@ function persistLiveMatch(opts) {
     })();
     // Never DELETE the snapshot here — only skip writing.
     // Deleting on !vsActive wiped rejoin ability when both players left.
-    if (resultUp || window._matchEnded) return;
+    if (resultUp || BPState.matchEnded) return;
     if (!opts.forceLeave && (!vsActive || !mpMode)) return;
     if (!mpMode && !opts.forceLeave) return;
     // Empty pre-start / no moves: never create a rejoinable live snapshot.
@@ -1822,17 +1822,17 @@ function persistLiveMatch(opts) {
       // Wall-clock match end — keeps ticking while both players are offline
       clockEndTs: (function () {
         try {
-          if (typeof window._matchClockEndTs === 'number' && window._matchClockEndTs > 0) {
-            return window._matchClockEndTs;
+          if (typeof BPState.matchClockEndTs === 'number' && BPState.matchClockEndTs > 0) {
+            return BPState.matchClockEndTs;
           }
           const prev = JSON.parse(localStorage.getItem(LIVE_MATCH_KEY) || 'null');
           if (prev && typeof prev.clockEndTs === 'number' && prev.clockEndTs > 0) {
-            window._matchClockEndTs = prev.clockEndTs;
+            BPState.matchClockEndTs = prev.clockEndTs;
             return prev.clockEndTs;
           }
         } catch (_) {}
         const end = Date.now() + Math.max(0, vsTimeLeft || 0) * 1000;
-        window._matchClockEndTs = end;
+        BPState.matchClockEndTs = end;
         return end;
       })(),
       vsDuration: vsDuration,
@@ -1860,7 +1860,7 @@ function persistLiveMatch(opts) {
     if (!leftAtVal) {
       try {
         const prev = JSON.parse(localStorage.getItem(LIVE_MATCH_KEY) || 'null');
-        const solo = !!(typeof window !== 'undefined' && window._soloRejoinActive);
+        const solo = !!(typeof window !== 'undefined' && BPState.soloRejoinActive);
         const waitingOpp = !!(typeof oppDisconnected !== 'undefined' && oppDisconnected);
         if (prev && typeof prev.leftAt === 'number' && prev.leftAt > 0 && (prev.bothAway || solo || waitingOpp)) {
           snap.leftAt = prev.leftAt;
@@ -1909,27 +1909,27 @@ function clearLiveMatch() {
 function startMatchWallClock(endTs) {
   try {
     // Do not start the clock while waiting for match_go / loading overlay
-    if (window._matchAwaitingGo || mpLoading) {
+    if (BPState.matchAwaitingGo || mpLoading) {
       try { updateTimerDisplay(); } catch (_) {}
       return;
     }
     if (typeof endTs === 'number' && endTs > 0) {
-      window._matchClockEndTs = endTs;
-    } else if (!(typeof window._matchClockEndTs === 'number' && window._matchClockEndTs > 0)) {
-      window._matchClockEndTs = Date.now() + Math.max(0, vsTimeLeft || vsDuration || 120) * 1000;
+      BPState.matchClockEndTs = endTs;
+    } else if (!(typeof BPState.matchClockEndTs === 'number' && BPState.matchClockEndTs > 0)) {
+      BPState.matchClockEndTs = Date.now() + Math.max(0, vsTimeLeft || vsDuration || 120) * 1000;
     }
-    vsTimeLeft = Math.max(0, Math.ceil((window._matchClockEndTs - Date.now()) / 1000));
+    vsTimeLeft = Math.max(0, Math.ceil((BPState.matchClockEndTs - Date.now()) / 1000));
     try { updateTimerDisplay(); } catch (_) {}
     if (vsTimerId) { try { clearInterval(vsTimerId); } catch (_) {} vsTimerId = null; }
     vsTimerId = setInterval(() => {
-      if (!vsActive || window._matchEnded) return;
-      vsTimeLeft = Math.max(0, Math.ceil((window._matchClockEndTs - Date.now()) / 1000));
+      if (!vsActive || BPState.matchEnded) return;
+      vsTimeLeft = Math.max(0, Math.ceil((BPState.matchClockEndTs - Date.now()) / 1000));
       try { updateTimerDisplay(); } catch (_) {}
       if (vsTimeLeft <= 0) {
         // Server-authoritative online/room: ONLY server may end the match.
         // Local endVersus here caused one client "Ничья 0:0" while the other kept playing.
         try {
-          if (roomMatchMode || window._roomMatchMode
+          if (roomMatchMode || BPState.roomMatchMode
               || (typeof MatchClient !== 'undefined' && MatchClient.matchId)) {
             try { MatchClient.sync && MatchClient.sync({}); } catch (_) {}
             return;
@@ -1943,10 +1943,10 @@ function startMatchWallClock(endTs) {
 /** Restart wall clock if interval was killed but match is still live. */
 function ensureMatchClockRunning() {
   try {
-    if (!vsActive || window._matchEnded || replayMode) return;
+    if (!vsActive || BPState.matchEnded || replayMode) return;
     if (vsTimerId) return;
-    const end = (typeof window._matchClockEndTs === 'number' && window._matchClockEndTs > 0)
-      ? window._matchClockEndTs
+    const end = (typeof BPState.matchClockEndTs === 'number' && BPState.matchClockEndTs > 0)
+      ? BPState.matchClockEndTs
       : (Date.now() + Math.max(0, vsTimeLeft || 0) * 1000);
     startMatchWallClock(end);
   } catch (_) {}
@@ -1958,20 +1958,20 @@ function ensurePlayableIfLive() {
     else document.body.classList.remove('quiet-hands');
   } catch (_) {}
   try {
-    if (!vsActive || window._matchEnded || replayMode) return;
+    if (!vsActive || BPState.matchEnded || replayMode) return;
     // Overlay must not stick forever
-    if (window._rejoinLoading || window._rejoinInputLock) {
+    if (BPState.rejoinLoading || BPState.rejoinInputLock) {
       const el = document.getElementById('rejoinLoading');
       const shown = el && el.classList.contains('show');
       // If overlay not visible, force-clear locks
       if (!shown) {
-        window._rejoinLoading = false;
-        window._rejoinInputLock = false;
+        BPState.rejoinLoading = false;
+        BPState.rejoinInputLock = false;
         placingLock = false;
-        window._mpRejoiningMatch = false;
+        BPState.mpRejoiningMatch = false;
       }
     }
-    if (placingLock && !isDragging && !window._rejoinLoading) {
+    if (placingLock && !isDragging && !BPState.rejoinLoading) {
       placingLock = false;
     }
     ensureMatchClockRunning();
@@ -2056,13 +2056,13 @@ function resolveRejoinAwait(payload) {
 function probeAndCleanLiveMatch() {
   const snap = readLiveMatch();
   if (!snap) { try { hideMatchRejoinPanel(); } catch (_) {} return false; }
-  if (vsActive || window._mpRejoiningMatch) return true;
+  if (vsActive || BPState.mpRejoiningMatch) return true;
   return true;
 }
 /** True when no one has placed a piece and scores are still 0-0. */
 function isEmptyMatchNoMoves() {
   try {
-    if (window._matchHadAnyPlace) return false;
+    if (BPState.matchHadAnyPlace) return false;
     const hasPlace = Array.isArray(matchLog) && matchLog.some(e => e && (e.type === 'place' || e.type === 'opp_place'));
     if (hasPlace) return false;
     if ((score | 0) !== 0 || (oppScore | 0) !== 0) return false;
@@ -2107,9 +2107,9 @@ function notifyLeavingMatch() {
         || !!vsIntroLock
         || !!mpMatchStarting
         || !!vsActive;
-      if (bound && !window._matchEnded) {
+      if (bound && !BPState.matchEnded) {
         // Soft local loss record without full live fight UI
-        window._matchEnded = true;
+        BPState.matchEnded = true;
         vsActive = false;
         const opp = oppName || mpOppName || 'Соперник';
         const entry = {
@@ -2174,7 +2174,7 @@ function showMatchRejoinPanel(snap) {
     try { snap = readLiveMatch(); } catch (_) { snap = null; }
   }
   if (!snap) return;
-  if (window._matchEnded || vsActive || window._mpRejoiningMatch) return;
+  if (BPState.matchEnded || vsActive || BPState.mpRejoiningMatch) return;
   try {
     if (typeof snap.leftAt === 'number') myDcAt = snap.leftAt;
     if (typeof snap.oppLeftAt === 'number' && snap.oppLeftAt > 0) oppDcAt = snap.oppLeftAt;
@@ -2188,22 +2188,22 @@ function showMatchRejoinPanel(snap) {
   } catch (_) {}
   const tryAuto = (attempt) => {
     try {
-      if (window._matchEnded || vsActive) return;
+      if (BPState.matchEnded || vsActive) return;
       const s = readLiveMatch();
       if (!s) return;
-      if (window._mpRejoiningMatch) {
+      if (BPState.mpRejoiningMatch) {
         window._autoRejoinTimer = setTimeout(() => tryAuto(attempt), 800);
         return;
       }
       attemptMatchRejoin().then(() => {
         try {
-          if (!vsActive && !window._matchEnded && readLiveMatch() && attempt < 8) {
+          if (!vsActive && !BPState.matchEnded && readLiveMatch() && attempt < 8) {
             window._autoRejoinTimer = setTimeout(() => tryAuto(attempt + 1), 1200);
           }
         } catch (_) {}
       }).catch(() => {
         try {
-          if (!vsActive && !window._matchEnded && readLiveMatch() && attempt < 8) {
+          if (!vsActive && !BPState.matchEnded && readLiveMatch() && attempt < 8) {
             window._autoRejoinTimer = setTimeout(() => tryAuto(attempt + 1), 1200);
           }
         } catch (_) {}
@@ -2218,8 +2218,8 @@ function hideMatchRejoinPanel() {
   if (el) el.classList.remove('show');
 }
 function showRejoinLoading(msg) {
-  window._rejoinLoading = true;
-  window._rejoinInputLock = true;
+  BPState.rejoinLoading = true;
+  BPState.rejoinInputLock = true;
   placingLock = true;
   try { cancelActivePieceDrag(); } catch (_) {}
   try { document.body.classList.add('rejoin-loading'); } catch (_) {}
@@ -2231,7 +2231,7 @@ function showRejoinLoading(msg) {
   }
 }
 function hideRejoinLoading() {
-  window._rejoinLoading = false;
+  BPState.rejoinLoading = false;
   try { document.body.classList.remove('rejoin-loading'); } catch (_) {}
   const el = document.getElementById('rejoinLoading');
   if (el) el.classList.remove('show');
@@ -2246,17 +2246,17 @@ function finishRejoinLoading() {
     try {
       cancelActivePieceDrag();
       hideRejoinLoading();
-      window._rejoinLoading = false;
-      window._rejoinInputLock = false;
-      window._mpRejoiningMatch = false;
+      BPState.rejoinLoading = false;
+      BPState.rejoinInputLock = false;
+      BPState.mpRejoiningMatch = false;
       placingLock = false;
       try { ensureMatchClockRunning(); } catch (_) {}
       try { ensurePlayableIfLive(); } catch (_) {}
     } catch (_) {
       hideRejoinLoading();
-      window._rejoinLoading = false;
-      window._rejoinInputLock = false;
-      window._mpRejoiningMatch = false;
+      BPState.rejoinLoading = false;
+      BPState.rejoinInputLock = false;
+      BPState.mpRejoiningMatch = false;
       placingLock = false;
     }
     window._rejoinUnlockTimer = null;
@@ -2267,7 +2267,7 @@ function finishRejoinLoading() {
   }, 350);
   // Hard safety: never leave locks on longer than 2.5s
   setTimeout(() => {
-    if (window._rejoinLoading || window._rejoinInputLock || placingLock) {
+    if (BPState.rejoinLoading || BPState.rejoinInputLock || placingLock) {
       unlockNow();
     }
   }, 2500);
@@ -2281,14 +2281,14 @@ function finishRejoinLoading() {
       const ovOn = ov && ov.classList.contains('show');
       if (!ovOn) {
         // Sticky flags must not freeze a live room match
-        if (roomMatchMode || window._roomMatchMode) {
-          window._rejoinLoading = false;
-          window._rejoinInputLock = false;
+        if (roomMatchMode || BPState.roomMatchMode) {
+          BPState.rejoinLoading = false;
+          BPState.rejoinInputLock = false;
         }
-        if (!window._rejoinLoading && !window._rejoinInputLock) return;
+        if (!BPState.rejoinLoading && !BPState.rejoinInputLock) return;
       }
     } catch (_) {}
-    if (!window._rejoinLoading && !window._rejoinInputLock) return;
+    if (!BPState.rejoinLoading && !BPState.rejoinInputLock) return;
     try {
       const t = e.target;
       if (t && t.closest && (t.closest('#screenVersus .pieces-area') || t.closest('#screenVersus .board-wrap') || t.closest('#screenVersus .piece-slot'))) {
@@ -2331,12 +2331,12 @@ function packHandForNet(arr) {
 function buildFullMatchSyncPayload(extra) {
   const base = {
     type: 'match_rejoin_ok',
-    stillLive: !window._matchEnded && (!!vsActive || !!window._mpRejoiningMatch || !!window._soloRejoinActive),
+    stillLive: !BPState.matchEnded && (!!vsActive || !!BPState.mpRejoiningMatch || !!BPState.soloRejoinActive),
     name: myNickname,
     score: score | 0,
     oppScore: oppScore | 0,
     vsTimeLeft: vsTimeLeft | 0,
-    clockEndTs: (typeof window._matchClockEndTs === 'number') ? window._matchClockEndTs : 0,
+    clockEndTs: (typeof BPState.matchClockEndTs === 'number') ? BPState.matchClockEndTs : 0,
     grid: grid,
     oppGrid: oppGrid,
     pieces: packHandForNet(pieces),

@@ -24,10 +24,25 @@ test('server never uses client shape or color for authoritative placement', () =
 test('legacy peer-liveness filename is gone from active loader/docs', () => {
   assert.equal(fs.existsSync(path.join(root, 'public/js/06-peer-liveness.js')), false);
   for (const rel of ['public/index.html', 'public/game.js', 'public/js/README.md']) {
+    if (!fs.existsSync(path.join(root, rel))) continue;
     const s = fs.readFileSync(path.join(root, rel), 'utf8');
     assert.equal(s.includes('06-peer-liveness.js'), false, rel);
   }
   assert.equal(fs.existsSync(path.join(root, 'public/js/06-match-liveness.js')), true);
+});
+
+test('shared skins module exists and server loads it', () => {
+  assert.equal(fs.existsSync(path.join(root, 'shared/skins.js')), true);
+  const skins = require(path.join(root, 'shared/skins.js'));
+  assert.ok(skins.SKIN_PALETTES.default);
+  assert.ok(Array.isArray(skins.paletteForSkin('ocean')));
+  const s = fs.readFileSync(path.join(root, 'server.js'), 'utf8');
+  assert.match(s, /shared\/skins/);
+});
+
+test('performance module is in the client bundle pipeline', () => {
+  const bundler = fs.readFileSync(path.join(root, 'scripts/bundle-client.js'), 'utf8');
+  assert.match(bundler, /13-performance\.js/);
 });
 
 test('all project JavaScript passes node --check', () => {

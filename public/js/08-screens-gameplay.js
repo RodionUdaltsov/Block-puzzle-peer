@@ -35,20 +35,20 @@ function showScreen(name) {
       document.body.classList.remove('replay-playing');
       try { hideReplayEndCard(); } catch (_) {}
       try {
-        if (window._replaySkinBackup) {
-          equippedSkinId = window._replaySkinBackup;
+        if (BPState.replaySkinBackup) {
+          equippedSkinId = BPState.replaySkinBackup;
           applyEquippedSkin();
         }
-        if (window._replayBoardBackup) {
-          equippedBoardId = window._replayBoardBackup;
+        if (BPState.replayBoardBackup) {
+          equippedBoardId = BPState.replayBoardBackup;
           applyEquippedBoard();
         }
         clearOppSkin();
         clearOppBoard();
         window.mpOppSkinId = null;
         window.mpOppBoardId = null;
-        window._replaySkinBackup = null;
-        window._replayBoardBackup = null;
+        BPState.replaySkinBackup = null;
+        BPState.replayBoardBackup = null;
       } catch (_) {}
       try {
         const rb = document.getElementById('reviewBar');
@@ -132,7 +132,7 @@ function showScreen(name) {
   // (covers: both left, one already back in match — the other must still see the panel)
   try {
     if (name === 'menu' || name === 'friends' || name === 'settings' || name === 'history') {
-      if (!vsActive && !window._matchEnded && !window._mpRejoiningMatch) {
+      if (!vsActive && !BPState.matchEnded && !BPState.mpRejoiningMatch) {
         const s = (typeof readLiveMatch === 'function') ? readLiveMatch() : null;
         if (s) {
           showMatchRejoinPanel(s);
@@ -759,8 +759,8 @@ function scrubTransientFx() {
   try { _previewCells = []; } catch (_) {}
   try { lastPreview = null; } catch (_) {}
   try {
-    if (typeof window._pendingServerPlace !== 'undefined') window._pendingServerPlace = null;
-    if (window._pendingPlaceTimer) { clearTimeout(window._pendingPlaceTimer); window._pendingPlaceTimer = null; }
+    if (typeof BPState.pendingServerPlace !== 'undefined') BPState.pendingServerPlace = null;
+    if (BPState.pendingPlaceTimer) { clearTimeout(BPState.pendingPlaceTimer); BPState.pendingPlaceTimer = null; }
   } catch (_) {}
 }
 
@@ -982,7 +982,7 @@ function updateClassicUI() {
 }
 function generatePieces(areaEl) {
   // Ranked room mode: server owns deal — never invent local hands, never wipe tray
-  if (roomMatchMode || window._roomMatchMode) {
+  if (roomMatchMode || BPState.roomMatchMode) {
     try {
       // If we still have unused pieces, just re-render; do not request deal
       const hasLive = Array.isArray(pieces) && pieces.some(p => p && !p.used);
@@ -997,7 +997,7 @@ function generatePieces(areaEl) {
     return;
   }
   pieces = [randomPiece(), randomPiece(), randomPiece()];
-  try { window._animateDealIn = true; window._quietPieceRender = false; } catch (_) {}
+  try { BPState.animateDealIn = true; BPState.quietPieceRender = false; } catch (_) {}
   renderPieces(areaEl);
   if (mode === 'versus' && vsActive) {
     logDeal('me', pieces);
@@ -1045,8 +1045,8 @@ function renderPieces(areaEl) {
   const cellPx = getPieceCellPx(isVs);
   const slotPx = getPieceSlotPx(isVs);
   if (!pieces || !pieces.length) return;
-  const quiet = !!(window._quietPieceRender);
-  const animateIn = !quiet && !!(window._animateDealIn);
+  const quiet = !!(BPState.quietPieceRender);
+  const animateIn = !quiet && !!(BPState.animateDealIn);
   pieces.forEach((p, idx) => {
     const slot = document.createElement('div');
     slot.className = 'piece-slot'; slot.dataset.idx = idx;
@@ -1114,7 +1114,7 @@ function renderPieces(areaEl) {
       slot.addEventListener('mousedown', startHandler, { passive: false });
     }
   });
-  try { window._animateDealIn = false; } catch (_) {}
+  try { BPState.animateDealIn = false; } catch (_) {}
 }
 function markPieceUsed(idx, areaEl) {
   // Never skip marking used — locks only block NEW input, not finishing a placed piece
@@ -1242,8 +1242,8 @@ function startDrag(e, idx, areaEl) {
     const ov = document.getElementById('rejoinLoading');
     const ovOn = ov && (ov.classList.contains('show') || ov.classList.contains('visible'));
     if (!ovOn) {
-      window._rejoinLoading = false;
-      window._rejoinInputLock = false;
+      BPState.rejoinLoading = false;
+      BPState.rejoinInputLock = false;
       try { document.body.classList.remove('rejoin-loading'); } catch (_) {}
       if (ov) {
         try { ov.classList.remove('show', 'visible'); ov.style.display = 'none'; } catch (_) {}
@@ -1256,12 +1256,12 @@ function startDrag(e, idx, areaEl) {
       }
     } catch (_) {}
     // Live online match must be interactive
-    if (mode === 'versus' && (mpMode || roomMatchMode || window._roomMatchMode)) {
-      if (!vsActive && !window._matchEnded) vsActive = true;
+    if (mode === 'versus' && (mpMode || roomMatchMode || BPState.roomMatchMode)) {
+      if (!vsActive && !BPState.matchEnded) vsActive = true;
       try { vsIntroLock = false; mpMatchStarting = false; mpLoading = false; } catch (_) {}
     }
   } catch (_) {}
-  if (window._rejoinLoading || window._rejoinInputLock || placingLock) return;
+  if (BPState.rejoinLoading || BPState.rejoinInputLock || placingLock) return;
   if (!pieces[idx] || pieces[idx].used) return;
   if (mode==='versus' && !vsActive) return;
   // One piece at a time — ignore second finger / multi-touch
@@ -1383,7 +1383,7 @@ function startDrag(e, idx, areaEl) {
       return;
     }
     // Rejoin loading overlay only — solo wait / rejoin flag must still allow play
-    if (window._rejoinLoading || window._rejoinInputLock || placingLock) {
+    if (BPState.rejoinLoading || BPState.rejoinInputLock || placingLock) {
       isDragging = false;
       activeDragPointerId = null;
       if (rafId) { cancelAnimationFrame(rafId); rafId = 0; }
@@ -1768,13 +1768,13 @@ function canEarnClearDiamonds() {
 }
 function tryPlaceAt(x, y, forcedResult) {
   // Only hard rejoin overlay blocks; _mpRejoiningMatch alone must not freeze the player
-  if (window._rejoinLoading || window._rejoinInputLock || placingLock) return false;
+  if (BPState.rejoinLoading || BPState.rejoinInputLock || placingLock) return false;
   const pos = getGridPos(x, y);
   if (!pos || selectedIdx < 0 || !dragPiece) return false;
   const result = (forcedResult && forcedResult.valid) ? forcedResult : findBestPlacement(dragPiece.shape, pos.r, pos.c);
   if (!result.valid) return false;
 
-  const isServerMatch = !!(roomMatchMode || window._roomMatchMode);
+  const isServerMatch = !!(roomMatchMode || BPState.roomMatchMode);
 
   // ——— Server-authoritative place (online room / ranked) ———
   // Client only sends intent; grid/hand/score come back via place_ok.
@@ -1802,7 +1802,7 @@ function tryPlaceAt(x, y, forcedResult) {
 
     // Soft local preview only (not authoritative). Rollback on place_reject.
     const _legendNow = document.body.classList.contains('skin-fx-prism');
-    window._pendingServerPlace = {
+    BPState.pendingServerPlace = {
       pieceIdx: placedIdx,
       r: result.baseR,
       c: result.baseC,
@@ -1886,9 +1886,9 @@ function tryPlaceAt(x, y, forcedResult) {
     }
     // Safety unlock if server never answers
     try {
-      if (window._pendingPlaceTimer) clearTimeout(window._pendingPlaceTimer);
-      window._pendingPlaceTimer = setTimeout(() => {
-        if (window._pendingServerPlace) {
+      if (BPState.pendingPlaceTimer) clearTimeout(BPState.pendingPlaceTimer);
+      BPState.pendingPlaceTimer = setTimeout(() => {
+        if (BPState.pendingServerPlace) {
           try { MatchClient && MatchClient.sync && MatchClient.sync({}); } catch (_) {}
         }
         placingLock = false;

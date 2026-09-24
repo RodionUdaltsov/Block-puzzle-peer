@@ -86,14 +86,21 @@ const SKIN_CATALOG = [
 ];
 
 function loadOwnedSkins() {
-  // TEST: unlock all skins for testing
   try {
-    const all = SKIN_CATALOG.map(s => s.id);
-    localStorage.setItem('bp_skins_owned', JSON.stringify(all));
-    return all.slice();
-  } catch (_) {
-    return SKIN_CATALOG.map(s => s.id);
-  }
+    const raw = localStorage.getItem('bp_skins_owned');
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed) && parsed.length) {
+        const ids = parsed.map((id) => String(id)).filter((id) => SKIN_CATALOG.some((s) => s.id === id));
+        // Always grant free starters
+        for (const free of FREE_SKIN_IDS) {
+          if (!ids.includes(free)) ids.push(free);
+        }
+        return ids;
+      }
+    }
+  } catch (_) {}
+  return FREE_SKIN_IDS.slice();
 }
 let ownedSkins = loadOwnedSkins();
 let equippedSkinId = localStorage.getItem('bp_skin_equipped') || 'default';

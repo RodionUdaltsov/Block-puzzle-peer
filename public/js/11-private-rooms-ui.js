@@ -206,7 +206,7 @@ function startOnlineMatchmaking() {
     const selectedDuration = (vsDuration === 60 || vsDuration === 120 || vsDuration === 180) ? vsDuration : 120;
     vsDuration = selectedDuration;
     vsTimeLeft = selectedDuration;
-    try { window._leftForRankedSearch = Date.now(); } catch (_) {}
+    try { BPState.leftForRankedSearch = Date.now(); } catch (_) {}
     try { closeRoomLobby(); } catch (_) {}
     // Soft reset — don't leave queue after we join
     try {
@@ -218,17 +218,17 @@ function startOnlineMatchmaking() {
       mpOppConnected = false;
     } catch (_) {}
     try {
-      if (window._roomExpandIv) { clearInterval(window._roomExpandIv); window._roomExpandIv = null; }
+      if (BPState.roomExpandIv) { clearInterval(BPState.roomExpandIv); BPState.roomExpandIv = null; }
     } catch (_) {}
     mmActive = true;
     mmFound = false;
     roomMatchMode = false;
-    window._roomMatchMode = false;
+    BPState.roomMatchMode = false;
     mpFromMatchmaking = true;
     mpGameSource = 'ranked';
     vsModeType = 'online';
     postMatchOnlineEligible = false;
-    try { window._matchEnded = false; window._rankedDeltaApplied = false; } catch (_) {}
+    try { BPState.matchEnded = false; BPState.rankedDeltaApplied = false; } catch (_) {}
     showScreen('match');
     mmSetStatus('Ищем игроков (ПК + телефон)…', 'Кроссплей');
     let clientId = null;
@@ -250,11 +250,11 @@ function startOnlineMatchmaking() {
     });
     // Expand skill gap over time (same as old online bands)
     let expand = 0;
-    if (window._roomExpandIv) { try { clearInterval(window._roomExpandIv); } catch (_) {} }
-    window._roomExpandIv = setInterval(() => {
+    if (BPState.roomExpandIv) { try { clearInterval(BPState.roomExpandIv); } catch (_) {} }
+    BPState.roomExpandIv = setInterval(() => {
       if (!mmActive || mmFound || searchGen !== mmSearchGen) {
-        clearInterval(window._roomExpandIv);
-        window._roomExpandIv = null;
+        clearInterval(BPState.roomExpandIv);
+        BPState.roomExpandIv = null;
         return;
       }
       expand = Math.min(3, expand + 1);
@@ -295,7 +295,7 @@ function startMatchFlow() {
   try { closeRoomLobby(); } catch (_) {}
   try { stopMatchmaking(true); } catch (_) {}
   roomMatchMode = false;
-  window._roomMatchMode = false;
+  BPState.roomMatchMode = false;
   mpMode = false;
   mpRoomCode = null;
   mpGameSource = null;
@@ -324,7 +324,7 @@ function beginVersusMatch() {
   mpFromMatchmaking = false;
   try { if (typeof mpPendingJoin !== 'undefined') mpPendingJoin = null; } catch (_) {}
   try { if (typeof mpExpectedJoinCode !== 'undefined') mpExpectedJoinCode = null; } catch (_) {}
-  try { window._matchEnded = false; window._rankedDeltaApplied = false; } catch (_) {}
+  try { BPState.matchEnded = false; BPState.rankedDeltaApplied = false; } catch (_) {}
   vsModeType = 'bots';
   mode = 'versus';
   rematchIWant = false;
@@ -341,7 +341,7 @@ function beginVersusMatch() {
   grid = Array.from({length:SIZE},()=>Array(SIZE).fill(null));
   oppGrid = Array.from({length:SIZE},()=>Array(SIZE).fill(null));
   score = 0; oppScore = 0; vsTimeLeft = vsDuration;
-  window._matchEnded = false;
+  BPState.matchEnded = false;
   vsActive = true; placingLock = false; aiBusy = false;
   playerStuck = false; aiStuck = false;
   clearChain = 0; oppClearChain = 0;
@@ -413,9 +413,9 @@ function beginVersusMatch() {
     if (mode !== 'versus') return;
     vsActive = true;
     placingLock = false;
-    try { window._rejoinLoading = false; window._rejoinInputLock = false; } catch (_) {}
-    window._matchClockEndTs = Date.now() + Math.max(0, vsTimeLeft || vsDuration || 120) * 1000;
-    try { startMatchWallClock(window._matchClockEndTs); } catch (_) {}
+    try { BPState.rejoinLoading = false; BPState.rejoinInputLock = false; } catch (_) {}
+    BPState.matchClockEndTs = Date.now() + Math.max(0, vsTimeLeft || vsDuration || 120) * 1000;
+    try { startMatchWallClock(BPState.matchClockEndTs); } catch (_) {}
     const combat = (typeof resolveBotCombat === 'function' && currentBot)
       ? resolveBotCombat(currentBot)
       : currentBot;
@@ -534,7 +534,7 @@ function aiTick() {
     || !!currentBot
     || (typeof document !== 'undefined' && document.body && document.body.classList.contains('vs-bots'));
   if (!isBotMatch) return;
-  if (mpMode && (roomMatchMode || window._roomMatchMode)) return; // never drive AI in live ranked room
+  if (mpMode && (roomMatchMode || BPState.roomMatchMode)) return; // never drive AI in live ranked room
   // Safety: never freeze forever if a settle timer was lost
   // Threshold above max fly+settle so we do not interrupt a normal slow move
   if (aiBusy) {
@@ -935,7 +935,7 @@ function setPlayerStuck(value) {
     showPlayerStuckBanner();
   }
   updateOppStuckBanner();
-  if (mpMode && (roomMatchMode || window._roomMatchMode) && typeof MatchClient !== 'undefined') {
+  if (mpMode && (roomMatchMode || BPState.roomMatchMode) && typeof MatchClient !== 'undefined') {
     try { MatchClient.send({ type: 'stuck', stuck: !!value }); } catch (_) {}
   }
 }
@@ -1001,7 +1001,7 @@ function scheduleMatchEnd(delay) {
 function evaluateMatchEnd() {
   if (!vsActive || mode !== 'versus') return;
   // Ranked room: server decides stuck wins/losses — client only updates banners
-  if (roomMatchMode || window._roomMatchMode) {
+  if (roomMatchMode || BPState.roomMatchMode) {
     const myPlay = sideHasPlayable(grid, pieces);
     const oppPlay = sideHasPlayable(oppGrid, oppPieces);
     if (myPlay === true) setPlayerStuck(false);
@@ -1179,7 +1179,7 @@ function importServerMovesToMatchLog(serverMoves, mySeat) {
 }
 
 function logDeal(side, pieceArr) {
-  if (mode !== 'versus' && !(roomMatchMode || window._roomMatchMode)) return;
+  if (mode !== 'versus' && !(roomMatchMode || BPState.roomMatchMode)) return;
   if (!Array.isArray(pieceArr) || !pieceArr.length) return;
   try {
     const pieces = pieceArr.map(clonePieceForLog);
@@ -1217,7 +1217,7 @@ function isOnVersusScreen() {
 /** Full end animation only when player is actually looking at versus; otherwise toast-only */
 function shouldQuietMatchEnd() {
   try {
-    if (isOnVersusScreen() && (vsActive || window._mpRejoiningMatch || window._soloRejoinActive)) return false;
+    if (isOnVersusScreen() && (vsActive || BPState.mpRejoiningMatch || BPState.soloRejoinActive)) return false;
     if (isOnVersusScreen() && document.getElementById('versusResult') &&
         document.getElementById('versusResult').classList.contains('visible')) return false;
     // Menu / friends / shop / etc.
@@ -1233,12 +1233,12 @@ function formatTimeLeft(sec) {
 
 function endVersus(opts) {
   opts = opts || {};
-  try { window._matchClockEndTs = 0; } catch (_) {}
-  try { window._soloRejoinActive = false; } catch (_) {}
+  try { BPState.matchClockEndTs = 0; } catch (_) {}
+  try { BPState.soloRejoinActive = false; } catch (_) {}
   try {
-    if (window._soloDialIv) { clearInterval(window._soloDialIv); window._soloDialIv = null; }
-    if (window._soloDeadlineTimer) { clearTimeout(window._soloDeadlineTimer); window._soloDeadlineTimer = null; }
-    if (window._soloOverlayIv) { clearInterval(window._soloOverlayIv); window._soloOverlayIv = null; }
+    if (BPState.soloDialIv) { clearInterval(BPState.soloDialIv); BPState.soloDialIv = null; }
+    if (BPState.soloDeadlineTimer) { clearTimeout(BPState.soloDeadlineTimer); BPState.soloDeadlineTimer = null; }
+    if (BPState.soloOverlayIv) { clearInterval(BPState.soloOverlayIv); BPState.soloOverlayIv = null; }
   } catch (_) {}
   try { stopAfkWatch(); } catch (_) {}
   try { clearLiveMatch(); } catch (_) {}
@@ -1254,31 +1254,31 @@ function endVersus(opts) {
   if (!vsActive && document.getElementById('versusResult').classList.contains('visible')) {
     // Result UI already open — skip only if history was written recently
     try {
-      if (window._matchEnded && Array.isArray(matchHistory) && matchHistory.length
+      if (BPState.matchEnded && Array.isArray(matchHistory) && matchHistory.length
           && (Date.now() - (matchHistory[0].date || 0)) < 120000) {
         return;
       }
     } catch (_) {
-      window._matchEnded = true;
+      BPState.matchEnded = true;
       return;
     }
   }
   // Prevent double end (disconnect + timer race) from applying trophies twice
-  if (window._matchEnded && window._rankedDeltaApplied) {
+  if (BPState.matchEnded && BPState.rankedDeltaApplied) {
     return;
   }
-  window._matchEnded = true;
+  BPState.matchEnded = true;
   // Do NOT leaveMatch here — server keeps room ~3 min for rematch; MatchClient.matchId required
   vsActive = false;
   try {
     // Stay in room mode until user leaves menu / starts unrelated flow
     if (typeof MatchClient !== 'undefined' && MatchClient.matchId) {
       roomMatchMode = true;
-      window._roomMatchMode = true;
+      BPState.roomMatchMode = true;
       postMatchOnlineEligible = true;
     } else {
       roomMatchMode = false;
-      window._roomMatchMode = false;
+      BPState.roomMatchMode = false;
     }
   } catch (_) {}
   try {
@@ -1336,7 +1336,7 @@ function endVersus(opts) {
   // Trophies ONLY in ranked matchmaking — not bots, not lobby/friendly rooms
   const isRankedOnline = (vsModeType === 'online' && mpMode && (mpGameSource === 'ranked' || (!!mpFromMatchmaking && mpGameSource !== 'lobby')));
   let actualDelta = 0;
-  if (window._rankedDeltaApplied) {
+  if (BPState.rankedDeltaApplied) {
     // Already applied this match — keep displayed delta from lastMatchResult if any
     actualDelta = (lastMatchResult && typeof lastMatchResult.delta === 'number') ? lastMatchResult.delta : 0;
     delta = actualDelta;
@@ -1350,7 +1350,7 @@ function endVersus(opts) {
     actualDelta = delta >= 0 ? delta : -Math.min(trophiesBefore, Math.abs(delta));
     trophies = Math.max(0, trophiesBefore + actualDelta);
     try { localStorage.setItem('bp_trophies', String(trophies)); } catch (_) {}
-    window._rankedDeltaApplied = true;
+    BPState.rankedDeltaApplied = true;
     // Ranked score record (best points in a single ranked match)
     if (my > rankedBest) {
       rankedBest = my;
@@ -1434,7 +1434,7 @@ function endVersus(opts) {
   // Quiet end: no toast — clear frozen versus and return to menu
   if (opts.quiet) {
     try {
-      window._resultDismissed = true;
+      BPState.resultDismissed = true;
       document.getElementById('versusResult').classList.remove('visible');
     } catch (_) {}
     try { document.body.classList.remove('replay-ui'); } catch (_) {}
@@ -1519,7 +1519,7 @@ function endVersus(opts) {
   // 2) Score duel count-up
   // 3) Result modal
   // (lobby invite accepted mid-match: join only after player goes to main menu)
-  window._resultDismissed = false;
+  BPState.resultDismissed = false;
   const resultEpoch = ++resultModalEpoch;
   if (resultModalSafetyTimer) {
     try { clearTimeout(resultModalSafetyTimer); } catch (_) {}
@@ -1527,7 +1527,7 @@ function endVersus(opts) {
   }
   const showResultModal = () => {
     // User already closed result / left to menu — do not re-open
-    if (resultEpoch !== resultModalEpoch || window._resultDismissed) return;
+    if (resultEpoch !== resultModalEpoch || BPState.resultDismissed) return;
     try {
       const active = document.querySelector('.screen.active');
       // Only force-show while still on versus (or no active screen yet)
@@ -1540,7 +1540,7 @@ function endVersus(opts) {
     try { tryShowPendingRematchOffer(); } catch (_) {}
   };
   const runScoreDuelThenResult = () => {
-    if (resultEpoch !== resultModalEpoch || window._resultDismissed) return;
+    if (resultEpoch !== resultModalEpoch || BPState.resultDismissed) return;
     try {
       const p = showScoreDuel(my, opp, won, draw, oppName, currentBot);
       if (p && typeof p.then === 'function') {
@@ -1570,9 +1570,9 @@ function endVersus(opts) {
     resultModalSafetyTimer = setTimeout(() => {
       resultModalSafetyTimer = null;
       try {
-        if (resultEpoch !== resultModalEpoch || window._resultDismissed) return;
+        if (resultEpoch !== resultModalEpoch || BPState.resultDismissed) return;
         const r = document.getElementById('versusResult');
-        if (r && !r.classList.contains('visible') && window._matchEnded) showResultModal();
+        if (r && !r.classList.contains('visible') && BPState.matchEnded) showResultModal();
       } catch (_) {}
     }, 7000);
   } catch (_) {
@@ -1733,12 +1733,12 @@ function startReplay(match, opts) {
   replayMode = true;
   document.body.classList.add('replay-ui');
   document.body.classList.add('replay-playing');
-  window._repChainMe = 0;
-  window._repChainOpp = 0;
+  BPState.repChainMe = 0;
+  BPState.repChainOpp = 0;
   // Backup current cosmetics; restore when leaving replay
   try {
-    window._replaySkinBackup = equippedSkinId;
-    window._replayBoardBackup = equippedBoardId;
+    BPState.replaySkinBackup = equippedSkinId;
+    BPState.replayBoardBackup = equippedBoardId;
   } catch (_) {}
   // My skins/fields from that match
   try {
@@ -1974,20 +1974,20 @@ function startReplay(match, opts) {
     } catch (_) {}
     // Restore cosmetics used outside of this replay
     try {
-      if (window._replaySkinBackup) {
-        equippedSkinId = window._replaySkinBackup;
+      if (BPState.replaySkinBackup) {
+        equippedSkinId = BPState.replaySkinBackup;
         applyEquippedSkin();
       }
-      if (window._replayBoardBackup) {
-        equippedBoardId = window._replayBoardBackup;
+      if (BPState.replayBoardBackup) {
+        equippedBoardId = BPState.replayBoardBackup;
         applyEquippedBoard();
       }
       clearOppSkin();
       clearOppBoard();
       window.mpOppSkinId = null;
       window.mpOppBoardId = null;
-      window._replaySkinBackup = null;
-      window._replayBoardBackup = null;
+      BPState.replaySkinBackup = null;
+      BPState.replayBoardBackup = null;
     } catch (_) {}
     applyBoardScales();
     const fb = document.getElementById('btnForfeit');
@@ -3224,19 +3224,19 @@ function replayStep(onDone, speed = 1) {
       }
       if (cleared > 0) {
         if (m.side === 'me') {
-          window._repChainMe = (typeof m.chain === 'number' && m.chain > 0)
+          BPState.repChainMe = (typeof m.chain === 'number' && m.chain > 0)
             ? m.chain
-            : ((window._repChainMe || 0) + 1);
-          window._repChainOpp = 0;
+            : ((BPState.repChainMe || 0) + 1);
+          BPState.repChainOpp = 0;
         } else {
-          window._repChainOpp = (typeof m.chain === 'number' && m.chain > 0)
+          BPState.repChainOpp = (typeof m.chain === 'number' && m.chain > 0)
             ? m.chain
-            : ((window._repChainOpp || 0) + 1);
-          window._repChainMe = 0;
+            : ((BPState.repChainOpp || 0) + 1);
+          BPState.repChainMe = 0;
         }
         const chain = (typeof m.chain === 'number' && m.chain > 0)
           ? m.chain
-          : (m.side === 'me' ? window._repChainMe : window._repChainOpp);
+          : (m.side === 'me' ? BPState.repChainMe : BPState.repChainOpp);
         const info = clearLinesOn(g, board);
         rows = info.rows.length ? info.rows : rows;
         cols = info.cols.length ? info.cols : cols;
@@ -3268,8 +3268,8 @@ function replayStep(onDone, speed = 1) {
           if (typeof m.oppScore === 'number') document.getElementById('oppScore').textContent = m.oppScore;
         } catch (_) {}
       } else {
-        if (m.side === 'me') window._repChainMe = 0;
-        else window._repChainOpp = 0;
+        if (m.side === 'me') BPState.repChainMe = 0;
+        else BPState.repChainOpp = 0;
         clearLinesSilent(g);
         renderGrid(g, board);
         try {
@@ -3783,13 +3783,13 @@ function confirmForfeit() {
   }
   // Room mode: server ends match and notifies opponent with match_end
   try {
-    if ((roomMatchMode || window._roomMatchMode) && typeof MatchClient !== 'undefined') {
+    if ((roomMatchMode || BPState.roomMatchMode) && typeof MatchClient !== 'undefined') {
       MatchClient.forfeit();
     }
   } catch (_) {}
   // Legacy server path for non-room matches
   try {
-    if (!(roomMatchMode || window._roomMatchMode) && mpMode) {
+    if (!(roomMatchMode || BPState.roomMatchMode) && mpMode) {
       try {
         try { if (typeof MatchClient !== 'undefined') MatchClient.forfeit(); } catch (_) {}
       } catch (_) {}
@@ -3798,7 +3798,7 @@ function confirmForfeit() {
   setTimeout(() => {
     // Local loss UI (server match_end may also fire — endVersus is idempotent via _matchEnded)
     try {
-      if (!window._matchEnded) {
+      if (!BPState.matchEnded) {
         endVersus({ forceLoss: true, reason: 'forfeit' });
       }
     } catch (_) {}
@@ -3853,7 +3853,7 @@ document.getElementById('btnVsAgain')?.addEventListener('click', () => {
     vsModeType = 'online';
     mpFromMatchmaking = true;
     mpGameSource = 'ranked';
-    try { window._leftForRankedSearch = 0; } catch (_) {}
+    try { BPState.leftForRankedSearch = 0; } catch (_) {}
     startOnlineMatchmaking();
     return;
   }
@@ -3890,7 +3890,7 @@ document.getElementById('btnVsMenu')?.addEventListener('click', () => {
       MatchClient.freeMatch && MatchClient.freeMatch();
     }
   } catch (_) {}
-  try { roomMatchMode = false; window._roomMatchMode = false; } catch (_) {}
+  try { roomMatchMode = false; BPState.roomMatchMode = false; } catch (_) {}
   if (!vsActive && !lobbyJoin && !postMatchOnlineEligible) {
     try { destroyMp(); } catch (_) {}
   }
@@ -3950,9 +3950,9 @@ function getMatchForPostResultReplay() {
       return;
     }
     if (act === 'again') {
-      if (postMatchOnlineEligible || (mpMode && vsModeType === 'online') || roomMatchMode || window._roomMatchMode) {
+      if (postMatchOnlineEligible || (mpMode && vsModeType === 'online') || roomMatchMode || BPState.roomMatchMode) {
         // Room mode does not need server link
-        if (roomMatchMode || window._roomMatchMode || (typeof MatchClient !== 'undefined' && MatchClient.matchId)) {
+        if (roomMatchMode || BPState.roomMatchMode || (typeof MatchClient !== 'undefined' && MatchClient.matchId)) {
           try { requestRematch(); } catch (_) {}
           return;
         }
@@ -4004,7 +4004,7 @@ function acceptRematchInvite() {
   hideRematchOffer();
   hideRmToast(false);
   // Server room rematch
-  if (roomMatchMode || window._roomMatchMode || (typeof MatchClient !== 'undefined' && MatchClient.matchId)) {
+  if (roomMatchMode || BPState.roomMatchMode || (typeof MatchClient !== 'undefined' && MatchClient.matchId)) {
     try { MatchClient.rematchAccept(); } catch (_) {}
     try { showRematchWait && showRematchWait(); } catch (_) {}
     return;
@@ -4022,7 +4022,7 @@ function declineRematchInvite() {
   try { if (typeof clearRmPending === 'function') clearRmPending(); else rmPending = null; } catch (_) {}
   if (rematchOfferRetryTimer) { clearTimeout(rematchOfferRetryTimer); rematchOfferRetryTimer = null; }
   try {
-    if (roomMatchMode || window._roomMatchMode || (typeof MatchClient !== 'undefined' && MatchClient.matchId)) {
+    if (roomMatchMode || BPState.roomMatchMode || (typeof MatchClient !== 'undefined' && MatchClient.matchId)) {
       MatchClient.rematchDecline();
     } else if (mpIsLinked()) {
       try { if (typeof MatchClient !== 'undefined') MatchClient.rematchDecline(); } catch (_) {}

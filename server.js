@@ -12,7 +12,8 @@ const http = require('http');
 const fs = require('fs');
 const crypto = require('crypto');
 const { WebSocketServer } = require('./vendor/ws');
-const { createStore, ROOM_TTL_LIVE, ROOM_TTL_ENDED, TOKEN_TTL } = require('./lib/store');
+const { createStore, ROOM_TTL_LIVE, ROOM_TTL_ENDED, TOKEN_TTL, QUEUE_TTL, PRESENCE_TTL } = require('./lib/store');
+const { SKIN_PALETTES, paletteForSkin } = require('./shared/skins');
 
 // Shared authoritative rules (single source with client)
 const R = require('./shared/rules');
@@ -24,6 +25,14 @@ const {
   DC_LIMIT_MS, AFK_WARN_MS, AFK_LIMIT_MS,
   DETACH_GRACE_MS, MATCH_START_GRACE_MS, AFK_WARN_BROADCAST_MS
 } = R;
+
+/** Max inbound WS JSON message size (bytes). Default 64 KiB. */
+const MAX_WS_MSG = Math.max(4096, Number(process.env.BP_MAX_WS_MSG) || 65536);
+/** Optional Origin allowlist (comma-separated). Empty = allow all. */
+const WS_ORIGINS = String(process.env.BP_WS_ORIGINS || '')
+  .split(',')
+  .map((s) => s.trim())
+  .filter(Boolean);
 
 const PORT = Number(process.env.PORT) || 9000;
 const PUBLIC = path.join(__dirname, 'public');
@@ -107,8 +116,74 @@ function totalQueued() {
   return n;
 }
 
+/** Snapshot queue entries without live ws handles (for persistence). */
+function snapshotQueues() {
+  const out = [];
+  for (const [key, q] of queues) {
+    for (const p of q) {
+      if (!p || !p.token) continue;
+      out.push({
+        key,
+        token: p.token,
+        clientId: p.clientId || null,
+        duration: p.duration || 120,
+        trophies: p.trophies | 0,
+        expandLevel: p.expandLevel | 0,
+        name: p.name ? String(p.name).slice(0, 32) : '',
+        platform: p.platform || 'web',
+        os: p.os || 'unknown',
+        queuedAt: p.queuedAt || Date.now()
+      });
+    }
+  }
+  return out;
+}
+
+function snapshotPresence() {
+  const out = {};
+  for (const [code, e] of presence) {
+    if (!code || !e) continue;
+    out[code] = {
+      name: e.name ? String(e.name).slice(0, 32) : '',
+      trophies: e.trophies | 0,
+      platform: e.platform || 'web',
+      os: e.os || 'unknown',
+      lastSeen: e.lastSeen || Date.now(),
+      online: !!(e.ws && e.ws.readyState === 1)
+    };
+  }
+  return out;
+}
+
+let _persistMetaTimer = null;
+function schedulePersistMeta() {
+  if (!store || store.kind === 'memory') return;
+  if (_persistMetaTimer) return;
+  _persistMetaTimer = setTimeout(() => {
+    _persistMetaTimer = null;
+    persistMetaNow();
+  }, 800);
+}
+
+function persistMetaNow() {
+  if (!store || store.kind === 'memory') return;
+  try {
+    store.saveQueue(snapshotQueues(), QUEUE_TTL).catch(() => {});
+    // presence is written per-code on register; still refresh all live entries
+    const snap = snapshotPresence();
+    for (const [code, data] of Object.entries(snap)) {
+      store.savePresence(code, data, PRESENCE_TTL).catch(() => {});
+    }
+  } catch (_) {}
+}
+
+/** Pending queue intents restored from disk (token → entry). Re-applied on reconnect. */
+const pendingQueueIntents = new Map();
+
+
 function uid(prefix) {
-  return prefix + '_' + crypto.randomBytes(8).toString('hex');
+  // 16 random bytes → 128-bit session/match ids (was 8 bytes / 64-bit)
+  return prefix + '_' + crypto.randomBytes(16).toString('hex');
 }
 
 function sanitizeCosmetics(data) {
@@ -116,10 +191,10 @@ function sanitizeCosmetics(data) {
   const skinId = data.skinId ? String(data.skinId).slice(0, 32) : 'default';
   const boardId = data.boardId ? String(data.boardId).slice(0, 32) : 'field_default';
   const avatarId = data.avatarId ? String(data.avatarId).slice(0, 32) : 'init';
-  // Custom avatar: allow short data-URL / http(s) only, hard size cap
+  // Custom avatar: data-URL / http(s) only, hard size cap (48 KiB) to limit memory DoS
   let avatarCustom = '';
   if (data.avatarCustom && typeof data.avatarCustom === 'string') {
-    const s = data.avatarCustom.slice(0, 120000);
+    const s = data.avatarCustom.slice(0, 49152);
     if (/^(data:image\/(png|jpeg|jpg|webp|gif);base64,|https?:\/\/)/i.test(s)) {
       avatarCustom = s;
     }
@@ -127,29 +202,6 @@ function sanitizeCosmetics(data) {
   return { skinId, boardId, avatarId, avatarCustom };
 }
 
-/** Piece color palettes — must match public/js/01-cosmetics.js SKIN_CATALOG */
-const SKIN_PALETTES = {
-  default: ['#00d4aa','#7c5cff','#ff5c7a','#ffb347','#4fc3f7','#ff6bcb','#a8e063','#ff8a65'],
-  ocean: ['#00c2ff','#0077b6','#48cae4','#90e0ef','#023e8a','#0096c7','#ade8f4','#5ee7ff'],
-  forest: ['#2d6a4f','#40916c','#52b788','#95d5b2','#d8f3dc','#b7e4c7','#74c69d','#ffb703'],
-  mono: ['#e8eaed','#cfd8e3','#9aa0a6','#8b9bb0','#d7dee8','#b0b8c4','#6b7280','#a1a1aa'],
-  sunset: ['#ff6b35','#f7c59f','#ef476f','#ffd166','#ff8fab','#ff9f1c','#e36414','#c9184a'],
-  neon: ['#39ff14','#ff00ff','#00f5ff','#ffe600','#ff3d81','#7b61ff','#00ffc6','#ff9f1c'],
-  candy: ['#ff8fab','#ffc2d1','#bde0fe','#a2d2ff','#cdb4db','#ffd6a5','#fdffb6','#caffbf'],
-  ice: ['#e0f7ff','#a5f3fc','#67e8f9','#22d3ee','#0891b2','#7dd3fc','#bae6fd','#38bdf8'],
-  lava: ['#ff4500','#ff6a00','#ff8c00','#ffd166','#c1121f','#e85d04','#faa307','#9d0208'],
-  royal: ['#7b2cbf','#c77dff','#ffd700','#5a189a','#4cc9f0','#f72585','#4361ee','#f4a261'],
-  aurora: ['#00f5d4','#00bbf9','#9b5de5','#f15bb5','#fee440','#80ed99','#56cfe1','#7209b7'],
-  sakura: ['#ffb7c5','#ff8fab','#ffc2d1','#fb6f92','#ffccd5','#e5989b','#ff99ac','#f7a1c4'],
-  cyber: ['#0aff99','#00ffc8','#7b2ff7','#f72585','#3a0ca3','#4cc9f0','#b8f2e6','#ff006e'],
-  midnight: ['#1b263b','#415a77','#778da9','#e0e1dd','#0d1b2a','#7c5cff','#5ee7ff','#c9ada7'],
-  gold: ['#ffd700','#ffc300','#ffb703','#f4a261','#e9c46a','#daa520','#ffdb58','#ffe566'],
-  toxic: ['#39ff14','#b8ff3c','#ccff00','#76ff03','#1b5e20','#00e676','#aeea00','#64dd17']
-};
-function paletteForSkin(skinId) {
-  const id = skinId ? String(skinId) : 'default';
-  return SKIN_PALETTES[id] || SKIN_PALETTES.default;
-}
 function dealForSeat(st) {
   return dealThree(paletteForSkin(st && st.skinId));
 }
@@ -216,7 +268,7 @@ class MatchRoom {
         skinId: p1.skinId ? String(p1.skinId).slice(0, 32) : 'default',
         boardId: p1.boardId ? String(p1.boardId).slice(0, 32) : 'field_default',
         avatarId: p1.avatarId ? String(p1.avatarId).slice(0, 32) : 'init',
-        avatarCustom: (p1.avatarCustom && typeof p1.avatarCustom === 'string') ? String(p1.avatarCustom).slice(0, 120000) : '',
+        avatarCustom: (p1.avatarCustom && typeof p1.avatarCustom === 'string') ? String(p1.avatarCustom).slice(0, 49152) : '',
         online: true,
         lastSeen: Date.now(),
         lastActionAt: Date.now(),
@@ -238,7 +290,7 @@ class MatchRoom {
         skinId: p2.skinId ? String(p2.skinId).slice(0, 32) : 'default',
         boardId: p2.boardId ? String(p2.boardId).slice(0, 32) : 'field_default',
         avatarId: p2.avatarId ? String(p2.avatarId).slice(0, 32) : 'init',
-        avatarCustom: (p2.avatarCustom && typeof p2.avatarCustom === 'string') ? String(p2.avatarCustom).slice(0, 120000) : '',
+        avatarCustom: (p2.avatarCustom && typeof p2.avatarCustom === 'string') ? String(p2.avatarCustom).slice(0, 49152) : '',
         online: true,
         lastSeen: Date.now(),
         lastActionAt: Date.now(),
@@ -923,6 +975,10 @@ class MatchRoom {
     const vsTimeLeft = this.timeLeft();
     const clockEndTs = this.clockEndTs;
 
+    // Do not send the opponent their own full board/hand on every opp_place.
+    // Concurrent places: receiver often has an optimistic local place in flight;
+    // applying a stale meGrid/mePieces made the piece snap back to the tray.
+    // Score + clock are enough for soft sync; boards are independent per seat.
     this.send(oppToken, {
       type: 'opp_place',
       r: r,
@@ -938,8 +994,6 @@ class MatchRoom {
       grid: cloneGrid(st.grid),
       pieces: serializePieces(st.pieces),
       meScore: oppSt.score,
-      meGrid: cloneGrid(oppSt.grid),
-      mePieces: serializePieces(oppSt.pieces),
       vsTimeLeft: vsTimeLeft,
       clockEndTs: clockEndTs,
       skinId: st.skinId || 'default',
@@ -1572,15 +1626,27 @@ function enqueue(player) {
       if (q[i].token === player.token) q.splice(i, 1);
     }
   }
+  if (!player.queuedAt) player.queuedAt = Date.now();
   queues.get(key).push(player);
+  pendingQueueIntents.delete(player.token);
+  schedulePersistMeta();
 }
 
 function dequeueToken(token) {
+  let removed = false;
   for (const q of queues.values()) {
     for (let i = q.length - 1; i >= 0; i--) {
-      if (q[i].token === token) q.splice(i, 1);
+      if (q[i].token === token) {
+        q.splice(i, 1);
+        removed = true;
+      }
     }
   }
+  if (pendingQueueIntents.has(token)) {
+    pendingQueueIntents.delete(token);
+    removed = true;
+  }
+  if (removed) schedulePersistMeta();
 }
 
 function startRoom(p1, p2, meta) {
@@ -1785,12 +1851,49 @@ const server = http.createServer((req, res) => {
   }
 });
 
-const wss = new WebSocketServer({ noServer: true });
+const wss = new WebSocketServer({
+  noServer: true,
+  maxPayload: MAX_WS_MSG,
+  perMessageDeflate: false
+});
+
+/** Simple per-IP connection rate limit (new WS handshakes). */
+const _connHits = new Map();
+function allowWsConnection(ip) {
+  const key = ip || 'unknown';
+  const now = Date.now();
+  let e = _connHits.get(key);
+  if (!e || now - e.t0 > 10000) {
+    e = { t0: now, n: 0 };
+    _connHits.set(key, e);
+  }
+  e.n += 1;
+  if (_connHits.size > 5000) {
+    for (const [k, v] of _connHits) {
+      if (now - v.t0 > 30000) _connHits.delete(k);
+    }
+  }
+  return e.n <= 40; // max 40 new connections / 10s per IP
+}
 
 server.on('upgrade', (req, socket, head) => {
   try {
     const u = req.url || '';
     if (u === '/ws' || u.startsWith('/ws?')) {
+      if (WS_ORIGINS.length) {
+        const origin = String(req.headers.origin || '');
+        if (origin && !WS_ORIGINS.includes(origin)) {
+          socket.write('HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n');
+          socket.destroy();
+          return;
+        }
+      }
+      const ip = (req.socket && req.socket.remoteAddress) || '';
+      if (!allowWsConnection(ip)) {
+        socket.write('HTTP/1.1 429 Too Many Requests\r\nConnection: close\r\n\r\n');
+        socket.destroy();
+        return;
+      }
       wss.handleUpgrade(req, socket, head, (ws) => {
         wss.emit('connection', ws, req);
       });
@@ -1824,10 +1927,21 @@ function resolveMatchCtx(ws, data) {
   return { room, token, matchId };
 }
 
+/** Per-socket message rate limit (non-place). Place has its own limits. */
+function allowWsMessage(ws) {
+  const now = Date.now();
+  if (!ws._msgWindow || now - ws._msgWindow.t0 > 1000) {
+    ws._msgWindow = { t0: now, n: 0 };
+  }
+  ws._msgWindow.n += 1;
+  return ws._msgWindow.n <= 60;
+}
+
 wss.on('connection', (ws) => {
   ws._token = uid('t');
   ws._matchId = null;
   ws.isAlive = true;
+  ws._msgWindow = null;
   ws.on('pong', () => { ws.isAlive = true; });
   send(ws, {
     type: 'hello',
@@ -1839,6 +1953,7 @@ wss.on('connection', (ws) => {
   });
 
   ws.on('message', (raw) => {
+    if (!allowWsMessage(ws)) return;
     let data;
     try { data = JSON.parse(String(raw)); } catch (_) { return; }
     if (!data || typeof data !== 'object') return;
@@ -1869,6 +1984,7 @@ wss.on('connection', (ws) => {
         if (snap) send(ws, snap);
         return;
       }
+      const intent = pendingQueueIntents.get(ws._token);
       const player = {
         token: ws._token, ws,
         name: String(data.name || 'Игрок').slice(0, 24),
@@ -1876,14 +1992,15 @@ wss.on('connection', (ws) => {
         skinId: data.skinId ? String(data.skinId).slice(0, 32) : 'default',
         boardId: data.boardId ? String(data.boardId).slice(0, 32) : 'field_default',
         avatarId: data.avatarId ? String(data.avatarId).slice(0, 32) : 'init',
-        avatarCustom: (data.avatarCustom && typeof data.avatarCustom === 'string') ? String(data.avatarCustom).slice(0, 120000) : '',
+        avatarCustom: (data.avatarCustom && typeof data.avatarCustom === 'string') ? String(data.avatarCustom).slice(0, 49152) : '',
         duration: (data.duration === 60 || data.duration === 180) ? data.duration : 120,
         expandLevel: Math.min(3, Math.max(0, data.expandLevel | 0)),
         clientId: data.clientId ? String(data.clientId).slice(0, 64) : null,
         // Crossplay: accept any device/OS — never segregate queues by platform
         platform: normalizePlatform(data.platform || data.device || ws._platform),
         os: String(data.os || ws._os || 'unknown').slice(0, 24),
-        protocolVersion: (data.protocolVersion | 0) || 1
+        protocolVersion: (data.protocolVersion | 0) || 1,
+        queuedAt: (intent && intent.queuedAt) || Date.now()
       };
       try {
         ws._platform = player.platform;
@@ -1895,7 +2012,7 @@ wss.on('connection', (ws) => {
         startRoom(opp, player);
       } else {
         enqueue(player);
-        send(ws, { type: 'queued', duration: player.duration, trophies: player.trophies });
+        send(ws, { type: 'queued', duration: player.duration, trophies: player.trophies, restored: !!intent });
       }
       return;
     }
@@ -1913,7 +2030,7 @@ wss.on('connection', (ws) => {
         skinId: data.skinId ? String(data.skinId).slice(0, 32) : 'default',
         boardId: data.boardId ? String(data.boardId).slice(0, 32) : 'field_default',
         avatarId: data.avatarId ? String(data.avatarId).slice(0, 32) : 'init',
-        avatarCustom: (data.avatarCustom && typeof data.avatarCustom === 'string') ? String(data.avatarCustom).slice(0, 120000) : '',
+        avatarCustom: (data.avatarCustom && typeof data.avatarCustom === 'string') ? String(data.avatarCustom).slice(0, 49152) : '',
         duration: (data.duration === 60 || data.duration === 180) ? data.duration : 120,
         expandLevel: Math.min(3, Math.max(0, data.expandLevel | 0)),
         clientId: data.clientId ? String(data.clientId).slice(0, 64) : null,
@@ -2081,7 +2198,7 @@ wss.on('connection', (ws) => {
           skinId: data.skinId ? String(data.skinId).slice(0, 32) : 'default',
           boardId: data.boardId ? String(data.boardId).slice(0, 32) : 'field_default',
           avatarId: data.avatarId ? String(data.avatarId).slice(0, 32) : 'init',
-          avatarCustom: (data.avatarCustom && typeof data.avatarCustom === 'string') ? String(data.avatarCustom).slice(0, 120000) : '',
+          avatarCustom: (data.avatarCustom && typeof data.avatarCustom === 'string') ? String(data.avatarCustom).slice(0, 49152) : '',
           friendCode: data.friendCode ? String(data.friendCode).slice(0, 16) : null,
           platform: normalizePlatform(data.platform || ws._platform || 'web'),
           os: String(data.os || ws._os || 'unknown').slice(0, 24)
@@ -2128,7 +2245,7 @@ wss.on('connection', (ws) => {
         skinId: data.skinId ? String(data.skinId).slice(0, 32) : 'default',
         boardId: data.boardId ? String(data.boardId).slice(0, 32) : 'field_default',
         avatarId: data.avatarId ? String(data.avatarId).slice(0, 32) : 'init',
-        avatarCustom: (data.avatarCustom && typeof data.avatarCustom === 'string') ? String(data.avatarCustom).slice(0, 120000) : '',
+        avatarCustom: (data.avatarCustom && typeof data.avatarCustom === 'string') ? String(data.avatarCustom).slice(0, 49152) : '',
         friendCode: data.friendCode ? String(data.friendCode).slice(0, 16) : null,
         platform: normalizePlatform(data.platform || ws._platform || 'web'),
         os: String(data.os || ws._os || 'unknown').slice(0, 24)
@@ -2183,14 +2300,30 @@ wss.on('connection', (ws) => {
     if (type === 'presence_register') {
       const code = String(data.friendCode || '').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 16);
       if (!code) return;
-      presence.set(code, {
+      const presEntry = {
         token: ws._token, ws,
         name: String(data.name || 'Игрок').slice(0, 24),
         activity: String(data.activity || 'online').slice(0, 32),
         trophies: Math.max(0, data.trophies | 0),
+        platform: normalizePlatform(data.platform || ws._platform || 'web'),
+        os: String(data.os || ws._os || 'unknown').slice(0, 24),
+        lastSeen: Date.now(),
         ts: Date.now()
-      });
+      };
+      presence.set(code, presEntry);
       ws._friendCode = code;
+      if (store && store.kind !== 'memory') {
+        store.savePresence(code, {
+          name: presEntry.name,
+          activity: presEntry.activity,
+          trophies: presEntry.trophies,
+          platform: presEntry.platform,
+          os: presEntry.os,
+          lastSeen: presEntry.lastSeen,
+          online: true
+        }, PRESENCE_TTL).catch(() => {});
+      }
+      schedulePersistMeta();
       send(ws, { type: 'presence_ok', friendCode: code });
       const deliverBox = (box) => {
         if (!box || !box.length) return;
@@ -2210,18 +2343,53 @@ wss.on('connection', (ws) => {
     }
     if (type === 'presence_query') {
       const codes = Array.isArray(data.codes) ? data.codes : [];
-      const result = {};
+      const normalized = [];
       for (const raw of codes.slice(0, 40)) {
         const code = String(raw || '').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 16);
-        if (!code) continue;
+        if (code) normalized.push(code);
+      }
+      const result = {};
+      const needStore = [];
+      for (const code of normalized) {
         const p = presence.get(code);
         if (p && p.ws && p.ws.readyState === 1) {
-          result[code] = { online: true, name: p.name, activity: p.activity, trophies: p.trophies | 0 };
+          result[code] = {
+            online: true,
+            name: p.name,
+            activity: p.activity || 'online',
+            trophies: p.trophies | 0,
+            lastSeen: p.lastSeen || p.ts || Date.now()
+          };
+        } else if (p && (p.name || p.trophies)) {
+          result[code] = {
+            online: false,
+            name: p.name || '',
+            activity: p.activity || 'away',
+            trophies: p.trophies | 0,
+            lastSeen: p.lastSeen || p.ts || 0
+          };
         } else {
+          needStore.push(code);
           result[code] = { online: false };
         }
       }
-      send(ws, { type: 'presence_state', friends: result });
+      const finish = () => send(ws, { type: 'presence_state', friends: result });
+      if (!needStore.length || !store || store.kind === 'memory') {
+        finish();
+        return;
+      }
+      Promise.all(needStore.map((code) =>
+        store.loadPresence(code).then((data) => {
+          if (!data) return;
+          result[code] = {
+            online: false,
+            name: data.name || '',
+            activity: data.activity || 'offline',
+            trophies: data.trophies | 0,
+            lastSeen: data.lastSeen || 0
+          };
+        }).catch(() => {})
+      )).then(finish).catch(finish);
       return;
     }
     if (type === 'presence_search') {
@@ -2505,7 +2673,52 @@ async function boot() {
     } catch (e) {
       console.warn('[store] list/restore error:', e && e.message);
     }
+
+    // Restore queue intents + presence soft state (players re-attach on reconnect)
+    try {
+      const qSnap = await store.loadQueue();
+      if (Array.isArray(qSnap) && qSnap.length) {
+        const now = Date.now();
+        let qi = 0;
+        for (const e of qSnap) {
+          if (!e || !e.token) continue;
+          if (e.queuedAt && now - e.queuedAt > QUEUE_TTL * 1000) continue;
+          // Placeholder in pending intents (no live ws — matchmaking skips until reconnect)
+          pendingQueueIntents.set(e.token, e);
+          qi++;
+        }
+        if (qi) console.log('[store] restored', qi, 'queue intent(s)');
+      }
+      const codes = await store.listPresenceCodes();
+      let pi = 0;
+      for (const code of codes) {
+        try {
+          const e = await store.loadPresence(code);
+          if (!code || !e) continue;
+          presence.set(code, {
+            token: null,
+            ws: null,
+            name: e.name || 'Игрок',
+            activity: e.activity || 'away',
+            trophies: e.trophies | 0,
+            platform: e.platform || 'web',
+            os: e.os || 'unknown',
+            lastSeen: e.lastSeen || Date.now(),
+            ts: e.lastSeen || Date.now()
+          });
+          pi++;
+        } catch (_) {}
+      }
+      if (pi) console.log('[store] restored', pi, 'presence entr(y/ies)');
+    } catch (e) {
+      console.warn('[store] meta restore error:', e && e.message);
+    }
   }
+
+  // Periodic meta flush (queues + presence)
+  setInterval(() => {
+    try { persistMetaNow(); } catch (_) {}
+  }, 15000);
 
   server.listen(PORT, '0.0.0.0', () => {
     console.log('Block Puzzle on http://0.0.0.0:' + PORT + ' | ws /ws | store=' + (store && store.kind));
@@ -2519,15 +2732,16 @@ boot().catch((e) => {
 
 function shutdown() {
   try {
-    // Flush live rooms one last time
+    // Flush live rooms + queue/presence meta one last time
     if (store) {
       for (const room of rooms.values()) {
         try { persistRoom(room); } catch (_) {}
       }
+      try { persistMetaNow(); } catch (_) {}
       setTimeout(() => {
         try { store.close(); } catch (_) {}
         process.exit(0);
-      }, 200);
+      }, 250);
       return;
     }
   } catch (_) {}

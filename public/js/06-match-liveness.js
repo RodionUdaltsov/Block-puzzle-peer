@@ -12,7 +12,7 @@ let _lastOppPrestartAt = 0;
 
 function noMovesYet() {
   try {
-    if (window._matchHadAnyPlace) return false;
+    if (BPState.matchHadAnyPlace) return false;
   } catch (_) {}
   try {
     const hasPlace = Array.isArray(matchLog) && matchLog.some(e => e && (e.type === 'place' || e.type === 'opp_place'));
@@ -26,8 +26,8 @@ function forceCancelPreMoveMatch(reason) {
   // Server live match: never locally cancel — wait for match_end
   try {
     if (typeof MatchClient !== 'undefined' && MatchClient.matchId
-        && (roomMatchMode || window._roomMatchMode || vsActive)
-        && !window._matchEnded) {
+        && (roomMatchMode || BPState.roomMatchMode || vsActive)
+        && !BPState.matchEnded) {
       // Only allow cancel if truly zero places on server perspective is unknown —
       // still don't end with 0:0 UI; sync and wait
       try { MatchClient.sync && MatchClient.sync({}); } catch (_) {}
@@ -36,20 +36,20 @@ function forceCancelPreMoveMatch(reason) {
   } catch (_) {}
   // Allow re-entry if previous cancel left UI stuck (Opera)
   try {
-    if (window._forceCancelPreMoveLock) {
+    if (BPState.forceCancelPreMoveLock) {
       const vs = document.getElementById('screenVersus');
       const stuckVs = !!(vs && vs.classList.contains('active'));
       const empty = (typeof noMovesYet === 'function') ? noMovesYet() : true;
       if (!(stuckVs && empty)) return;
-      window._forceCancelPreMoveLock = false;
+      BPState.forceCancelPreMoveLock = false;
     }
   } catch (_) {
-    window._forceCancelPreMoveLock = false;
+    BPState.forceCancelPreMoveLock = false;
   }
-  window._forceCancelPreMoveLock = true;
+  BPState.forceCancelPreMoveLock = true;
   const msg = reason || 'Соперник отключился до начала матча';
-  try { window._leftForRankedSearch = 0; } catch (_) {}
-  try { window._preMatchAborting = false; } catch (_) {}
+  try { BPState.leftForRankedSearch = 0; } catch (_) {}
+  try { BPState.preMatchAborting = false; } catch (_) {}
   try { stopEmptyMatchPeerWatch(); } catch (_) {}
   try { oppDisconnected = false; } catch (_) {}
   try { clearDisconnectTimer(); } catch (_) {}
@@ -66,8 +66,8 @@ function forceCancelPreMoveMatch(reason) {
   try { vsIntroLock = false; } catch (_) {}
   try { mpMatchStarting = false; } catch (_) {}
   try { mpLoading = false; } catch (_) {}
-  try { window._matchEnded = true; } catch (_) {}
-  try { window._matchHadAnyPlace = false; } catch (_) {}
+  try { BPState.matchEnded = true; } catch (_) {}
+  try { BPState.matchHadAnyPlace = false; } catch (_) {}
   try { sessionStorage.removeItem('bp_rejoin_storm'); } catch (_) {}
   try { window._thisMatchHadRejoin = false; window._lastRejoinActivityAt = 0; } catch (_) {}
   try { clearLiveMatch(); } catch (_) {}
@@ -98,8 +98,8 @@ function forceCancelPreMoveMatch(reason) {
     const vr = document.getElementById('versusResult');
     const onResult = !!(vr && vr.classList.contains('visible'));
     if (!onResult && ranked) {
-      window._preMatchAborting = false;
-      window._forceCancelPreMoveLock = false;
+      BPState.preMatchAborting = false;
+      BPState.forceCancelPreMoveLock = false;
       try {
         showScreen('match');
         mmActive = true;
@@ -123,8 +123,8 @@ function forceCancelPreMoveMatch(reason) {
   } catch (_) {
     try { showScreen('menu'); } catch (_2) {}
   }
-  window._preMatchAborting = false;
-  window._forceCancelPreMoveLock = false;
+  BPState.preMatchAborting = false;
+  BPState.forceCancelPreMoveLock = false;
 }
 
 
@@ -151,7 +151,7 @@ function markRejoinCalm(ms) {
 }
 function isRejoinCalm() {
   try {
-    if (window._mpRejoiningMatch) return true;
+    if (BPState.mpRejoiningMatch) return true;
     if (window._rejoinCalmUntil && Date.now() < window._rejoinCalmUntil) return true;
   } catch (_) {}
   return false;
@@ -181,7 +181,7 @@ function handleOpponentDisconnect() {
       }
     } catch (_2) {}
   }
-  if (window._matchEnded || !vsActive) return;
+  if (BPState.matchEnded || !vsActive) return;
 
   // During mutual rejoin storms — never show DC UI; keep dialing room id
   try {
@@ -196,7 +196,7 @@ function handleOpponentDisconnect() {
     return;
   }
   try {
-    if (window._lastOppPacketAt && (Date.now() - window._lastOppPacketAt) < 4000) {
+    if (BPState.lastOppPacketAt && (Date.now() - BPState.lastOppPacketAt) < 4000) {
       return;
     }
   } catch (_) {}
@@ -210,10 +210,10 @@ function handleOpponentDisconnect() {
   window._dcGraceTimer = setTimeout(() => {
     window._dcGraceTimer = null;
     try {
-      if (window._matchEnded || !vsActive || !mpMode) return;
+      if (BPState.matchEnded || !vsActive || !mpMode) return;
       if (isRejoinCalm()) { softRedial(); return; }
       if (false) return;
-      if (window._lastOppPacketAt && (Date.now() - window._lastOppPacketAt) < 5000) return;
+      if (BPState.lastOppPacketAt && (Date.now() - BPState.lastOppPacketAt) < 5000) return;
       if (oppDisconnected) return;
       beginOpponentDisconnectWait();
     } catch (_) {}
@@ -241,7 +241,7 @@ function handleOpponentReconnectSignal() {
 
 function noteMyAction() {
   lastMyActionTs = Date.now();
-  try { window._matchHadAnyPlace = true; } catch (_) {}
+  try { BPState.matchHadAnyPlace = true; } catch (_) {}
   try { stopEmptyMatchPeerWatch(); } catch (_) {}
   // Only clear MY AFK / need-move — opponent AFK must keep showing
   if (afkBannerKind === 'me') {
@@ -253,7 +253,7 @@ function noteMyAction() {
 }
 function noteOppAction() {
   lastOppActionTs = Date.now();
-  try { window._matchHadAnyPlace = true; } catch (_) {}
+  try { BPState.matchHadAnyPlace = true; } catch (_) {}
   try { stopEmptyMatchPeerWatch(); } catch (_) {}
   // Real move ends disconnect wait for opponent
   if (oppDisconnected || dcDeadlineTs) {
@@ -272,14 +272,14 @@ function startAfkWatch() {
   const now = Date.now();
   lastMyActionTs = now;
   lastOppActionTs = now;
-  try { window._lastOppPacketAt = now; } catch (_) {}
+  try { BPState.lastOppPacketAt = now; } catch (_) {}
   afkBannerKind = null;
   // Keepalive: prevents mutual false "Отсоединение" when connection flaps
   try {
     if (window._liveKeepaliveIv) { clearInterval(window._liveKeepaliveIv); }
     window._liveKeepaliveIv = setInterval(() => {
       try {
-        if (window._matchEnded || !vsActive || !mpMode) return;
+        if (BPState.matchEnded || !vsActive || !mpMode) return;
         if (false) {
           
         }
@@ -289,10 +289,10 @@ function startAfkWatch() {
     }, 4000);
   } catch (_) {}
   afkCheckTimer = setInterval(() => {
-    if (window._matchEnded || !vsActive || !mpMode || replayMode) return;
+    if (BPState.matchEnded || !vsActive || !mpMode || replayMode) return;
     try { ensurePlayableIfLive(); } catch (_) {}
     // Server-room mode: peer is MatchClient, not server — never treat missing null as AFK
-    if (roomMatchMode || window._roomMatchMode) {
+    if (roomMatchMode || BPState.roomMatchMode) {
       // Server owns AFK entirely — client only renders afk_warn events
       return;
     }
@@ -326,7 +326,7 @@ function startAfkWatch() {
     const myAfkLimit = AFK_LIMIT_MS;
 
     // While opponent is disconnected / solo rejoin wait — AFK does not apply to them
-    const oppAfkDone = !oppDisconnected && !window._soloRejoinActive
+    const oppAfkDone = !oppDisconnected && !BPState.soloRejoinActive
       && !oppNoMoves && oppIdle >= oppAfkLimit && oppAfkLimit > 0;
     const myAfkDone = !myNoMoves && myIdle >= myAfkLimit && myAfkLimit > 0;
     // Both AFK: decide by score (0-0 → draw; higher score wins)
@@ -400,13 +400,13 @@ function stopAfkWatch() {
 /** Watchdog: sticky rejoin-loading / match-ending / locks freeze the tray. */
 function ensurePiecesInteractive() {
   try {
-    if (!vsActive || window._matchEnded) return;
+    if (!vsActive || BPState.matchEnded) return;
     if (typeof isDragging !== 'undefined' && isDragging) return;
     const ov = document.getElementById('rejoinLoading');
     const ovOn = ov && (ov.classList.contains('show') || ov.classList.contains('visible'));
     if (!ovOn) {
-      window._rejoinLoading = false;
-      window._rejoinInputLock = false;
+      BPState.rejoinLoading = false;
+      BPState.rejoinInputLock = false;
       document.body.classList.remove('rejoin-loading');
     }
     const mef = document.getElementById('matchEndFreeze');
@@ -457,7 +457,7 @@ function updateVersusNameLabels() {
   const opp = document.getElementById('oppName');
   if (!opp) return;
 
-  const isOnline = !!(mpMode || roomMatchMode || window._roomMatchMode || vsModeType === 'online');
+  const isOnline = !!(mpMode || roomMatchMode || BPState.roomMatchMode || vsModeType === 'online');
   // Online always paints human opponent — never keep leftover bot avatar/name
   if (!isOnline && currentBot) {
     // bot path: leave bot-specific HTML (painted by bot start)
@@ -520,7 +520,7 @@ function clearBotMatchResidue() {
 function restorePostMatchResultUI() {
   try {
     // Do not yank user back if a new match already started
-    if (vsActive && !window._matchEnded && !rematchPending) return;
+    if (vsActive && !BPState.matchEnded && !rematchPending) return;
     // Prefer staying in post-match context (versus screen)
     try {
       const vs = document.getElementById('screenVersus');
@@ -683,7 +683,7 @@ let rematchProbeBusy = false;
 function isRematchBusyLocal() {
   try {
     // 1) Live battle only (not post-match result / ended)
-    if (typeof isReallyInLiveMatch === 'function' ? isReallyInLiveMatch() : (vsActive && !window._matchEnded)) return true;
+    if (typeof isReallyInLiveMatch === 'function' ? isReallyInLiveMatch() : (vsActive && !BPState.matchEnded)) return true;
 
     // 2) Searching for a fight (ranked matchmaking)
     if (typeof mmActive !== 'undefined' && mmActive) return true;
@@ -877,7 +877,7 @@ async function requestRematch() {
     }
   } catch (_) {}
 
-  const hasRoom = !!(roomMatchMode || window._roomMatchMode
+  const hasRoom = !!(roomMatchMode || BPState.roomMatchMode
     || (typeof MatchClient !== 'undefined' && MatchClient.matchId));
   if (!hasRoom) {
     try { showInfoToast('Реванш', 'Соперник не в сети', 'bad'); } catch (_) {}
@@ -974,7 +974,7 @@ async function createMpRoom() {
       MatchClient.freeMatch && MatchClient.freeMatch();
     }
   } catch (_) {}
-  try { roomMatchMode = false; window._roomMatchMode = false; } catch (_) {}
+  try { roomMatchMode = false; BPState.roomMatchMode = false; } catch (_) {}
   try { postMatchOnlineEligible = false; } catch (_) {}
   // Soft reset without leavePrivate race before create
   try { if (typeof MatchClient !== 'undefined') MatchClient.leavePrivate(); } catch (_) {}
@@ -1474,7 +1474,7 @@ function forfeitCurrentMatchForLobby() {
 /** True only during an actual live fight — not post-match result / rematch wait. */
 function isReallyInLiveMatch() {
   try {
-    if (window._matchEnded) return false;
+    if (BPState.matchEnded) return false;
     if (!vsActive) return false;
     // Result modal visible → match already over
     try {
@@ -1494,7 +1494,7 @@ function isReallyInLiveMatch() {
     } catch (_) {}
     return true;
   } catch (_) {
-    return !!(typeof vsActive !== 'undefined' && vsActive && !window._matchEnded);
+    return !!(typeof vsActive !== 'undefined' && vsActive && !BPState.matchEnded);
   }
 }
 
@@ -1527,9 +1527,9 @@ function acceptChallenge() {
   // Stale flags after ended match — clear so join is clean
   try {
     vsActive = false;
-    window._matchEnded = true;
+    BPState.matchEnded = true;
     roomMatchMode = false;
-    window._roomMatchMode = false;
+    BPState.roomMatchMode = false;
     if (typeof MatchClient !== 'undefined') {
       MatchClient._skipAutoRejoin = true;
       MatchClient.leaveMatch && MatchClient.leaveMatch();

@@ -155,7 +155,11 @@
   }
 
   function bonusFor(cleared) {
-    return [0, 100, 300, 600, 1000, 1500, 2200, 3000, 4000][cleared] || 4000;
+    var table = [0, 100, 300, 600, 1000, 1500, 2200, 3000, 4000];
+    var n = cleared | 0;
+    if (n < 0) n = 0;
+    if (n < table.length) return table[n];
+    return table[table.length - 1];
   }
 
   function chainBonusFor(chain) {

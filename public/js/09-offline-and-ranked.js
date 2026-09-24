@@ -65,7 +65,7 @@ function goDurationFromOnline() {
   currentBot = null;
   vsModeType = 'online';
   roomMatchMode = false;
-  window._roomMatchMode = false;
+  BPState.roomMatchMode = false;
   showScreen('duration');
 }
 function goDifficulty() {
@@ -77,7 +77,7 @@ function goDifficulty() {
   mpGameSource = null;
   mpFromMatchmaking = false;
   roomMatchMode = false;
-  window._roomMatchMode = false;
+  BPState.roomMatchMode = false;
   postMatchOnlineEligible = false;
   vsModeType = 'bots';
   currentBot = null;
@@ -98,7 +98,7 @@ function pickOnlineOpponent() {
 let mmActive = false;
 /** Ranked via authoritative server room (WebSocket MatchClient) */
 let roomMatchMode = false;
-window._roomMatchMode = false;
+BPState.roomMatchMode = false;
 let mmFound = false;
 let mmHostMode = false;
 let mmDotsTimer = null;
@@ -160,9 +160,9 @@ function stopMatchmaking(silent) {
   (mmExpandTimers || []).forEach(clearTimeout);
   mmExpandTimers = [];
   try {
-    if (window._roomExpandIv) {
-      clearInterval(window._roomExpandIv);
-      window._roomExpandIv = null;
+    if (BPState.roomExpandIv) {
+      clearInterval(BPState.roomExpandIv);
+      BPState.roomExpandIv = null;
     }
   } catch (_) {}
   try {
@@ -227,9 +227,9 @@ let mpOppTrophies = null;
 
 function unlockRoomPlay() {
   try {
-    window._rejoinLoading = false;
-    window._rejoinInputLock = false;
-    window._mpRejoiningMatch = false;
+    BPState.rejoinLoading = false;
+    BPState.rejoinInputLock = false;
+    BPState.mpRejoiningMatch = false;
     placingLock = false;
     isDragging = false;
     selectedIdx = -1;
@@ -263,17 +263,21 @@ function unlockRoomPlay() {
 
 function applyRoomState(data) {
   if (!data) return;
-  const stillLoading = !!(window._matchAwaitingGo || mpLoading || mpMatchStarting);
+  const stillLoading = !!(BPState.matchAwaitingGo || mpLoading || mpMatchStarting);
   if (!stillLoading) {
     try { unlockRoomPlay(); } catch (_) {}
   }
   try {
     roomMatchMode = true;
-    window._roomMatchMode = true;
+    BPState.roomMatchMode = true;
     if (!stillLoading) vsActive = true;
     mpMode = true;
     mode = 'versus';
   } catch (_) {}
+
+  // While our optimistic place awaits place_ok, never adopt server me-grid/hand/score
+  // from concurrent opp_place / periodic sync — that made the piece snap back to hand.
+  const protectMyBoard = !!(BPState.pendingServerPlace && !data._forceHand && !data.deal && !data._rejoin);
 
   // Throttle rapid full-sync storms (periodic sync + place echoes)
   try {
@@ -281,7 +285,7 @@ function applyRoomState(data) {
     if (data._fromSync && window._lastRoomApplyAt && (now - window._lastRoomApplyAt) < 1200) {
       // Still allow score/clock quiet updates
       if (typeof data.clockEndTs === 'number' && data.clockEndTs > 0) {
-        window._matchClockEndTs = data.clockEndTs;
+        BPState.matchClockEndTs = data.clockEndTs;
         const nextLeft = Math.max(0, Math.ceil((data.clockEndTs - Date.now()) / 1000));
         if (Math.abs(nextLeft - (vsTimeLeft | 0)) >= 1) vsTimeLeft = nextLeft;
       }
@@ -292,7 +296,7 @@ function applyRoomState(data) {
 
   try {
     if (typeof data.clockEndTs === 'number' && data.clockEndTs > 0) {
-      window._matchClockEndTs = data.clockEndTs;
+      BPState.matchClockEndTs = data.clockEndTs;
       const nextLeft = Math.max(0, Math.ceil((data.clockEndTs - Date.now()) / 1000));
       if (Math.abs(nextLeft - (vsTimeLeft | 0)) >= 1) vsTimeLeft = nextLeft;
     } else if (typeof data.vsTimeLeft === 'number') {
@@ -330,7 +334,7 @@ function applyRoomState(data) {
 
   try {
     // Prefer structured me/opp, then flat place_ok / opp_place fields
-    if (me) {
+    if (me && !protectMyBoard) {
       if (typeof me.score === 'number' && (me.score | 0) !== (score | 0)) { score = me.score | 0; scoresChanged = true; }
       if (Array.isArray(me.grid)) {
         const next = me.grid.map(row => (row || []).slice());
@@ -351,43 +355,45 @@ function applyRoomState(data) {
         }
       }
     }
-    if (typeof data.score === 'number' && !data.me && (data.score | 0) !== (score | 0)) { score = data.score | 0; scoresChanged = true; }
-    if (Array.isArray(data.grid) && !data.me) {
-      const next = data.grid.map(row => (row || []).slice());
-      if (gridSig(next) !== gridSig(grid)) { grid = next; myBoardChanged = true; }
-    }
-    if (Array.isArray(data.pieces) && !data.me && !dragging) {
-      const next = adoptHand(data.pieces);
-      const localU = (pieces || []).filter(p => p && !p.used).length;
-      const remoteU = next.filter(p => p && !p.used).length;
-      const force = !!(data.deal || data._forceHand || data._rejoin);
-      if (force || localU !== remoteU || localU === 0) {
-        if (handSig(next) !== handSig(pieces)) {
-          if (!(localU > 0 && remoteU === 0 && !force)) {
-            pieces = next; myHandChanged = true;
+    if (!protectMyBoard) {
+      if (typeof data.score === 'number' && !data.me && (data.score | 0) !== (score | 0)) { score = data.score | 0; scoresChanged = true; }
+      if (Array.isArray(data.grid) && !data.me) {
+        const next = data.grid.map(row => (row || []).slice());
+        if (gridSig(next) !== gridSig(grid)) { grid = next; myBoardChanged = true; }
+      }
+      if (Array.isArray(data.pieces) && !data.me && !dragging) {
+        const next = adoptHand(data.pieces);
+        const localU = (pieces || []).filter(p => p && !p.used).length;
+        const remoteU = next.filter(p => p && !p.used).length;
+        const force = !!(data.deal || data._forceHand || data._rejoin);
+        if (force || localU !== remoteU || localU === 0) {
+          if (handSig(next) !== handSig(pieces)) {
+            if (!(localU > 0 && remoteU === 0 && !force)) {
+              pieces = next; myHandChanged = true;
+            }
           }
         }
       }
-    }
-    // New deal always wins (hand was empty / refreshed)
-    if (Array.isArray(data.deal) && data.deal.length) {
-      pieces = adoptHand(data.deal);
-      myHandChanged = true;
-      try { window._animateDealIn = true; } catch (_) {}
-    }
-    // place_ok / opp_place aliases
-    if (typeof data.meScore === 'number' && (data.meScore | 0) !== (score | 0)) { score = data.meScore | 0; scoresChanged = true; }
-    if (Array.isArray(data.meGrid)) {
-      const next = data.meGrid.map(row => (row || []).slice());
-      if (gridSig(next) !== gridSig(grid)) { grid = next; myBoardChanged = true; }
-    }
-    if (Array.isArray(data.mePieces) && !dragging) {
-      const next = adoptHand(data.mePieces);
-      if (handSig(next) !== handSig(pieces)) {
-        const localU = (pieces || []).filter(p => p && !p.used).length;
-        const remoteU = next.filter(p => p && !p.used).length;
-        if (!(localU > 0 && remoteU === 0 && !data.deal)) {
-          pieces = next; myHandChanged = true;
+      // New deal always wins (hand was empty / refreshed)
+      if (Array.isArray(data.deal) && data.deal.length) {
+        pieces = adoptHand(data.deal);
+        myHandChanged = true;
+        try { BPState.animateDealIn = true; } catch (_) {}
+      }
+      // place_ok / opp_place aliases
+      if (typeof data.meScore === 'number' && (data.meScore | 0) !== (score | 0)) { score = data.meScore | 0; scoresChanged = true; }
+      if (Array.isArray(data.meGrid)) {
+        const next = data.meGrid.map(row => (row || []).slice());
+        if (gridSig(next) !== gridSig(grid)) { grid = next; myBoardChanged = true; }
+      }
+      if (Array.isArray(data.mePieces) && !dragging) {
+        const next = adoptHand(data.mePieces);
+        if (handSig(next) !== handSig(pieces)) {
+          const localU = (pieces || []).filter(p => p && !p.used).length;
+          const remoteU = next.filter(p => p && !p.used).length;
+          if (!(localU > 0 && remoteU === 0 && !data.deal)) {
+            pieces = next; myHandChanged = true;
+          }
         }
       }
     }
@@ -453,10 +459,10 @@ function applyRoomState(data) {
   } catch (_) {}
 
   try {
-    // Never clear placingLock while player is mid-gesture
-    if (!dragging) placingLock = false;
-    window._rejoinLoading = false;
-    window._rejoinInputLock = false;
+    // Never clear placingLock mid-gesture or while optimistic place awaits place_ok
+    if (!dragging && !BPState.pendingServerPlace) placingLock = false;
+    BPState.rejoinLoading = false;
+    BPState.rejoinInputLock = false;
     // Critical: sticky body.rejoin-loading sets pointer-events:none on ALL versus UI
     try {
       const ov = document.getElementById('rejoinLoading');
@@ -474,7 +480,7 @@ function applyRoomState(data) {
   } catch (_) {}
 
   // Soft differential renders — skip while intro overlay owns the screen
-  const paintFrozen = !!(window._paintFrozen || window._matchIntroSeqRunning || window._matchStartPhase);
+  const paintFrozen = !!(BPState.paintFrozen || BPState.matchIntroSeqRunning || BPState.matchStartPhase);
   if (!paintFrozen) {
     try {
       if (myBoardChanged && typeof boardMe !== 'undefined' && boardMe) {
@@ -490,19 +496,19 @@ function applyRoomState(data) {
       if (myHandChanged && !dragging) {
         const area = document.getElementById('piecesAreaVs');
         if (area) {
-          if (window._animateDealIn && typeof renderPieces === 'function') {
-            window._quietPieceRender = false;
+          if (BPState.animateDealIn && typeof renderPieces === 'function') {
+            BPState.quietPieceRender = false;
             renderPieces(area);
-            window._animateDealIn = false;
+            BPState.animateDealIn = false;
           } else if (typeof softRenderPieces === 'function') softRenderPieces(area);
           else if (typeof renderPieces === 'function') renderPieces(area);
         }
       }
       if (oppHandChanged && !oppAnimBusy) {
-        try { window._quietPieceRender = true; } catch (_) {}
+        try { BPState.quietPieceRender = true; } catch (_) {}
         if (typeof softRenderOppPieces === 'function') softRenderOppPieces();
         else if (typeof renderOppPieces === 'function') renderOppPieces();
-        try { window._quietPieceRender = false; } catch (_) {}
+        try { BPState.quietPieceRender = false; } catch (_) {}
       }
     } catch (_) {}
     try {

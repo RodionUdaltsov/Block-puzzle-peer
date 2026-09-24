@@ -8,6 +8,7 @@ COPY shared ./shared
 COPY lib ./lib
 COPY public ./public
 COPY vendor ./vendor
+COPY README.md ./
 
 ENV NODE_ENV=production
 ENV PORT=9000
