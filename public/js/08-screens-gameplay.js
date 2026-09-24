@@ -333,10 +333,10 @@ function findBestMove(g, piecesArr, skill) {
   return best;
 }
 /** Clear anim from equipped FIELD only (not piece skin). Duration FIXED for fair play. */
-/** Desktop 110ms; mobile (touch-ui) 280ms — soft but quick, low GPU cost */
+/** Desktop 110ms; mobile (touch-ui) 420ms — visible soft clear, light GPU path */
 function getClearAnimMs() {
   try {
-    if (document.body && document.body.classList.contains('touch-ui')) return 280;
+    if (document.body && document.body.classList.contains('touch-ui')) return 420;
   } catch (_) {}
   return 110;
 }
@@ -563,15 +563,22 @@ function clearLinesOn(g, boardDOM) {
     for (let i = 0; i < cells.length; i++) {
       const cell = cells[i];
       cell.classList.add('clearing');
-      cell.classList.add(touchUi ? 'clearing-mobile-soft' : meta.cls);
+      if (touchUi) {
+        cell.classList.add('clearing-mobile-soft');
+        if (meta.cls) cell.classList.add(meta.cls); // theme tint if any
+      } else {
+        cell.classList.add(meta.cls);
+      }
       cell.style.setProperty('animation', animCss, 'important');
       cell.style.setProperty('transition', 'none', 'important');
       cell.style.setProperty('overflow', 'hidden', 'important');
     }
-    // Desktop only: beams + debris. Mobile stays pure opacity/scale for 60fps.
     if (meta.beam && !touchUi) {
       spawnClearBeams(boardDOM, rows, cols, meta.beam);
       spawnClearDebris(boardDOM, [...toAnim], meta.beam);
+    } else if (meta.beam && touchUi) {
+      // Visible line sweep without debris particles (debris = main hitch)
+      try { spawnClearBeams(boardDOM, rows, cols, meta.beam); } catch (_) {}
     }
   }
   rows.forEach(r => { for(let c=0;c<SIZE;c++) g[r][c]=null; });
