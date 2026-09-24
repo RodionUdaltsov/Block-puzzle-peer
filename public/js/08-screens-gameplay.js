@@ -333,10 +333,10 @@ function findBestMove(g, piecesArr, skill) {
   return best;
 }
 /** Clear anim from equipped FIELD only (not piece skin). Duration FIXED for fair play. */
-/** Desktop 110ms; mobile ~150ms — close to PC, still visible */
+/** Desktop 110ms; mobile (touch-ui) 360ms — visible, a bit snappier */
 function getClearAnimMs() {
   try {
-    if (document.body && document.body.classList.contains('touch-ui')) return 150;
+    if (document.body && document.body.classList.contains('touch-ui')) return 360;
   } catch (_) {}
   return 110;
 }
@@ -1428,7 +1428,7 @@ function startDrag(e, idx, areaEl) {
             const fromX = _ghostLerpInit ? _ghostLerpX : center.x;
             const fromY = _ghostLerpInit ? _ghostLerpY : center.y;
             let step = 0;
-            const steps = 5; // ~70ms soft land — PC-snappy
+            const steps = 7; // ~100ms soft land — quick, not sticky
             const settleStep = () => {
               step++;
               const u = step / steps;
@@ -1447,8 +1447,8 @@ function startDrag(e, idx, areaEl) {
     } catch (_) {}
     // Fade ghost while cells play placeSoft — overlap avoids hard pop
     const hideMs = placed
-      ? (_isTouchUi() ? 140 : 160)
-      : (_isTouchUi() ? 90 : 100);
+      ? (_isTouchUi() ? 180 : 160)
+      : (_isTouchUi() ? 110 : 100);
     if (_isTouchUi() && placed) {
       // Delay opacity drop a frame so cells already started placeSoft
       requestAnimationFrame(() => {
@@ -1521,7 +1521,6 @@ function dragFrame(ts) {
   if (dt < 0.001) dt = 0.001;
 
   if (touchUi) {
-    // PC-like response: 1:1 with finger off-cell; tiny smooth only when snapping cell→cell
     let targetX = aim.x, targetY = aim.y;
     let onCell = false;
     if (lastPreview && dragPiece && boardRect && boardRect.width > 8) {
@@ -1530,43 +1529,33 @@ function dragFrame(ts) {
         targetX = center.x;
         targetY = center.y;
         onCell = true;
-        const key = lastPreview.baseR + ',' + lastPreview.baseC;
-        if (key !== _ghostCellKey) {
-          _ghostCellKey = key;
-          // New cell: keep current lerp pos, chase new center quickly
-        }
+        _ghostCellKey = lastPreview.baseR + ',' + lastPreview.baseC;
       } else {
         _ghostCellKey = '';
       }
     } else {
       _ghostCellKey = '';
     }
+    _ghostTargetX = targetX;
+    _ghostTargetY = targetY;
     if (!_ghostLerpInit) {
       _ghostLerpX = targetX;
       _ghostLerpY = targetY;
       _ghostLerpInit = true;
     }
-    if (onCell) {
-      // Fast cell lock (~20ms) — smooth border cross without trailing the finger
-      const k = 1 - Math.exp(-55 * dt);
-      _ghostLerpX += (targetX - _ghostLerpX) * k;
-      _ghostLerpY += (targetY - _ghostLerpY) * k;
-    } else {
-      // Free drag: true 1:1 (PC feel)
-      _ghostLerpX = targetX;
-      _ghostLerpY = targetY;
-    }
+    // lambda tuned so ~45ms cell settle / ~30ms free follow (same at 60 or 144Hz)
+    const lambda = onCell ? 22 : 32;
+    const k = 1 - Math.exp(-lambda * dt);
+    _ghostLerpX += (targetX - _ghostLerpX) * k;
+    _ghostLerpY += (targetY - _ghostLerpY) * k;
     if (!_ghostNoGlideOn) {
       ghost.classList.add('no-glide');
       ghost.classList.remove('cell-glide');
       _ghostNoGlideOn = true;
     }
     moveGhost(_ghostLerpX, _ghostLerpY);
-    // Only schedule next frame while still catching a cell (saves battery / heat)
-    if (isDragging && onCell) {
-      const dx = targetX - _ghostLerpX, dy = targetY - _ghostLerpY;
-      if (dx * dx + dy * dy > 0.25) rafId = requestAnimationFrame(dragFrame);
-    }
+    // Keep rAF while finger is down — saturates 120/144Hz displays
+    if (isDragging) rafId = requestAnimationFrame(dragFrame);
     return;
   }
 
