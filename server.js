@@ -157,6 +157,14 @@ function dealForSeat(st) {
 
 
 
+function normalizePlatform(p) {
+  const s = String(p || '').toLowerCase();
+  if (s === 'mobile' || s === 'phone' || s === 'android' || s === 'ios') return 'mobile';
+  if (s === 'tablet' || s === 'ipad') return 'tablet';
+  if (s === 'desktop' || s === 'pc' || s === 'web') return 'desktop';
+  return s || 'web';
+}
+
 function queueKey(duration, trophies) {
   const bucket = Math.floor(Math.max(0, trophies) / 50) * 50;
   return 'd' + duration + '-b' + bucket;
@@ -433,7 +441,9 @@ class MatchRoom {
       trophies: info.trophies | 0,
       ws: info.ws || null,
       online: true,
-      lastSeen: Date.now()
+      lastSeen: Date.now(),
+      platform: info.platform || (info.ws && info.ws._platform) || 'web',
+      os: info.os || (info.ws && info.ws._os) || 'unknown'
     };
   }
 
@@ -1590,6 +1600,12 @@ function startRoom(p1, p2, meta) {
     const opp = Object.assign({}, snap.opp, {
       pieces: serializePieces(snap.opp && snap.opp.pieces)
     });
+    const platA = p1.platform || (p1.ws && p1.ws._platform) || 'web';
+    const platB = p2.platform || (p2.ws && p2.ws._platform) || 'web';
+    const osA = p1.os || (p1.ws && p1.ws._os) || 'unknown';
+    const osB = p2.os || (p2.ws && p2.ws._os) || 'unknown';
+    const isCross = !!(platA && platB && platA !== platB) || !!(osA && osB && osA !== osB && osA !== 'unknown' && osB !== 'unknown');
+    const meIsP1 = token === p1.token;
     room.send(token, {
       type: 'match_found',
       matchId: room.id,
@@ -1602,7 +1618,15 @@ function startRoom(p1, p2, meta) {
       opp,
       seat: snap.seat,
       source: room.source,
-      privateCode: room.privateCode
+      privateCode: room.privateCode,
+      // Crossplay: phone ↔ PC / any OS on the same rules + server clock
+      crossplay: true,
+      crossplayPair: isCross,
+      mePlatform: meIsP1 ? platA : platB,
+      oppPlatform: meIsP1 ? platB : platA,
+      meOs: meIsP1 ? osA : osB,
+      oppOs: meIsP1 ? osB : osA,
+      protocolVersion: 1
     });
   }
   return room;
@@ -1687,7 +1711,9 @@ function tryStartPrivate(lobby) {
     boardId: lobby.host.boardId || 'field_default',
     avatarId: lobby.host.avatarId || 'init',
     avatarCustom: lobby.host.avatarCustom || '',
-    duration: lobby.duration
+    duration: lobby.duration,
+    platform: lobby.host.platform || (lobby.host.ws && lobby.host.ws._platform) || 'web',
+    os: lobby.host.os || (lobby.host.ws && lobby.host.ws._os) || 'unknown'
   };
   const p2 = {
     token: lobby.guest.token,
@@ -1698,7 +1724,9 @@ function tryStartPrivate(lobby) {
     boardId: lobby.guest.boardId || 'field_default',
     avatarId: lobby.guest.avatarId || 'init',
     avatarCustom: lobby.guest.avatarCustom || '',
-    duration: lobby.duration
+    duration: lobby.duration,
+    platform: lobby.guest.platform || (lobby.guest.ws && lobby.guest.ws._platform) || 'web',
+    os: lobby.guest.os || (lobby.guest.ws && lobby.guest.ws._os) || 'unknown'
   };
   // Bind duration onto both
   p1.duration = lobby.duration;
@@ -1724,6 +1752,8 @@ const server = http.createServer((req, res) => {
       res.end(JSON.stringify({
         ok: true,
         service: 'block-puzzle',
+        crossplay: true,
+        protocolVersion: 1,
         rooms: rooms.size,
         queue: totalQueued(),
         privateLobbies: privateLobbies.size,
@@ -1799,13 +1829,37 @@ wss.on('connection', (ws) => {
   ws._matchId = null;
   ws.isAlive = true;
   ws.on('pong', () => { ws.isAlive = true; });
-  send(ws, { type: 'hello', token: ws._token });
+  send(ws, {
+    type: 'hello',
+    token: ws._token,
+    protocolVersion: 1,
+    crossplay: true,
+    // Explicit: one queue for phone + PC + any OS
+    platforms: ['mobile', 'desktop', 'tablet', 'web']
+  });
 
   ws.on('message', (raw) => {
     let data;
     try { data = JSON.parse(String(raw)); } catch (_) { return; }
     if (!data || typeof data !== 'object') return;
     const type = data.type;
+
+    if (type === 'client_info') {
+      try {
+        ws._platform = normalizePlatform(data.platform || data.device);
+        ws._os = String(data.os || 'unknown').slice(0, 24);
+        ws._protocolVersion = (data.protocolVersion | 0) || 1;
+        ws._clientBuild = data.build ? String(data.build).slice(0, 32) : '';
+        send(ws, {
+          type: 'client_info_ok',
+          crossplay: true,
+          protocolVersion: 1,
+          platform: ws._platform,
+          os: ws._os
+        });
+      } catch (_) {}
+      return;
+    }
 
     if (type === 'join_queue') {
       dequeueToken(ws._token);
@@ -1825,8 +1879,16 @@ wss.on('connection', (ws) => {
         avatarCustom: (data.avatarCustom && typeof data.avatarCustom === 'string') ? String(data.avatarCustom).slice(0, 120000) : '',
         duration: (data.duration === 60 || data.duration === 180) ? data.duration : 120,
         expandLevel: Math.min(3, Math.max(0, data.expandLevel | 0)),
-        clientId: data.clientId ? String(data.clientId).slice(0, 64) : null
+        clientId: data.clientId ? String(data.clientId).slice(0, 64) : null,
+        // Crossplay: accept any device/OS — never segregate queues by platform
+        platform: normalizePlatform(data.platform || data.device || ws._platform),
+        os: String(data.os || ws._os || 'unknown').slice(0, 24),
+        protocolVersion: (data.protocolVersion | 0) || 1
       };
+      try {
+        ws._platform = player.platform;
+        ws._os = player.os;
+      } catch (_) {}
       const opp = findMatch(player);
       if (opp) {
         dequeueToken(opp.token);
@@ -1854,8 +1916,16 @@ wss.on('connection', (ws) => {
         avatarCustom: (data.avatarCustom && typeof data.avatarCustom === 'string') ? String(data.avatarCustom).slice(0, 120000) : '',
         duration: (data.duration === 60 || data.duration === 180) ? data.duration : 120,
         expandLevel: Math.min(3, Math.max(0, data.expandLevel | 0)),
-        clientId: data.clientId ? String(data.clientId).slice(0, 64) : null
+        clientId: data.clientId ? String(data.clientId).slice(0, 64) : null,
+        // Crossplay: accept any device/OS — never segregate queues by platform
+        platform: normalizePlatform(data.platform || data.device || ws._platform),
+        os: String(data.os || ws._os || 'unknown').slice(0, 24),
+        protocolVersion: (data.protocolVersion | 0) || 1
       };
+      try {
+        ws._platform = player.platform;
+        ws._os = player.os;
+      } catch (_) {}
       const opp = findMatch(player);
       if (opp) {
         dequeueToken(opp.token);
@@ -2012,7 +2082,9 @@ wss.on('connection', (ws) => {
           boardId: data.boardId ? String(data.boardId).slice(0, 32) : 'field_default',
           avatarId: data.avatarId ? String(data.avatarId).slice(0, 32) : 'init',
           avatarCustom: (data.avatarCustom && typeof data.avatarCustom === 'string') ? String(data.avatarCustom).slice(0, 120000) : '',
-          friendCode: data.friendCode ? String(data.friendCode).slice(0, 16) : null
+          friendCode: data.friendCode ? String(data.friendCode).slice(0, 16) : null,
+          platform: normalizePlatform(data.platform || ws._platform || 'web'),
+          os: String(data.os || ws._os || 'unknown').slice(0, 24)
         },
         guest: null
       };
@@ -2057,7 +2129,9 @@ wss.on('connection', (ws) => {
         boardId: data.boardId ? String(data.boardId).slice(0, 32) : 'field_default',
         avatarId: data.avatarId ? String(data.avatarId).slice(0, 32) : 'init',
         avatarCustom: (data.avatarCustom && typeof data.avatarCustom === 'string') ? String(data.avatarCustom).slice(0, 120000) : '',
-        friendCode: data.friendCode ? String(data.friendCode).slice(0, 16) : null
+        friendCode: data.friendCode ? String(data.friendCode).slice(0, 16) : null,
+        platform: normalizePlatform(data.platform || ws._platform || 'web'),
+        os: String(data.os || ws._os || 'unknown').slice(0, 24)
       };
       ws._privateCode = code;
       send(ws, lobbySnapshot(lobby, 'guest'));

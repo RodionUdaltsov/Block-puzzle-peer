@@ -114,7 +114,20 @@ function bindMatchClientHandlers() {
       window._rankedDeltaApplied = false;
       window._matchAwaitingGo = true;
       try { closeRoomLobby(); } catch (_) {}
-      try { setMpStatus(isLobby ? 'Матч начинается…' : 'Соперник найден!'); } catch (_) {}
+      try {
+        let statusMsg = isLobby ? 'Матч начинается…' : 'Соперник найден!';
+        if (data.crossplayPair) {
+          const op = data.oppPlatform || 'device';
+          const label = op === 'mobile' ? 'телефон' : (op === 'desktop' ? 'ПК' : op);
+          statusMsg = (isLobby ? 'Матч начинается' : 'Соперник найден') + ' · кроссплей (' + label + ')';
+        } else if (data.crossplay) {
+          statusMsg = isLobby ? 'Матч начинается…' : 'Соперник найден!';
+        }
+        setMpStatus(statusMsg);
+        window._matchCrossplay = !!data.crossplay;
+        window._matchCrossplayPair = !!data.crossplayPair;
+        window._oppPlatform = data.oppPlatform || null;
+      } catch (_) {}
       try {
         beginRoomRankedMatch(data, { waitForGo: true });
       } catch (e) {

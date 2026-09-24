@@ -141,6 +141,47 @@
       });
     },
 
+
+    detectClientPlatform() {
+      let device = 'desktop';
+      let os = 'unknown';
+      try {
+        const ua = (typeof navigator !== 'undefined' && navigator.userAgent) ? navigator.userAgent : '';
+        const coarse = !!(window.matchMedia && (
+          window.matchMedia('(pointer: coarse)').matches ||
+          window.matchMedia('(hover: none)').matches
+        ));
+        const touch = ('ontouchstart' in window) && (navigator.maxTouchPoints > 0);
+        if (/Android/i.test(ua)) os = 'android';
+        else if (/iPhone|iPad|iPod/i.test(ua)) os = 'ios';
+        else if (/Windows/i.test(ua)) os = 'windows';
+        else if (/Mac OS|Macintosh/i.test(ua)) os = 'macos';
+        else if (/Linux/i.test(ua)) os = 'linux';
+        if (/iPad/i.test(ua) || (os === 'ios' && Math.min(screen.width, screen.height) >= 768)) device = 'tablet';
+        else if (coarse || touch || /Android|iPhone|iPod/i.test(ua)) device = 'mobile';
+        else device = 'desktop';
+      } catch (_) {}
+      return { platform: device, os: os };
+    },
+
+    sendClientInfo() {
+      try {
+        const info = this.detectClientPlatform();
+        this._platform = info.platform;
+        this._os = info.os;
+        let proto = 1;
+        try {
+          if (typeof BPRules !== 'undefined' && BPRules.PROTOCOL_VERSION) proto = BPRules.PROTOCOL_VERSION;
+        } catch (_) {}
+        this.send({
+          type: 'client_info',
+          platform: info.platform,
+          os: info.os,
+          protocolVersion: proto,
+          build: 'v3929m6'
+        });
+      } catch (_) {}
+    },
     connect() {
       this._wantClose = false;
       if (this.ws && (this.ws.readyState === 0 || this.ws.readyState === 1)) return;
@@ -172,6 +213,7 @@
       this.ws = ws;
       ws.onopen = () => {
         this.connected = true;
+        try { this.sendClientInfo(); } catch (_) {}
         this._retry = 0;
         console.log('[MatchClient] open', this._lastUrl || this.url());
         this._emit('open', {});
@@ -311,6 +353,7 @@
 
     joinQueue(opts) {
       opts = opts || {};
+      const plat = this.detectClientPlatform ? this.detectClientPlatform() : { platform: 'web', os: 'unknown' };
       this._wantQueue = {
         name: opts.name || 'Игрок',
         trophies: opts.trophies | 0,
@@ -320,7 +363,10 @@
         avatarCustom: opts.avatarCustom || '',
         duration: opts.duration || 120,
         expandLevel: opts.expandLevel | 0,
-        clientId: opts.clientId || null
+        clientId: opts.clientId || null,
+        platform: opts.platform || plat.platform,
+        os: opts.os || plat.os,
+        protocolVersion: (typeof BPRules !== 'undefined' && BPRules.PROTOCOL_VERSION) ? BPRules.PROTOCOL_VERSION : 1
       };
       this.connect();
       return this.send(Object.assign({ type: 'join_queue' }, this._wantQueue));
@@ -428,6 +474,7 @@
     createPrivate(opts) {
       opts = opts || {};
       this.connect();
+      const plat = this.detectClientPlatform ? this.detectClientPlatform() : { platform: 'web', os: 'unknown' };
       return this.send({
         type: 'create_private',
         name: opts.name || 'Игрок',
@@ -437,12 +484,16 @@
         avatarId: opts.avatarId || 'init',
         avatarCustom: opts.avatarCustom || '',
         duration: opts.duration || 120,
-        friendCode: opts.friendCode || null
+        friendCode: opts.friendCode || null,
+        platform: plat.platform,
+        os: plat.os,
+        protocolVersion: 1
       });
     },
     joinPrivate(code, opts) {
       opts = opts || {};
       this.connect();
+      const plat = this.detectClientPlatform ? this.detectClientPlatform() : { platform: 'web', os: 'unknown' };
       return this.send({
         type: 'join_private',
         code: String(code || '').toUpperCase().replace(/[^A-Z0-9]/g, ''),
@@ -452,7 +503,10 @@
         boardId: opts.boardId || 'field_default',
         avatarId: opts.avatarId || 'init',
         avatarCustom: opts.avatarCustom || '',
-        friendCode: opts.friendCode || null
+        friendCode: opts.friendCode || null,
+        platform: plat.platform,
+        os: plat.os,
+        protocolVersion: 1
       });
     },
     leavePrivate() { return this.send({ type: 'leave_private' }); },

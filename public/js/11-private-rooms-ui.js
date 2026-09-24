@@ -230,7 +230,7 @@ function startOnlineMatchmaking() {
     postMatchOnlineEligible = false;
     try { window._matchEnded = false; window._rankedDeltaApplied = false; } catch (_) {}
     showScreen('match');
-    mmSetStatus('Ищем игроков в очереди…', 'Сервер матчей');
+    mmSetStatus('Ищем игроков (ПК + телефон)…', 'Кроссплей');
     let clientId = null;
     try { clientId = localStorage.getItem('bp_client_id'); } catch (_) {}
     if (!clientId) {
@@ -3476,7 +3476,7 @@ document.getElementById('btnCancelSearch')?.addEventListener('click', () => {
   stopMatchmaking(true);
   mmFound = false;
   showScreen('duration');
-  mmSetStatus('Ищем соперника...', '—');
+  mmSetStatus('Ищем соперника (кроссплей)…', '—');
 });
 
 (function bindSkinPreviewModal() {

@@ -19,7 +19,16 @@ docker run -p 9000:9000 block-puzzle
 ```
 
 ## Features
-Ranked · private rooms · authoritative moves · rejoin · forfeit · AFK/disconnect · rematch · friends
+Ranked · private rooms · **crossplay** (phone ↔ PC, any OS) · authoritative moves · rejoin · forfeit · AFK/disconnect · rematch · friends
+
+## Crossplay
+- One WebSocket protocol and one `shared/rules.js` for all clients.
+- Ranked queue is **not** split by platform or OS — phone can match desktop and vice versa.
+- Private room codes work the same on mobile and PC (same server).
+- Match clock and scoring are **server-side** (fair across devices).
+- Clients report `platform` / `os` for UI only; never used to segregate matchmaking.
+
+Open the same server URL on both devices (e.g. `http://<lan-ip>:9000` on phone and PC).
 
 ## Online smoothness
 - Soft differential renders on place/sync (no full DOM wipe).

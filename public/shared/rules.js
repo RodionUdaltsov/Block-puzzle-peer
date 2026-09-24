@@ -203,7 +203,12 @@
     return false;
   }
 
+
+  /** Cross-play protocol — same value on all clients/OS; bump only on breaking changes */
+  const PROTOCOL_VERSION = 1;
+
   return {
+    PROTOCOL_VERSION: PROTOCOL_VERSION,
     SIZE: SIZE,
     DEFAULT_COLORS: DEFAULT_COLORS,
     SHAPES: SHAPES,

@@ -6090,14 +6090,14 @@
     body.touch-ui .cell[class*="clearing-"],
     body.touch-ui .cell.filled[class*="clearing-"],
     body.touch-ui .board-wrap .cell[class*="clearing-"] {
-      animation-duration: 0.36s !important;
+      animation-duration: 0.15s !important;
       animation-timing-function: cubic-bezier(0.22, 0.08, 0.18, 1) !important;
       will-change: opacity, transform !important;
       filter: none !important;
     }
     body.touch-ui .cell.clearing-mobile-soft {
       animation-name: clearMobileSoft !important;
-      animation-duration: 0.36s !important;
+      animation-duration: 0.15s !important;
     }
 body.touch-ui .clear-beam.row { animation-duration: 0.4s !important; opacity: 0.95; }
 body.touch-ui .clear-beam.col { animation-duration: 0.4s !important; opacity: 0.95; }
@@ -6131,10 +6131,8 @@ body.touch-ui .cell.clearing::after {
     /* Mobile-only: compositor-cheap clear (no filter / clip-path / box-shadow anim) */
     @keyframes clearMobileSoft {
       0%   { opacity: 1; transform: scale(1); }
-      12%  { opacity: 1; transform: scale(1.12); }
-      28%  { opacity: 1; transform: scale(1.06); }
-      55%  { opacity: 0.75; transform: scale(0.94); }
-      100% { opacity: 0; transform: scale(0.7); }
+      25%  { opacity: 1; transform: scale(1.06); }
+      100% { opacity: 0; transform: scale(0.82); }
     }
     /* Highest specificity so themed clearing-* never overrides on mobile */
     body.touch-ui .cell.clearing-mobile-soft,
@@ -6142,7 +6140,7 @@ body.touch-ui .cell.clearing::after {
     body.touch-ui .board-wrap .cell.clearing-mobile-soft,
     body.touch-ui .cell.clearing.clearing-mobile-soft {
       animation-name: clearMobileSoft !important;
-      animation-duration: 0.36s !important;
+      animation-duration: 0.15s !important;
       animation-timing-function: cubic-bezier(0.2, 0.7, 0.2, 1) !important;
       animation-fill-mode: forwards !important;
       filter: none !important;
@@ -11381,10 +11379,10 @@ body.touch-ui .cell[class*="clearing-"] {
   will-change: auto;
 }
 body.touch-ui .cell.placing {
-  /* Quick soft land — no hard pop, no long mush */
+  /* Match PC placeSoft tempo */
   animation-name: placeSoftMobile !important;
-  animation-duration: 0.42s !important;
-  animation-timing-function: cubic-bezier(0.2, 0.7, 0.2, 1) !important;
+  animation-duration: 0.32s !important;
+  animation-timing-function: cubic-bezier(0.33, 0.0, 0.2, 1) !important;
   filter: none !important;
 }
 body.touch-ui #ghost {
@@ -11448,8 +11446,8 @@ body.touch-ui .piece-slot {
 @media (hover: none) and (pointer: coarse) {
   .cell.placing {
     animation-name: placeSoftMobile;
-    animation-duration: 0.42s;
-    animation-timing-function: cubic-bezier(0.2, 0.7, 0.2, 1);
+    animation-duration: 0.32s;
+    animation-timing-function: cubic-bezier(0.33, 0.0, 0.2, 1);
     animation-fill-mode: forwards;
   }
 }

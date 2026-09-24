@@ -118,6 +118,7 @@ function mmGenAlive(gen) {
 }
 
 // Skill-based queue: trophy buckets, rating check, expand gap over time
+// Crossplay: ONE queue for mobile + desktop + any OS (server-authoritative rules)
 function mmTrophyBucket(t) {
   return Math.floor(Math.max(0, t) / 50) * 50;
 }
