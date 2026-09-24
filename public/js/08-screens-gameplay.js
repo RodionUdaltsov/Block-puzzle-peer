@@ -381,7 +381,7 @@ function getClearAnimMeta(boardDOM) {
   return { cls: 'clearing-common', name: 'clearCommon', beam: null, ms: getClearAnimMs() };
 }
 const CLEARING_CLASSES = [
-  'clearing', 'clearing-common',
+  'clearing', 'clearing-common', 'clearing-mobile-soft',
   'clearing-rare', 'clearing-rare-azure', 'clearing-rare-violet', 'clearing-rare-jade',
   'clearing-epic', 'clearing-neon', 'clearing-magma',
   'clearing-nebula', 'clearing-solar', 'clearing-quantum', 'clearing-abyss', 'clearing-prism'
@@ -543,23 +543,38 @@ function clearLinesOn(g, boardDOM) {
   rows.forEach(r => { for(let c=0;c<SIZE;c++) toAnim.add(r*SIZE+c); });
   cols.forEach(c => { for(let r=0;r<SIZE;r++) toAnim.add(r*SIZE+c); });
   const meta = getClearAnimMeta(boardDOM);
-  const animCss = `${meta.name} ${meta.ms}ms ease-out forwards`;
+  const touchUi = (function(){ try { return !!(document.body && document.body.classList.contains('touch-ui')); } catch(_){ return false; } })();
+  // Mobile: single light fade (opacity+scale) — heavy filter/clip keyframes + debris cause frame drops
+  const animName = touchUi ? 'clearMobileSoft' : meta.name;
+  const animCss = `${animName} ${meta.ms}ms cubic-bezier(0.22,0.08,0.18,1) forwards`;
   if (boardDOM) {
+    // Batch: one reflow for the whole set (not per-cell void offsetWidth)
+    const cells = [];
     toAnim.forEach(idx => {
       const cell = boardDOM.children[idx];
       if (!cell) return;
+      cells.push(cell);
       CLEARING_CLASSES.forEach(c => cell.classList.remove(c));
       cell.style.setProperty('animation', 'none', 'important');
-      void cell.offsetWidth;
-      cell.classList.add(meta.cls);
+    });
+    if (cells.length) {
+      try { void cells[0].offsetWidth; } catch (_) {}
+    }
+    for (let i = 0; i < cells.length; i++) {
+      const cell = cells[i];
+      cell.classList.add('clearing');
+      cell.classList.add(touchUi ? 'clearing-mobile-soft' : meta.cls);
       cell.style.setProperty('animation', animCss, 'important');
       cell.style.setProperty('transition', 'none', 'important');
       cell.style.setProperty('overflow', 'hidden', 'important');
-    });
-    if (meta.beam) spawnClearBeams(boardDOM, rows, cols, meta.beam);
-    // Legendary debris from each cleared cell
-    if (meta.beam) {
+    }
+    // Beams only on desktop / non-touch — debris is the main mobile hitch
+    if (meta.beam && !touchUi) {
+      spawnClearBeams(boardDOM, rows, cols, meta.beam);
       spawnClearDebris(boardDOM, [...toAnim], meta.beam);
+    } else if (meta.beam && touchUi) {
+      // Single soft beam pair max — no particle storm
+      try { spawnClearBeams(boardDOM, rows.slice(0, 1), cols.slice(0, 1), meta.beam); } catch (_) {}
     }
   }
   rows.forEach(r => { for(let c=0;c<SIZE;c++) g[r][c]=null; });
@@ -1298,22 +1313,41 @@ function startDrag(e, idx, areaEl) {
       }
     }
     if (!placed) placed = tryPlaceAt(aim.x, aim.y);
-    // Soft lock: settle ghost onto board center before fade (desktop-like, no hard snap)
+    // Soft lock: settle ghost onto board center before fade
     try {
       if (placed && lastPreview && lastPreview.valid && dragPiece) {
         const center = placementWorldCenter(lastPreview, dragPiece.shape);
         if (center) {
-          ghost.classList.remove('no-glide');
-          ghost.classList.add('cell-glide');
-          moveGhost(center.x, center.y);
+          if (_isTouchUi()) {
+            // Keep no-glide; animate via a few lerp frames toward center
+            ghost.classList.add('no-glide');
+            ghost.classList.remove('cell-glide');
+            const fromX = _ghostLerpInit ? _ghostLerpX : center.x;
+            const fromY = _ghostLerpInit ? _ghostLerpY : center.y;
+            let t = 0;
+            const steps = 12;
+            const settleStep = () => {
+              t++;
+              const u = t / steps;
+              // ease-out cubic
+              const e = 1 - Math.pow(1 - u, 3);
+              moveGhost(fromX + (center.x - fromX) * e, fromY + (center.y - fromY) * e);
+              if (t < steps) requestAnimationFrame(settleStep);
+            };
+            requestAnimationFrame(settleStep);
+          } else {
+            ghost.classList.remove('no-glide');
+            ghost.classList.add('cell-glide');
+            moveGhost(center.x, center.y);
+          }
         }
       }
     } catch (_) {}
     ghost.classList.remove('visible');
     // Mobile: longer soft settle so place does not feel like a hard snap
     const hideMs = placed
-      ? (_isTouchUi() ? 280 : 160)
-      : (_isTouchUi() ? 140 : 100);
+      ? (_isTouchUi() ? 320 : 160)
+      : (_isTouchUi() ? 160 : 100);
     setTimeout(hideGhost, hideMs);
     if (placed) markPieceUsed(idx, areaEl);
     else { SFX.bad(); slot.classList.remove('lifting'); slot.classList.add('show'); }
@@ -1355,6 +1389,7 @@ function placementWorldCenter(result, shape) {
 }
 let _ghostCellKey = '';
 let _ghostLerpX = 0, _ghostLerpY = 0, _ghostLerpInit = false;
+let _ghostTargetX = 0, _ghostTargetY = 0;
 function _isTouchUi() {
   try { return !!(document.body && document.body.classList.contains('touch-ui')); } catch (_) { return false; }
 }
@@ -1365,51 +1400,68 @@ function dragFrame() {
   const aim = aimFromPointer(pointerX, pointerY);
   updatePreview(aim.x, aim.y);
   const touchUi = _isTouchUi();
-  // Soft cell lock: ghost snaps/glides to placement grid center
+
+  if (touchUi) {
+    // Pure JS soft follow — never CSS snap between cells (WebKit cancels transitions)
+    let targetX = aim.x, targetY = aim.y;
+    let onCell = false;
+    if (lastPreview && dragPiece && boardRect && boardRect.width > 8) {
+      const center = placementWorldCenter(lastPreview, dragPiece.shape);
+      if (center) {
+        targetX = center.x;
+        targetY = center.y;
+        onCell = true;
+        _ghostCellKey = lastPreview.baseR + ',' + lastPreview.baseC;
+      } else {
+        _ghostCellKey = '';
+      }
+    } else {
+      _ghostCellKey = '';
+    }
+    _ghostTargetX = targetX;
+    _ghostTargetY = targetY;
+    if (!_ghostLerpInit) {
+      _ghostLerpX = targetX;
+      _ghostLerpY = targetY;
+      _ghostLerpInit = true;
+    }
+    // Cell-to-cell: very soft silk (~180–220ms feel); free finger still responsive
+    const k = onCell ? 0.10 : 0.18;
+    _ghostLerpX += (targetX - _ghostLerpX) * k;
+    _ghostLerpY += (targetY - _ghostLerpY) * k;
+    // Keep no CSS transition interference during continuous lerp
+    if (!ghost.classList.contains('no-glide')) {
+      ghost.classList.add('no-glide');
+      ghost.classList.remove('cell-glide');
+    }
+    moveGhost(_ghostLerpX, _ghostLerpY);
+    const dx = targetX - _ghostLerpX, dy = targetY - _ghostLerpY;
+    // Keep raf while moving OR finger still down (smooth coast into cell)
+    if (isDragging && (dx * dx + dy * dy) > 0.16) {
+      rafId = requestAnimationFrame(dragFrame);
+    }
+    return;
+  }
+
+  // Desktop: CSS cell-glide path (unchanged)
   if (lastPreview && dragPiece && boardRect && boardRect.width > 8) {
     const key = lastPreview.baseR + ',' + lastPreview.baseC + ',' + (lastPreview.valid ? 1 : 0);
     const center = placementWorldCenter(lastPreview, dragPiece.shape);
     if (center) {
       if (key !== _ghostCellKey) {
         _ghostCellKey = key;
-        // Soft cell-to-cell: enable transition BEFORE setting new transform
         ghost.classList.remove('no-glide');
         ghost.classList.add('cell-glide');
-        // Force style flush so transition applies on this jump (critical on iOS)
         try { void ghost.offsetWidth; } catch (_) {}
         moveGhost(center.x, center.y);
-        _ghostLerpX = center.x;
-        _ghostLerpY = center.y;
-        _ghostLerpInit = true;
       }
-      // Same cell: do not re-set transform (would cancel in-flight glide on mobile WebKit)
       return;
     }
   }
-  // Off-board / free finger
   if (_ghostCellKey !== '') {
     _ghostCellKey = '';
     ghost.classList.add('no-glide');
     ghost.classList.remove('cell-glide');
-  }
-  if (touchUi) {
-    // Soft follow on phones: exponential lerp — removes harsh 1:1 jitter, feels like PC
-    if (!_ghostLerpInit) {
-      _ghostLerpX = aim.x;
-      _ghostLerpY = aim.y;
-      _ghostLerpInit = true;
-    }
-    // ~0.28–0.34 follow factor → smooth but still responsive (60fps)
-    const k = 0.32;
-    _ghostLerpX += (aim.x - _ghostLerpX) * k;
-    _ghostLerpY += (aim.y - _ghostLerpY) * k;
-    moveGhost(_ghostLerpX, _ghostLerpY);
-    // Keep sampling until settled near finger (avoids freeze mid-motion)
-    const dx = aim.x - _ghostLerpX, dy = aim.y - _ghostLerpY;
-    if (isDragging && (dx * dx + dy * dy) > 0.25) {
-      rafId = requestAnimationFrame(dragFrame);
-    }
-    return;
   }
   moveGhost(aim.x, aim.y);
 }

@@ -6090,14 +6090,27 @@
     body.touch-ui .cell[class*="clearing-"],
     body.touch-ui .cell.filled[class*="clearing-"],
     body.touch-ui .board-wrap .cell[class*="clearing-"] {
-      /* Match getClearAnimMs() 420ms — softer, fewer frame drops than heavy short bursts */
       animation-duration: 0.42s !important;
       animation-timing-function: cubic-bezier(0.22, 0.08, 0.18, 1) !important;
-      /* Prefer compositor props; drop permanent will-change thrash */
-      will-change: auto !important;
+      will-change: opacity, transform !important;
+      /* Kill expensive animated props that hitch mid-clear on phones */
+      filter: none !important;
     }
-body.touch-ui .clear-beam.row { animation-duration: 0.38s !important; }
-body.touch-ui .clear-beam.col { animation-duration: 0.38s !important; }
+    body.touch-ui .cell.clearing-mobile-soft {
+      animation-name: clearMobileSoft !important;
+      animation-duration: 0.42s !important;
+    }
+body.touch-ui .clear-beam.row { animation-duration: 0.36s !important; opacity: 0.7; }
+body.touch-ui .clear-beam.col { animation-duration: 0.36s !important; opacity: 0.7; }
+/* Mobile clear: no pseudo-element FX thrash */
+body.touch-ui .cell[class*="clearing-"]::before,
+body.touch-ui .cell[class*="clearing-"]::after,
+body.touch-ui .cell.clearing::before,
+body.touch-ui .cell.clearing::after {
+  display: none !important;
+  animation: none !important;
+  content: none !important;
+}
 
     .cell[class*="clearing-"]::before,
     .cell[class*="clearing-"]::after,
@@ -6115,6 +6128,31 @@ body.touch-ui .clear-beam.col { animation-duration: 0.38s !important; }
       animation-name: clearCommon !important; animation-timing-function: ease-out !important;
     }
     @keyframes clearCommon { 0% { opacity: 1; } 100% { opacity: 0; } }
+
+    /* Mobile-only: compositor-cheap clear (no filter / clip-path / box-shadow anim) */
+    @keyframes clearMobileSoft {
+      0%   { opacity: 1; transform: scale(1); }
+      55%  { opacity: 0.55; transform: scale(0.92); }
+      100% { opacity: 0; transform: scale(0.78); }
+    }
+    .cell.clearing-mobile-soft,
+    .cell.filled.clearing-mobile-soft,
+    .board-wrap .cell.clearing-mobile-soft {
+      animation-name: clearMobileSoft !important;
+      animation-timing-function: cubic-bezier(0.22, 0.08, 0.18, 1) !important;
+      filter: none !important;
+      clip-path: none !important;
+      box-shadow: none !important;
+      will-change: opacity, transform !important;
+      backface-visibility: hidden;
+      -webkit-backface-visibility: hidden;
+    }
+    body.touch-ui .cell.clearing-mobile-soft::before,
+    body.touch-ui .cell.clearing-mobile-soft::after {
+      display: none !important;
+      content: none !important;
+      animation: none !important;
+    }
 
     /* RARE — Azure: soft cyan rim glow */
     .cell.clearing-rare-azure, .cell.filled.clearing-rare-azure, .board-wrap .cell.clearing-rare-azure {
@@ -11346,24 +11384,20 @@ body.touch-ui #ghost {
   -webkit-transform: translate3d(0,0,0);
   backface-visibility: hidden;
   -webkit-backface-visibility: hidden;
-  /* Lighter shadow on mobile GPUs — drop-shadow is expensive mid-drag */
-  filter: drop-shadow(0 6px 12px rgba(0,0,0,0.4));
-  /* Default soft follow easing (JS lerp still primary; CSS helps cell-glide) */
-  transition:
-    opacity 0.2s ease,
-    transform 0.18s cubic-bezier(0.22, 0.82, 0.28, 1);
+  /* Lighter shadow — drop-shadow every frame is costly on mid GPUs */
+  filter: drop-shadow(0 4px 10px rgba(0,0,0,0.35));
+  /* JS owns position every frame; keep transform transition OFF so lerp is smooth */
+  transition: opacity 0.2s ease !important;
+  will-change: transform;
 }
-/* Soft cell-to-cell glide on phones — longer, silkier than desktop 0.13s */
-body.touch-ui #ghost.cell-glide {
-  transition:
-    opacity 0.2s ease,
-    transform 0.36s cubic-bezier(0.2, 0.75, 0.25, 1) !important;
-}
+body.touch-ui #ghost.cell-glide,
 body.touch-ui #ghost.no-glide {
-  /* Free-drag: short ease (JS lerp is main smoothness); avoid harsh 0ms snap */
-  transition:
-    opacity 0.16s ease,
-    transform 0.05s linear !important;
+  /* Both modes: no CSS transform lag — pure JS lerp between cells */
+  transition: opacity 0.16s ease, transform 0s linear !important;
+}
+body.touch-ui.is-dragging #ghost {
+  /* During drag: skip filter for max FPS */
+  filter: none;
 }
 body.touch-ui .cell.placing,
 body.touch-ui .cell[class*="clearing-"] {
