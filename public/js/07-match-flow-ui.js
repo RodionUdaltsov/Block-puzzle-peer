@@ -684,7 +684,7 @@ function applyOppRemotePlace(data) {
         paintCellColor(cell, color);
         cell.classList.add('filled', 'placing');
         setTimeout(() => cell.classList.remove('placing'),
-          (document.body && document.body.classList.contains('touch-ui')) ? 1000 : 780);
+          (document.body && document.body.classList.contains('touch-ui')) ? 500 : 780);
       }
     }
     // Legendary place sparks — must be visible on this client when opponent places

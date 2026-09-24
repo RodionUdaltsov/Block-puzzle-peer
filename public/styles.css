@@ -6090,15 +6090,14 @@
     body.touch-ui .cell[class*="clearing-"],
     body.touch-ui .cell.filled[class*="clearing-"],
     body.touch-ui .board-wrap .cell[class*="clearing-"] {
-      animation-duration: 0.42s !important;
+      animation-duration: 0.28s !important;
       animation-timing-function: cubic-bezier(0.22, 0.08, 0.18, 1) !important;
       will-change: opacity, transform !important;
-      /* Kill expensive animated props that hitch mid-clear on phones */
       filter: none !important;
     }
     body.touch-ui .cell.clearing-mobile-soft {
       animation-name: clearMobileSoft !important;
-      animation-duration: 0.42s !important;
+      animation-duration: 0.28s !important;
     }
 body.touch-ui .clear-beam.row { animation-duration: 0.36s !important; opacity: 0.7; }
 body.touch-ui .clear-beam.col { animation-duration: 0.36s !important; opacity: 0.7; }
@@ -6132,8 +6131,8 @@ body.touch-ui .cell.clearing::after {
     /* Mobile-only: compositor-cheap clear (no filter / clip-path / box-shadow anim) */
     @keyframes clearMobileSoft {
       0%   { opacity: 1; transform: scale(1); }
-      55%  { opacity: 0.55; transform: scale(0.92); }
-      100% { opacity: 0; transform: scale(0.78); }
+      40%  { opacity: 0.7; transform: scale(0.96); }
+      100% { opacity: 0; transform: scale(0.88); }
     }
     .cell.clearing-mobile-soft,
     .cell.filled.clearing-mobile-soft,
@@ -11376,9 +11375,11 @@ body.touch-ui .cell[class*="clearing-"] {
   will-change: auto;
 }
 body.touch-ui .cell.placing {
-  /* Softer settle on phones — same placeSoft keyframes, gentler timing */
-  animation-duration: 0.95s !important;
-  animation-timing-function: cubic-bezier(0.22, 0.06, 0.16, 1) !important;
+  /* Quick soft land — no hard pop, no long mush */
+  animation-name: placeSoftMobile !important;
+  animation-duration: 0.42s !important;
+  animation-timing-function: cubic-bezier(0.2, 0.7, 0.2, 1) !important;
+  filter: none !important;
 }
 body.touch-ui #ghost {
   -webkit-transform: translate3d(0,0,0);
@@ -11431,11 +11432,10 @@ body.touch-ui .piece-slot {
   -webkit-touch-callout: none;
 }
 @media (hover: none) and (pointer: coarse) {
-  /* Soft place settle on phones */
   .cell.placing {
-    animation-name: placeSoft;
-    animation-duration: 0.95s;
-    animation-timing-function: cubic-bezier(0.22, 0.06, 0.16, 1);
+    animation-name: placeSoftMobile;
+    animation-duration: 0.42s;
+    animation-timing-function: cubic-bezier(0.2, 0.7, 0.2, 1);
     animation-fill-mode: forwards;
   }
 }

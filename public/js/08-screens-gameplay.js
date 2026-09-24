@@ -333,10 +333,10 @@ function findBestMove(g, piecesArr, skill) {
   return best;
 }
 /** Clear anim from equipped FIELD only (not piece skin). Duration FIXED for fair play. */
-/** Desktop 110ms; mobile (touch-ui) 420ms — softer clear only on phones (less janky lag feel) */
+/** Desktop 110ms; mobile (touch-ui) 280ms — soft but quick, low GPU cost */
 function getClearAnimMs() {
   try {
-    if (document.body && document.body.classList.contains('touch-ui')) return 420;
+    if (document.body && document.body.classList.contains('touch-ui')) return 280;
   } catch (_) {}
   return 110;
 }
@@ -568,13 +568,10 @@ function clearLinesOn(g, boardDOM) {
       cell.style.setProperty('transition', 'none', 'important');
       cell.style.setProperty('overflow', 'hidden', 'important');
     }
-    // Beams only on desktop / non-touch — debris is the main mobile hitch
+    // Desktop only: beams + debris. Mobile stays pure opacity/scale for 60fps.
     if (meta.beam && !touchUi) {
       spawnClearBeams(boardDOM, rows, cols, meta.beam);
       spawnClearDebris(boardDOM, [...toAnim], meta.beam);
-    } else if (meta.beam && touchUi) {
-      // Single soft beam pair max — no particle storm
-      try { spawnClearBeams(boardDOM, rows.slice(0, 1), cols.slice(0, 1), meta.beam); } catch (_) {}
     }
   }
   rows.forEach(r => { for(let c=0;c<SIZE;c++) g[r][c]=null; });
@@ -1319,20 +1316,18 @@ function startDrag(e, idx, areaEl) {
         const center = placementWorldCenter(lastPreview, dragPiece.shape);
         if (center) {
           if (_isTouchUi()) {
-            // Keep no-glide; animate via a few lerp frames toward center
             ghost.classList.add('no-glide');
             ghost.classList.remove('cell-glide');
             const fromX = _ghostLerpInit ? _ghostLerpX : center.x;
             const fromY = _ghostLerpInit ? _ghostLerpY : center.y;
-            let t = 0;
-            const steps = 12;
+            let step = 0;
+            const steps = 7; // ~100ms soft land — quick, not sticky
             const settleStep = () => {
-              t++;
-              const u = t / steps;
-              // ease-out cubic
-              const e = 1 - Math.pow(1 - u, 3);
+              step++;
+              const u = step / steps;
+              const e = 1 - Math.pow(1 - u, 2.4);
               moveGhost(fromX + (center.x - fromX) * e, fromY + (center.y - fromY) * e);
-              if (t < steps) requestAnimationFrame(settleStep);
+              if (step < steps) requestAnimationFrame(settleStep);
             };
             requestAnimationFrame(settleStep);
           } else {
@@ -1343,12 +1338,20 @@ function startDrag(e, idx, areaEl) {
         }
       }
     } catch (_) {}
-    ghost.classList.remove('visible');
-    // Mobile: longer soft settle so place does not feel like a hard snap
+    // Fade ghost while cells play placeSoft — overlap avoids hard pop
     const hideMs = placed
-      ? (_isTouchUi() ? 320 : 160)
-      : (_isTouchUi() ? 160 : 100);
-    setTimeout(hideGhost, hideMs);
+      ? (_isTouchUi() ? 180 : 160)
+      : (_isTouchUi() ? 110 : 100);
+    if (_isTouchUi() && placed) {
+      // Delay opacity drop a frame so cells already started placeSoft
+      requestAnimationFrame(() => {
+        try { ghost.classList.remove('visible'); } catch (_) {}
+        setTimeout(hideGhost, hideMs);
+      });
+    } else {
+      ghost.classList.remove('visible');
+      setTimeout(hideGhost, hideMs);
+    }
     if (placed) markPieceUsed(idx, areaEl);
     else { SFX.bad(); slot.classList.remove('lifting'); slot.classList.add('show'); }
     // Always clear any stuck lifting slots (multi-touch recovery)
@@ -1425,8 +1428,8 @@ function dragFrame() {
       _ghostLerpY = targetY;
       _ghostLerpInit = true;
     }
-    // Cell-to-cell: very soft silk (~180–220ms feel); free finger still responsive
-    const k = onCell ? 0.10 : 0.18;
+    // Fast but smooth: crosses cell borders in ~50–70ms without a hard snap
+    const k = onCell ? 0.28 : 0.42;
     _ghostLerpX += (targetX - _ghostLerpX) * k;
     _ghostLerpY += (targetY - _ghostLerpY) * k;
     // Keep no CSS transition interference during continuous lerp

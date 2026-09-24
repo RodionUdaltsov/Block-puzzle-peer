@@ -1021,7 +1021,7 @@ function openSkinPreview(skinId) {
         }
         cell.classList.add('filled', 'placing');
         setTimeout(() => cell.classList.remove('placing'),
-          (document.body && document.body.classList.contains('touch-ui')) ? 1000 : 780);
+          (document.body && document.body.classList.contains('touch-ui')) ? 500 : 780);
       }
       step++;
       skinPrevTimer = setTimeout(tick, 90);
