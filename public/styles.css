@@ -6131,21 +6131,26 @@ body.touch-ui .cell.clearing::after {
     /* Mobile-only: compositor-cheap clear (no filter / clip-path / box-shadow anim) */
     @keyframes clearMobileSoft {
       0%   { opacity: 1; transform: scale(1); }
-      18%  { opacity: 1; transform: scale(1.08); }
-      45%  { opacity: 0.85; transform: scale(1.02); }
-      100% { opacity: 0; transform: scale(0.72); }
+      12%  { opacity: 1; transform: scale(1.12); }
+      28%  { opacity: 1; transform: scale(1.06); }
+      55%  { opacity: 0.75; transform: scale(0.94); }
+      100% { opacity: 0; transform: scale(0.7); }
     }
-    .cell.clearing-mobile-soft,
-    .cell.filled.clearing-mobile-soft,
-    .board-wrap .cell.clearing-mobile-soft {
+    /* Highest specificity so themed clearing-* never overrides on mobile */
+    body.touch-ui .cell.clearing-mobile-soft,
+    body.touch-ui .cell.filled.clearing-mobile-soft,
+    body.touch-ui .board-wrap .cell.clearing-mobile-soft,
+    body.touch-ui .cell.clearing.clearing-mobile-soft {
       animation-name: clearMobileSoft !important;
-      animation-timing-function: cubic-bezier(0.22, 0.08, 0.18, 1) !important;
+      animation-duration: 0.42s !important;
+      animation-timing-function: cubic-bezier(0.2, 0.7, 0.2, 1) !important;
+      animation-fill-mode: forwards !important;
       filter: none !important;
       clip-path: none !important;
-      box-shadow: none !important;
       will-change: opacity, transform !important;
       backface-visibility: hidden;
       -webkit-backface-visibility: hidden;
+      z-index: 5 !important;
     }
     body.touch-ui .cell.clearing-mobile-soft::before,
     body.touch-ui .cell.clearing-mobile-soft::after {

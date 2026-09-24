@@ -82,7 +82,9 @@ function sendFile(res, filePath) {
     const ext = path.extname(filePath).toLowerCase();
     const headers = { 'Content-Type': MIME[ext] || 'application/octet-stream' };
     if (ext === '.html' || ext === '.js' || ext === '.css') {
-      headers['Cache-Control'] = 'no-cache';
+      // Prevent stale mobile WebView cache of gameplay/CSS (was causing "random" anim feel)
+      headers['Cache-Control'] = 'no-store, no-cache, must-revalidate';
+      headers['Pragma'] = 'no-cache';
     }
     res.writeHead(200, headers);
     res.end(data);

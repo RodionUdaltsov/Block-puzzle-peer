@@ -9,12 +9,14 @@
 function softRenderGrid(g, boardEl) {
   if (!boardEl || !g) return;
   try {
+    // Never thrash board mid clear animation (esp. mobile 420ms window)
+    if (typeof isClearBusy === 'function' && isClearBusy(boardEl)) return;
     // Prefer differential cell update if board already has cells
     const cells = boardEl.querySelectorAll('.cell');
     if (cells && cells.length === SIZE * SIZE) {
       const clearingSet = (typeof CLEARING_CLASSES !== 'undefined' && CLEARING_CLASSES)
         ? CLEARING_CLASSES
-        : ['clearing', 'clearing-common', 'placing'];
+        : ['clearing', 'clearing-common', 'clearing-mobile-soft', 'placing'];
       for (let r = 0; r < SIZE; r++) {
         for (let c = 0; c < SIZE; c++) {
           const cell = cells[r * SIZE + c];

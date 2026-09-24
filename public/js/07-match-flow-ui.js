@@ -781,7 +781,9 @@ function applyOppRemotePlace(data) {
     try {
       if (data && Array.isArray(data.grid)) {
         oppGrid = data.grid.map(row => (row || []).slice());
-        const delay = (clearInfo.count > 0 && typeof CLEAR_ANIM_MS === 'number') ? CLEAR_ANIM_MS + 20 : 30;
+        const delay = (clearInfo.count > 0)
+          ? ((typeof getClearAnimMs === 'function') ? getClearAnimMs() + 20 : (typeof CLEAR_ANIM_MS === 'number' ? CLEAR_ANIM_MS + 20 : 30))
+          : 30;
         setTimeout(() => {
           try {
             const bo = boardOpp || document.getElementById('boardOpp');

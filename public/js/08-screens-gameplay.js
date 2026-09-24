@@ -340,7 +340,23 @@ function getClearAnimMs() {
   } catch (_) {}
   return 110;
 }
-const CLEAR_ANIM_MS = 110; // default; prefer getClearAnimMs() at runtime
+const CLEAR_ANIM_MS = 110; // desktop default; always prefer getClearAnimMs() at runtime
+/** Board element → timestamp until which softRender must not wipe clearing cells */
+const _clearBusyUntil = new WeakMap();
+function markClearBusy(boardDOM, ms) {
+  try {
+    if (!boardDOM) return;
+    const until = Date.now() + (ms | 0) + 30;
+    _clearBusyUntil.set(boardDOM, until);
+  } catch (_) {}
+}
+function isClearBusy(boardDOM) {
+  try {
+    if (!boardDOM) return false;
+    const until = _clearBusyUntil.get(boardDOM);
+    return !!(until && Date.now() < until);
+  } catch (_) { return false; }
+}
 function getClearAnimMeta(boardDOM) {
   let fx = 'none';
   let boardId = '';
@@ -544,54 +560,54 @@ function clearLinesOn(g, boardDOM) {
   cols.forEach(c => { for(let r=0;r<SIZE;r++) toAnim.add(r*SIZE+c); });
   const meta = getClearAnimMeta(boardDOM);
   const touchUi = (function(){ try { return !!(document.body && document.body.classList.contains('touch-ui')); } catch(_){ return false; } })();
-  // Mobile: single light fade (opacity+scale) — heavy filter/clip keyframes + debris cause frame drops
+  // Mobile: ONLY clearing-mobile-soft (no themed class — they fight animation-name !important)
   const animName = touchUi ? 'clearMobileSoft' : meta.name;
-  const animCss = `${animName} ${meta.ms}ms cubic-bezier(0.22,0.08,0.18,1) forwards`;
+  const animCss = `${animName} ${meta.ms}ms cubic-bezier(0.2,0.7,0.2,1) forwards`;
   if (boardDOM) {
-    // Batch: one reflow for the whole set (not per-cell void offsetWidth)
+    markClearBusy(boardDOM, meta.ms);
     const cells = [];
     toAnim.forEach(idx => {
       const cell = boardDOM.children[idx];
       if (!cell) return;
       cells.push(cell);
       CLEARING_CLASSES.forEach(c => cell.classList.remove(c));
+      cell.style.removeProperty('animation');
       cell.style.setProperty('animation', 'none', 'important');
     });
-    if (cells.length) {
-      try { void cells[0].offsetWidth; } catch (_) {}
-    }
-    for (let i = 0; i < cells.length; i++) {
-      const cell = cells[i];
-      cell.classList.add('clearing');
-      if (touchUi) {
-        cell.classList.add('clearing-mobile-soft');
-        if (meta.cls) cell.classList.add(meta.cls); // theme tint if any
-      } else {
-        cell.classList.add(meta.cls);
+    const startAnim = () => {
+      for (let i = 0; i < cells.length; i++) {
+        const cell = cells[i];
+        cell.classList.add('clearing');
+        cell.classList.add(touchUi ? 'clearing-mobile-soft' : meta.cls);
+        // Restart: none → reflow → name (Safari needs this per wave, not per cell thrash)
+        cell.style.setProperty('animation', animCss, 'important');
+        cell.style.setProperty('transition', 'none', 'important');
+        cell.style.setProperty('overflow', 'hidden', 'important');
       }
-      cell.style.setProperty('animation', animCss, 'important');
-      cell.style.setProperty('transition', 'none', 'important');
-      cell.style.setProperty('overflow', 'hidden', 'important');
-    }
+    };
+    // Double rAF so mobile WebKit always plays from 0% (was intermittent before)
+    requestAnimationFrame(() => {
+      try { if (cells[0]) void cells[0].offsetWidth; } catch (_) {}
+      requestAnimationFrame(startAnim);
+    });
     if (meta.beam && !touchUi) {
       spawnClearBeams(boardDOM, rows, cols, meta.beam);
       spawnClearDebris(boardDOM, [...toAnim], meta.beam);
     } else if (meta.beam && touchUi) {
-      // Visible line sweep without debris particles (debris = main hitch)
       try { spawnClearBeams(boardDOM, rows, cols, meta.beam); } catch (_) {}
     }
   }
   rows.forEach(r => { for(let c=0;c<SIZE;c++) g[r][c]=null; });
   cols.forEach(c => { for(let r=0;r<SIZE;r++) g[r][c]=null; });
-  // After anim: hard paint. Also a short safety re-paint in case place_ok raced.
   const clearBoard = boardDOM;
   const clearGridRef = g;
+  const clearMs = meta.ms;
   setTimeout(() => {
     try { if (clearBoard) renderGrid(clearGridRef, clearBoard); } catch (_) {}
-  }, meta.ms);
+  }, clearMs);
   setTimeout(() => {
     try { if (clearBoard) renderGrid(clearGridRef, clearBoard); } catch (_) {}
-  }, meta.ms + 80);
+  }, clearMs + 80);
   return { count: rows.length + cols.length, rows, cols };
 }
 
@@ -1435,8 +1451,8 @@ function dragFrame() {
       _ghostLerpY = targetY;
       _ghostLerpInit = true;
     }
-    // Fast but smooth: crosses cell borders in ~50–70ms without a hard snap
-    const k = onCell ? 0.28 : 0.42;
+    // Fast & smooth: ~40–55ms cell border cross, no hard snap
+    const k = onCell ? 0.34 : 0.48;
     _ghostLerpX += (targetX - _ghostLerpX) * k;
     _ghostLerpY += (targetY - _ghostLerpY) * k;
     // Keep no CSS transition interference during continuous lerp

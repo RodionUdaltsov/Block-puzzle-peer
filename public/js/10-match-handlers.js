@@ -492,7 +492,9 @@ function bindMatchClientHandlers() {
             }
             try { if (clearedN >= 2 || chainN >= 2) SFX.combo(); else if (clearedN > 0) SFX.clear && SFX.clear(); } catch (_) {}
           } catch (_) {}
-          const delay = (typeof CLEAR_ANIM_MS === 'number') ? CLEAR_ANIM_MS + 40 : 150;
+          const delay = (typeof getClearAnimMs === 'function')
+            ? (getClearAnimMs() + 40)
+            : ((typeof CLEAR_ANIM_MS === 'number') ? CLEAR_ANIM_MS + 40 : 150);
           setTimeout(() => {
             try {
               if (Array.isArray(data.grid)) {
