@@ -1207,6 +1207,7 @@ function cancelActivePieceDrag() {
     isDragging = false;
     activeDragPointerId = null;
     dragPiece = null;
+    _dragShapeMaxR = _dragShapeMaxC = 0;
     selectedIdx = -1;
     lastPreview = null;
     if (typeof rafId !== 'undefined' && rafId) {
@@ -1231,6 +1232,11 @@ function cancelActivePieceDrag() {
   } catch (_) {}
 }
 function startDrag(e, idx, areaEl) {
+  try {
+    const sh = pieces && pieces[idx] && pieces[idx].shape;
+    _dragShapeMaxR = sh && sh.length ? Math.max(...sh.map(s => s[0])) : 0;
+    _dragShapeMaxC = sh && sh.length ? Math.max(...sh.map(s => s[1])) : 0;
+  } catch (_) { _dragShapeMaxR = 0; _dragShapeMaxC = 0; }
   // Always clear sticky locks unless rejoin overlay is actually visible
   try {
     const ov = document.getElementById('rejoinLoading');
@@ -1466,6 +1472,7 @@ function startDrag(e, idx, areaEl) {
     // clearPreview after place must not rewrite filled cells (see clearPreview guard)
     clearPreview(); lastPreview = null;
     dragPiece = null;
+    _dragShapeMaxR = _dragShapeMaxC = 0;
     unbind();
   };
   // Touch needs non-passive move so preventDefault can stop scroll/bounce (PC keeps passive)
@@ -1497,6 +1504,7 @@ function placementWorldCenter(result, shape) {
   const cy = boardRect.top + (result.baseR + (maxR + 1) / 2) * step;
   return { x: cx, y: cy };
 }
+let _dragShapeMaxR = 0, _dragShapeMaxC = 0;
 let _ghostCellKey = '';
 let _ghostLerpX = 0, _ghostLerpY = 0, _ghostLerpInit = false;
 let _ghostTargetX = 0, _ghostTargetY = 0;
@@ -1697,9 +1705,13 @@ function findBestPlacement(shape, hintR, hintC) {
 
 // Track only cells currently in preview — avoid scanning the whole board each move
 let _previewCells = [];
+let _lastPreviewAimX = -1, _lastPreviewAimY = -1;
 function updatePreview(x,y) {
   const pos = getGridPos(x,y);
-  if (!pos || !dragPiece) { clearPreview(); lastPreview = null; return; }
+  if (!pos || !dragPiece) { clearPreview(); lastPreview = null; _lastPreviewAimX = -1; _lastPreviewAimY = -1; return; }
+  if (pos.r === _lastPreviewAimY && pos.c === _lastPreviewAimX && lastPreview) return;
+  _lastPreviewAimY = pos.r;
+  _lastPreviewAimX = pos.c;
   const result = findBestPlacement(dragPiece.shape, pos.r, pos.c);
   // Aim only — visual ghost shows the piece; no board highlight (preview removed)
   if (lastPreview && lastPreview.baseR === result.baseR && lastPreview.baseC === result.baseC
@@ -1745,6 +1757,8 @@ function clearPreview() {
     scrub(cell, r, col);
   }
   _previewCells = [];
+  _lastPreviewAimX = -1;
+  _lastPreviewAimY = -1;
 }
 
 

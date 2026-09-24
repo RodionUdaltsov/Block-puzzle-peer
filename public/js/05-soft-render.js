@@ -5,6 +5,15 @@
  */
 'use strict';
 
+const _boardCellCache = new WeakMap();
+function _cachedBoardCells(boardEl) {
+  let cells = _boardCellCache.get(boardEl);
+  if (!cells || cells.length !== SIZE * SIZE || cells.some((c, i) => !c || c !== boardEl.children[i])) {
+    cells = Array.from(boardEl.children).filter(el => el && el.classList && el.classList.contains('cell'));
+    _boardCellCache.set(boardEl, cells);
+  }
+  return cells;
+}
 
 function softRenderGrid(g, boardEl) {
   if (!boardEl || !g) return;
@@ -12,7 +21,7 @@ function softRenderGrid(g, boardEl) {
     // Never thrash board mid clear animation (esp. mobile 420ms window)
     if (typeof isClearBusy === 'function' && isClearBusy(boardEl)) return;
     // Prefer differential cell update if board already has cells
-    const cells = boardEl.querySelectorAll('.cell');
+    const cells = _cachedBoardCells(boardEl);
     if (cells && cells.length === SIZE * SIZE) {
       const clearingSet = (typeof CLEARING_CLASSES !== 'undefined' && CLEARING_CLASSES)
         ? CLEARING_CLASSES
@@ -32,6 +41,7 @@ function softRenderGrid(g, boardEl) {
           if (filled && !was) {
             cell.classList.add('filled');
             try { paintCellColor(cell, val); } catch (_) {}
+            cell.dataset.renderColor = String(val);
           } else if (!filled && was) {
             // Let in-flight CLEAR finish. Placing on a now-empty cell must
             // clear (line clear after place) — do not freeze placing forever.
@@ -53,6 +63,7 @@ function softRenderGrid(g, boardEl) {
             } catch (_) {}
             for (let k = 0; k < clearingSet.length; k++) cell.classList.remove(clearingSet[k]);
             cell.classList.remove('filled', 'has-block', 'preview-ok', 'preview-bad', 'placing');
+            delete cell.dataset.renderColor;
             requestAnimationFrame(() => {
               try {
                 if (!cell.classList.contains('filled')) {
@@ -62,9 +73,15 @@ function softRenderGrid(g, boardEl) {
               } catch (_) {}
             });
           } else if (filled) {
-            // Don't thrash mid-clear or mid-place animation (player + opp)
+            // Don't repaint a cell whose color is already represented in the DOM.
+            // Opponent snapshots can arrive frequently; repainting all 64 cells
+            // on every snapshot creates needless style/paint work on phones.
             if (isClearing || isPlacing) continue;
-            try { paintCellColor(cell, val); } catch (_) {}
+            const renderKey = String(val);
+            if (cell.dataset.renderColor !== renderKey) {
+              try { paintCellColor(cell, val); } catch (_) {}
+              cell.dataset.renderColor = renderKey;
+            }
             if (!cell.classList.contains('filled')) cell.classList.add('filled');
           }
         }
