@@ -114,9 +114,14 @@ function softRenderPieces(areaEl) {
         const p = pieces[i];
         const slot = slots[i];
         if (!slot) { needsFull = true; break; }
-        // Never mutate the slot currently under the finger
-        if (heldSlot && slot === heldSlot) continue;
-        if (slot.classList.contains('lifting')) continue;
+        // Never mutate the slot currently under the finger (active drag only)
+        const liveHold = !!(typeof isDragging !== 'undefined' && isDragging) && heldSlot;
+        if (liveHold && slot === heldSlot) continue;
+        // Stuck lifting without drag — clear so the piece is visible again
+        if (slot.classList.contains('lifting') && !liveHold) {
+          slot.classList.remove('lifting');
+        }
+        if (liveHold && slot.classList.contains('lifting')) continue;
         // Shape mismatch (rejoin desync) → full rebuild so pieces stay pickable
         const domSig = slot.dataset && slot.dataset.handSig;
         const pSig = _pieceHandSig(p);
@@ -151,13 +156,17 @@ function softRenderPieces(areaEl) {
         }
       }
       if (!needsFull) {
-        // Only clear STUCK lifting (not the active drag slot)
+        // Preserve lifting ONLY on the slot currently held. Any other .lifting is
+        // a stuck state that made pieces invisible (tray opacity:0, no ghost).
+        const liveHold = !!(typeof isDragging !== 'undefined' && isDragging) && heldSlot;
         slots.forEach(s => {
-          if (heldSlot && s === heldSlot) return;
-          if (s.classList.contains('lifting')) return; // leave mid-lift alone
+          if (liveHold && s === heldSlot) return;
+          if (s.classList.contains('lifting')) {
+            s.classList.remove('lifting');
+          }
           if (!s.classList.contains('used')) {
             s.classList.add('show');
-            s.style.opacity = '1';
+            s.style.opacity = '';
             s.style.visibility = '';
             s.style.pointerEvents = 'auto';
             s.style.touchAction = 'none';

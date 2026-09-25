@@ -1,8 +1,8 @@
 {
   "version": "3.9.57",
-  "hash": "95418ecaeaea",
+  "hash": "8de47dfa8554",
   "minified": true,
-  "generatedAt": "2026-09-25T23:43:53.543Z",
+  "generatedAt": "2026-09-25T23:50:40.128Z",
   "modules": [
     "public/shared/rules.js",
     "public/match-client.js",
@@ -82,67 +82,67 @@
     {
       "file": "public/js/05-soft-render.js",
       "startLine": 9887,
-      "endLine": 11810,
-      "bytes": 71789
+      "endLine": 11819,
+      "bytes": 72319
     },
     {
       "file": "public/js/06-match-liveness.js",
-      "startLine": 11811,
-      "endLine": 13872,
+      "startLine": 11820,
+      "endLine": 13881,
       "bytes": 74835
     },
     {
       "file": "public/js/07-match-flow-ui.js",
-      "startLine": 13873,
-      "endLine": 15826,
+      "startLine": 13882,
+      "endLine": 15835,
       "bytes": 75883
     },
     {
       "file": "public/js/08-screens-gameplay.js",
-      "startLine": 15827,
-      "endLine": 18529,
-      "bytes": 109068
+      "startLine": 15836,
+      "endLine": 18557,
+      "bytes": 109751
     },
     {
       "file": "public/js/09-offline-and-ranked.js",
-      "startLine": 18530,
-      "endLine": 19141,
+      "startLine": 18558,
+      "endLine": 19169,
       "bytes": 24315
     },
     {
       "file": "public/js/10-match-handlers.js",
-      "startLine": 19142,
-      "endLine": 20975,
+      "startLine": 19170,
+      "endLine": 21003,
       "bytes": 78273
     },
     {
       "file": "public/js/11-private-rooms-ui.js",
-      "startLine": 20976,
-      "endLine": 25193,
+      "startLine": 21004,
+      "endLine": 25221,
       "bytes": 168749
     },
     {
       "file": "public/js/12-boot.js",
-      "startLine": 25194,
-      "endLine": 25345,
+      "startLine": 25222,
+      "endLine": 25373,
       "bytes": 5958
     },
     {
       "file": "public/js/13-performance.js",
-      "startLine": 25346,
-      "endLine": 25497,
+      "startLine": 25374,
+      "endLine": 25525,
       "bytes": 5372
     },
     {
       "file": "public/js/14-settings-ui.js",
-      "startLine": 25498,
-      "endLine": 25593,
+      "startLine": 25526,
+      "endLine": 25621,
       "bytes": 3616
     }
   ],
   "bytes": {
-    "classic": 1109708,
-    "esm": 1109751,
-    "classicRaw": 1129231
+    "classic": 1110921,
+    "esm": 1110964,
+    "classicRaw": 1130444
   }
 }

@@ -1485,8 +1485,14 @@ function startDrag(e, idx, areaEl) {
   invalidateBoardMetrics();
   updateBoardMetrics();
   moveGhost(slotRect.left + slotRect.width / 2, slotRect.top + slotRect.height / 2);
-  ghost.style.display = 'block';
+  // Show ghost immediately — tray slot is already opacity:0 via .lifting
+  try {
+    ghost.style.display = 'block';
+    ghost.style.visibility = 'visible';
+    ghost.classList.add('visible');
+  } catch (_) {}
   requestAnimationFrame(() => {
+    if (!isDragging) return;
     ghost.classList.add('visible');
     const aim = aimFromPointer(pointerX, pointerY);
     updatePreview(aim.x, aim.y);
@@ -1816,7 +1822,15 @@ function dragFrame(ts) {
   moveGhost(aim.x, aim.y);
 }
 function showGhost(piece) {
-  ghost.innerHTML = ''; ghost.classList.remove('visible');
+  ghost.innerHTML = '';
+  ghost.classList.remove('visible', 'cell-glide');
+  // Force visible pipeline: CSS defaults opacity:0 until .visible
+  try {
+    ghost.style.display = 'block';
+    ghost.style.opacity = '';
+    ghost.style.visibility = 'visible';
+    ghost.style.pointerEvents = 'none';
+  } catch (_) {}
   invalidateBoardMetrics();
   updateBoardMetrics();
   let px = 24;
@@ -1859,6 +1873,11 @@ function moveGhost(x, y) {
   ghost.style.transform = 'translate3d(' + x + 'px,' + y + 'px,0) translate(-50%,-50%) scale(' + scale + ')';
 }
 function hideGhost() {
+  // Never hide the drag ghost while a piece is still held
+  try {
+    if (typeof isDragging !== 'undefined' && isDragging) return;
+    if (typeof activeDragSlot !== 'undefined' && activeDragSlot) return;
+  } catch (_) {}
   ghost.style.display = 'none';
   ghost.classList.remove('visible', 'cell-glide', 'no-glide');
 }
