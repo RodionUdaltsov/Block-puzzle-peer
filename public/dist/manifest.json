@@ -1,8 +1,8 @@
 {
   "version": "3.9.57",
-  "hash": "f436a0fa4142",
+  "hash": "95418ecaeaea",
   "minified": true,
-  "generatedAt": "2026-09-25T23:10:51.872Z",
+  "generatedAt": "2026-09-25T23:43:53.543Z",
   "modules": [
     "public/shared/rules.js",
     "public/match-client.js",
@@ -106,43 +106,43 @@
     {
       "file": "public/js/09-offline-and-ranked.js",
       "startLine": 18530,
-      "endLine": 19110,
-      "bytes": 22695
+      "endLine": 19141,
+      "bytes": 24315
     },
     {
       "file": "public/js/10-match-handlers.js",
-      "startLine": 19111,
-      "endLine": 20935,
-      "bytes": 77806
+      "startLine": 19142,
+      "endLine": 20975,
+      "bytes": 78273
     },
     {
       "file": "public/js/11-private-rooms-ui.js",
-      "startLine": 20936,
-      "endLine": 25153,
+      "startLine": 20976,
+      "endLine": 25193,
       "bytes": 168749
     },
     {
       "file": "public/js/12-boot.js",
-      "startLine": 25154,
-      "endLine": 25305,
+      "startLine": 25194,
+      "endLine": 25345,
       "bytes": 5958
     },
     {
       "file": "public/js/13-performance.js",
-      "startLine": 25306,
-      "endLine": 25457,
+      "startLine": 25346,
+      "endLine": 25497,
       "bytes": 5372
     },
     {
       "file": "public/js/14-settings-ui.js",
-      "startLine": 25458,
-      "endLine": 25553,
+      "startLine": 25498,
+      "endLine": 25593,
       "bytes": 3616
     }
   ],
   "bytes": {
-    "classic": 1107621,
-    "esm": 1107664,
-    "classicRaw": 1127144
+    "classic": 1109708,
+    "esm": 1109751,
+    "classicRaw": 1129231
   }
 }

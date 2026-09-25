@@ -231,10 +231,16 @@ function unlockRoomPlay() {
     BPState.rejoinInputLock = false;
     BPState.mpRejoiningMatch = false;
     placingLock = false;
-    isDragging = false;
-    selectedIdx = -1;
-    dragPiece = null;
-    activeDragPointerId = null;
+    // NEVER abort an active piece hold here. applyRoomState → unlockRoomPlay runs
+    // on every opp_place / state sync and used to snap the held piece back to tray.
+    const holding = !!(typeof isDragging !== 'undefined' && isDragging)
+      || !!(typeof activeDragSlot !== 'undefined' && activeDragSlot);
+    if (!holding) {
+      // Only clear stale selection when not mid-gesture
+      selectedIdx = -1;
+      dragPiece = null;
+      activeDragPointerId = null;
+    }
     try { vsIntroLock = false; } catch (_) {}
     try { mpMatchStarting = false; } catch (_) {}
     try { mpLoading = false; } catch (_) {}
@@ -246,25 +252,50 @@ function unlockRoomPlay() {
   } catch (_) {}
   try {
     document.body.classList.remove('match-ending');
-    document.querySelectorAll('#piecesAreaVs .piece-slot.lifting, #piecesAreaVs .piece-slot').forEach(s => {
-      s.classList.remove('lifting');
-      if (!s.classList.contains('used')) {
-        s.classList.add('show');
-        s.style.visibility = '';
-        s.style.opacity = '1';
-        s.style.pointerEvents = 'auto';
-        s.style.touchAction = 'none';
-        s.style.filter = '';
-      }
-    });
+    const holding = !!(typeof isDragging !== 'undefined' && isDragging)
+      || !!(typeof activeDragSlot !== 'undefined' && activeDragSlot);
+    if (!holding) {
+      document.querySelectorAll('#piecesAreaVs .piece-slot.lifting, #piecesAreaVs .piece-slot').forEach(s => {
+        s.classList.remove('lifting');
+        if (!s.classList.contains('used')) {
+          s.classList.add('show');
+          s.style.visibility = '';
+          s.style.opacity = '1';
+          s.style.pointerEvents = 'auto';
+          s.style.touchAction = 'none';
+          s.style.filter = '';
+        }
+      });
+    } else {
+      // Mid-hold: only restore non-active slots, leave lifting alone
+      document.querySelectorAll('#piecesAreaVs .piece-slot').forEach(s => {
+        if (typeof activeDragSlot !== 'undefined' && activeDragSlot && s === activeDragSlot) return;
+        if (s.classList.contains('lifting')) return;
+        if (!s.classList.contains('used')) {
+          s.classList.add('show');
+          s.style.visibility = '';
+          s.style.opacity = '1';
+          s.style.pointerEvents = 'auto';
+          s.style.touchAction = 'none';
+        }
+      });
+    }
   } catch (_) {}
-  try { hideGhost && hideGhost(); } catch (_) {}
+  // Never hide the drag ghost while the player is still holding a piece
+  try {
+    const holding = !!(typeof isDragging !== 'undefined' && isDragging)
+      || !!(typeof activeDragSlot !== 'undefined' && activeDragSlot);
+    if (!holding && typeof hideGhost === 'function') hideGhost();
+  } catch (_) {}
 }
 
 function applyRoomState(data) {
   if (!data) return;
   const stillLoading = !!(BPState.matchAwaitingGo || mpLoading || mpMatchStarting);
-  if (!stillLoading) {
+  const midHold = !!(typeof isDragging !== 'undefined' && isDragging)
+    || !!(typeof activeDragSlot !== 'undefined' && activeDragSlot);
+  // While holding a piece, never run unlockRoomPlay — it used to wipe the drag.
+  if (!stillLoading && !midHold) {
     try { unlockRoomPlay(); } catch (_) {}
   }
   try {

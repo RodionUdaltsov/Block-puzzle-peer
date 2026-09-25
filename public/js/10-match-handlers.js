@@ -353,28 +353,37 @@ function bindMatchClientHandlers() {
       // Also skip while local player is holding a piece — concurrent tray/board
       // writes on phones fire pointercancel and snap the held piece back.
       const myPlacePending = !!BPState.pendingServerPlace;
-      const localHolding = !!(typeof isDragging !== 'undefined' && isDragging);
-      const roomPatch = {
-        oppScore: data.score,
-        vsTimeLeft: data.vsTimeLeft,
-        clockEndTs: data.clockEndTs,
-        _fromOppPlace: true
-      };
-      if (!myPlacePending && !localHolding) {
-        if (typeof data.meScore === 'number') roomPatch.meScore = data.meScore;
-        if (Array.isArray(data.meGrid)) roomPatch.meGrid = data.meGrid;
-        if (Array.isArray(data.mePieces)) roomPatch.mePieces = data.mePieces;
-      } else if (!myPlacePending && localHolding) {
-        // Scores only — never touch board/hand mid-gesture
-        if (typeof data.meScore === 'number') roomPatch.meScore = data.meScore;
+      const localHolding = !!(typeof isDragging !== 'undefined' && isDragging)
+        || !!(typeof activeDragSlot !== 'undefined' && activeDragSlot);
+      // Boards are independent: opponent place must NEVER touch our hand/board/drag.
+      // Only update opp score + clock here; paint opp board via applyOppRemotePlace.
+      if (typeof data.score === 'number') {
+        oppScore = data.score | 0;
+        try {
+          const oppEl = document.getElementById('oppScore');
+          if (oppEl) oppEl.textContent = String(oppScore);
+        } catch (_) {}
       }
-      applyRoomState(roomPatch);
-      try { window._lastRoomApplyAt = Date.now(); } catch (_) {}
+      if (typeof data.clockEndTs === 'number' && data.clockEndTs > 0) {
+        BPState.matchClockEndTs = data.clockEndTs;
+      }
+      if (typeof data.vsTimeLeft === 'number' && !localHolding) {
+        const nextLeft = Math.max(0, data.vsTimeLeft | 0);
+        if (Math.abs(nextLeft - (vsTimeLeft | 0)) >= 1) vsTimeLeft = nextLeft;
+      }
+      try { if (typeof updateTimerDisplay === 'function') updateTimerDisplay(); } catch (_) {}
+      // Soft meScore only when not mid-gesture / pending place
+      if (!myPlacePending && !localHolding && typeof data.meScore === 'number') {
+        score = data.meScore | 0;
+        try {
+          const myEl = document.getElementById('myScore');
+          if (myEl) myEl.textContent = String(score);
+        } catch (_) {}
+      }
       try {
         if (data.shape && typeof applyOppRemotePlace === 'function') {
           applyOppRemotePlace(data);
         } else if (Array.isArray(data.grid)) {
-          // No shape — hard-apply final opp board
           oppGrid = data.grid.map(row => (row || []).slice());
           const bo = (typeof boardOpp !== 'undefined' && boardOpp) ? boardOpp : document.getElementById('boardOpp');
           if (bo && typeof renderGrid === 'function') renderGrid(oppGrid, bo);
