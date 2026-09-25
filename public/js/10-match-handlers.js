@@ -134,14 +134,21 @@ function bindMatchClientHandlers() {
       if (BPState.matchIntroSeqDone || BPState.matchIntroSeqRunning
           || BPState.matchStartPhase || BPState.matchGoFinishing) return;
       BPState.matchAwaitingGo = false;
+      // Server wall-clock: both clients unlock at the same playStartTs
+      if (typeof data.playStartTs === 'number' && data.playStartTs > 0) {
+        BPState.matchPlayStartTs = data.playStartTs;
+      } else if (typeof data.introMs === 'number' && data.introMs > 0) {
+        BPState.matchPlayStartTs = Date.now() + (data.introMs | 0);
+      } else {
+        BPState.matchPlayStartTs = Date.now() + 2200;
+      }
       if (typeof data.clockEndTs === 'number' && data.clockEndTs > 0) {
         BPState.matchClockEndTs = data.clockEndTs;
       }
       if (typeof data.duration === 'number') vsDuration = data.duration;
       if (typeof data.introMs === 'number') window._matchIntroMs = data.introMs | 0;
-      vsTimeLeft = typeof data.vsTimeLeft === 'number'
-        ? data.vsTimeLeft
-        : Math.max(0, Math.ceil(((BPState.matchClockEndTs || 0) - Date.now()) / 1000));
+      // Until playStartTs, show full match duration (do not burn intro into the clock UI)
+      vsTimeLeft = (typeof data.duration === 'number' ? data.duration : (vsDuration || 120)) | 0;
       runMatchIntroSequence({ reason: 'match_go' });
     } catch (e) { console.warn('match_go', e); }
   });
@@ -166,6 +173,26 @@ function bindMatchClientHandlers() {
       data._fromSync = true;
       // While waiting for our place_ok, don't thrash pending local preview
       if (BPState.pendingServerPlace) return;
+      // Never force-hand while holding a piece — concurrent opp place used to
+      // rebuild the tray and snap the ghost back (phones + PC).
+      const holding = !!(typeof isDragging !== 'undefined' && isDragging)
+        || !!(typeof activeDragSlot !== 'undefined' && activeDragSlot);
+      if (holding) {
+        // Clock/score only
+        try {
+          if (typeof data.clockEndTs === 'number' && data.clockEndTs > 0) {
+            BPState.matchClockEndTs = data.clockEndTs;
+          }
+          if (data.me && typeof data.me.score === 'number') score = data.me.score | 0;
+          if (data.opp && typeof data.opp.score === 'number') oppScore = data.opp.score | 0;
+          if (typeof updateTimerDisplay === 'function') updateTimerDisplay();
+          const myEl = document.getElementById('myScore');
+          const oppEl = document.getElementById('oppScore');
+          if (myEl) myEl.textContent = String(score | 0);
+          if (oppEl) oppEl.textContent = String(oppScore | 0);
+        } catch (_) {}
+        return;
+      }
       if (data.me && Array.isArray(data.me.pieces)) data._forceHand = true;
       applyRoomState(data);
     } catch (e) { console.warn('state', e); }
@@ -1463,8 +1490,13 @@ function runMatchIntroSequence(opts) {
   } catch (_) {}
 
   const isRejoin = !!(opts && opts.reason === 'rejoin');
-  // Rejoin needs a longer «Почти готово…» so all paints/sync settle before «Старт!»
-  const baseHold = (typeof opts.minMs === 'number' && opts.minMs > 0)
+  // Server-synced intro: unlock exactly at matchPlayStartTs (both clients same wall clock).
+  // Fallback only when playStartTs missing (legacy / rejoin).
+  const playStart = (typeof BPState.matchPlayStartTs === 'number' && BPState.matchPlayStartTs > 0)
+    ? BPState.matchPlayStartTs
+    : 0;
+  const START_FLASH_MS = 1100; // «Старт!» visible window before unlock
+  const baseHoldFallback = (typeof opts.minMs === 'number' && opts.minMs > 0)
     ? opts.minMs
     : (isRejoin ? 1000 : 800);
 
@@ -1472,13 +1504,35 @@ function runMatchIntroSequence(opts) {
     try {
       if (BPState.matchIntroTimer) clearTimeout(BPState.matchIntroTimer);
     } catch (_) {}
-    BPState.matchIntroTimer = setTimeout(() => {
+    const scheduleFinish = () => {
       BPState.matchIntroTimer = null;
       try { finishRoomMatchLoadAndGo(); } catch (e) {
         console.warn('runMatchIntroSequence', e);
         try { forceUnlockAfterIntroStuck(); } catch (_) {}
       }
-    }, baseHold);
+    };
+    if (playStart > 0 && !isRejoin) {
+      // Show «Старт!» START_FLASH_MS before playStart; unlock at playStart
+      const now = Date.now();
+      const untilStartFlash = Math.max(0, playStart - START_FLASH_MS - now);
+      const untilUnlock = Math.max(0, playStart - now);
+      BPState.matchIntroTimer = setTimeout(() => {
+        // Enter «Старт!» phase early; finishRoomMatchLoadAndGo waits for playStart
+        try { BPState._introAwaitPlayStart = true; } catch (_) {}
+        scheduleFinish();
+      }, untilStartFlash);
+      // Safety: if something blocks finish, force at playStart+200
+      try {
+        if (BPState.matchIntroSafetyTimer) clearTimeout(BPState.matchIntroSafetyTimer);
+      } catch (_) {}
+      BPState.matchIntroSafetyTimer = setTimeout(() => {
+        if (!BPState.matchIntroSeqDone) {
+          try { finishRoomMatchLoadAndGo(); } catch (_) {}
+        }
+      }, untilUnlock + 400);
+    } else {
+      BPState.matchIntroTimer = setTimeout(scheduleFinish, baseHoldFallback);
+    }
   };
 
   // All network sync happens NOW under «Почти готово» — never after Start
@@ -1648,7 +1702,13 @@ function finishRoomMatchLoadAndGo() {
       }
     } catch (_) {}
 
-    const startHoldMs = 1100;
+    // Hold «Старт!» until server playStartTs so both clients unlock together
+    const playStart = (typeof BPState.matchPlayStartTs === 'number' && BPState.matchPlayStartTs > 0)
+      ? BPState.matchPlayStartTs
+      : 0;
+    const startHoldMs = playStart > 0
+      ? Math.max(400, Math.min(2500, playStart - Date.now()))
+      : 1100;
     // While «Старт!» is on screen — finalize ALL DOM under the overlay (invisible to user)
     try {
       BPState.animateDealIn = false;

@@ -5,14 +5,14 @@
  */
 'use strict';
 
-const FREE_SKIN_IDS = ['default', 'ocean', 'forest'];
-const FREE_BOARD_IDS = ['field_default', 'field_slate', 'field_charcoal'];
+const FREE_SKIN_IDS = ['default'];
+const FREE_BOARD_IDS = ['field_default'];
 
 /** Skin shop meta (id → price/rarity). Colors: shared/skins.js */
 const SKIN_META = {
   default: { price: 0, rarity: 'common' },
-  ocean: { price: 0, rarity: 'common' },
-  forest: { price: 0, rarity: 'common' },
+  ocean: { price: 30, rarity: 'common' },
+  forest: { price: 30, rarity: 'common' },
   mono: { price: 45, rarity: 'common' },
   sunset: { price: 120, rarity: 'rare' },
   neon: { price: 150, rarity: 'rare' },
@@ -31,8 +31,8 @@ const SKIN_META = {
 /** Board shop meta (id → price/rarity + css class suffix) */
 const BOARD_META = {
   field_default: { price: 0, rarity: 'common', fx: 'default' },
-  field_slate: { price: 0, rarity: 'common', fx: 'slate' },
-  field_charcoal: { price: 0, rarity: 'common', fx: 'charcoal' },
+  field_slate: { price: 25, rarity: 'common', fx: 'slate' },
+  field_charcoal: { price: 25, rarity: 'common', fx: 'charcoal' },
   field_graphite: { price: 40, rarity: 'common', fx: 'graphite' },
   field_sand: { price: 55, rarity: 'common', fx: 'sand' },
   field_azure: { price: 120, rarity: 'rare', fx: 'azure' },

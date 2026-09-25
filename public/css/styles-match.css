@@ -2937,3 +2937,96 @@ body.touch-ui .board-wrap:not(.board-fx-solar)::before,
 body.touch-ui .board-wrap:not(.board-fx-solar)::after {
   will-change: auto !important;
 }
+
+/* —— Friend mini profile —— */
+#friendMiniProfileModal .friend-mini-profile {
+  text-align: center;
+  max-width: 320px;
+  position: relative;
+  padding-top: 28px;
+}
+.friend-mini-close {
+  position: absolute;
+  top: 8px;
+  right: 10px;
+  border: none;
+  background: transparent;
+  color: var(--text-dim, #999);
+  font-size: 1.5rem;
+  line-height: 1;
+  cursor: pointer;
+  padding: 4px 8px;
+}
+.friend-mini-av {
+  width: 88px;
+  height: 88px;
+  border-radius: 50%;
+  margin: 0 auto 12px;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--surface2, #1a1a24);
+  font-weight: 800;
+  font-size: 1.4rem;
+}
+.friend-mini-name {
+  margin: 0 0 4px;
+  font-size: 1.25rem;
+  font-weight: 800;
+}
+.friend-mini-code {
+  font-size: 0.8rem;
+  opacity: 0.65;
+  letter-spacing: 0.06em;
+  margin-bottom: 16px;
+}
+.friend-mini-stats {
+  display: flex;
+  gap: 12px;
+  justify-content: center;
+  margin-bottom: 10px;
+}
+.friend-mini-stat {
+  flex: 1;
+  background: var(--surface2, #1a1a24);
+  border-radius: 12px;
+  padding: 12px 8px;
+  min-width: 0;
+}
+.friend-mini-stat-val {
+  font-size: 1.35rem;
+  font-weight: 800;
+  line-height: 1.2;
+}
+.friend-mini-stat-label {
+  font-size: 0.72rem;
+  opacity: 0.65;
+  margin-top: 4px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.friend-mini-status {
+  font-size: 0.85rem;
+  opacity: 0.8;
+  min-height: 1.2em;
+}
+#screenFriends .friend-card .f-av {
+  cursor: pointer;
+}
+
+.friend-mini-bio,
+.friend-mini-code.friend-mini-status-text {
+  font-size: 0.88rem;
+  opacity: 0.85;
+  font-weight: 600;
+  letter-spacing: normal;
+  text-transform: none;
+  margin-bottom: 14px;
+  color: var(--accent, #00d4aa);
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding: 0 8px;
+}

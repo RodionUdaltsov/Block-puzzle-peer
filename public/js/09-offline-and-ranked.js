@@ -305,7 +305,8 @@ function applyRoomState(data) {
     }
   } catch (_) {}
 
-  const dragging = !!(typeof isDragging !== 'undefined' && isDragging);
+  const dragging = !!(typeof isDragging !== 'undefined' && isDragging)
+    || !!(typeof activeDragSlot !== 'undefined' && activeDragSlot);
   let myBoardChanged = false;
   let oppBoardChanged = false;
   let myHandChanged = false;

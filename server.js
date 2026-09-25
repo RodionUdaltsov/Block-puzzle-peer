@@ -110,6 +110,220 @@ const PUBLIC = path.join(__dirname, 'public');
 let store = null;
 let accountsApi = null;
 
+/* —— IP ↔ account binding (survives browser data wipe) —— */
+const IP_BINDS_PATH = path.join(
+  (process.env.BP_DATA_DIR && String(process.env.BP_DATA_DIR)) || path.join(__dirname, 'data'),
+  'ip_binds.json'
+);
+let _ipBinds = {}; // ip -> { ids: string[], ts: number }
+function loadIpBinds() {
+  try {
+    _ipBinds = JSON.parse(fs.readFileSync(IP_BINDS_PATH, 'utf8')) || {};
+  } catch (_) {
+    _ipBinds = {};
+  }
+}
+function saveIpBinds() {
+  try {
+    fs.mkdirSync(path.dirname(IP_BINDS_PATH), { recursive: true });
+    fs.writeFileSync(IP_BINDS_PATH, JSON.stringify(_ipBinds, null, 0), 'utf8');
+  } catch (_) {}
+}
+function normalizeClientIp(req) {
+  try {
+    const xf = String((req.headers && (req.headers['x-forwarded-for'] || req.headers['x-real-ip'])) || '');
+    if (xf) {
+      // first hop in X-Forwarded-For
+      const first = xf.split(',')[0].trim();
+      if (first) return first.replace(/^::ffff:/, '');
+    }
+  } catch (_) {}
+  try {
+    const ra = (req.socket && req.socket.remoteAddress) || (req.connection && req.connection.remoteAddress) || '';
+    return String(ra).replace(/^::ffff:/, '') || 'unknown';
+  } catch (_) {
+    return 'unknown';
+  }
+}
+function ipHasBoundAccount(ip) {
+  if (!ip || ip === 'unknown' || ip === '127.0.0.1' || ip === '::1') {
+    // localhost: still track, but allow testing — actually user wants bind even on local
+  }
+  const e = _ipBinds[ip];
+  return !!(e && Array.isArray(e.ids) && e.ids.length > 0);
+}
+const IP_GUEST_MARK = '__guest__';
+function bindIpToAccount(ip, accountId) {
+  if (!ip || !accountId) return;
+  const id = String(accountId);
+  if (!_ipBinds[ip]) _ipBinds[ip] = { ids: [], ts: Date.now() };
+  if (_ipBinds[ip].ids.indexOf(id) === -1) _ipBinds[ip].ids.push(id);
+  _ipBinds[ip].ts = Date.now();
+  if (_ipBinds[ip].ids.length > 32) _ipBinds[ip].ids = _ipBinds[ip].ids.slice(-32);
+  saveIpBinds();
+}
+function ipHasRealAccount(ip) {
+  const e = _ipBinds[ip];
+  if (!e || !Array.isArray(e.ids)) return false;
+  return e.ids.some((id) => id && id !== IP_GUEST_MARK);
+}
+function ipCanResumeGuest(ip) {
+  if (!ip || ipHasRealAccount(ip)) return false;
+  const e = _ipBinds[ip];
+  if (!e) return false;
+  if (e.guestProgress && typeof e.guestProgress === 'object') return true;
+  if (Array.isArray(e.ids) && e.ids.indexOf(IP_GUEST_MARK) !== -1) return true;
+  return false;
+}
+function sanitizeGuestProgress(raw) {
+  if (!raw || typeof raw !== 'object') return null;
+  const out = {};
+  try {
+    if (raw.friendCode) out.friendCode = String(raw.friendCode).toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 16);
+    if (typeof raw.nick === 'string') out.nick = String(raw.nick).slice(0, 24);
+    if (typeof raw.trophies === 'number') out.trophies = Math.max(0, Math.min(1e9, raw.trophies | 0));
+    if (typeof raw.diamonds === 'number') out.diamonds = Math.max(0, Math.min(1e9, raw.diamonds | 0));
+    if (typeof raw.best === 'number') out.best = Math.max(0, Math.min(1e9, raw.best | 0));
+    if (Array.isArray(raw.ownedSkins)) out.ownedSkins = raw.ownedSkins.map(String).slice(0, 64);
+    if (Array.isArray(raw.ownedBoards)) out.ownedBoards = raw.ownedBoards.map(String).slice(0, 64);
+    if (raw.skinId) out.skinId = String(raw.skinId).slice(0, 64);
+    if (raw.boardId) out.boardId = String(raw.boardId).slice(0, 64);
+    if (typeof raw.status === 'string') out.status = String(raw.status).slice(0, 80);
+    if (typeof raw.avatarId === 'string') out.avatarId = String(raw.avatarId).slice(0, 64);
+    if (typeof raw.avatarCustom === 'string') out.avatarCustom = String(raw.avatarCustom).slice(0, 200000);
+    if (Array.isArray(raw.friends)) out.friends = raw.friends.slice(0, 200);
+    if (Array.isArray(raw.history)) out.history = raw.history.slice(0, 30);
+    if (raw.achievements && typeof raw.achievements === 'object') out.achievements = raw.achievements;
+    out.ts = Date.now();
+  } catch (_) {}
+  return out;
+}
+function mergeGuestProgressLayers() {
+  // Merge multiple guest progress snapshots: later layers win on scalars,
+  // arrays are unioned, currencies take max.
+  const layers = Array.prototype.slice.call(arguments).filter((x) => x && typeof x === 'object');
+  if (!layers.length) return null;
+  const out = {};
+  for (const gp of layers) {
+    if (typeof gp.friendCode === 'string' && gp.friendCode) out.friendCode = String(gp.friendCode).toUpperCase();
+    if (typeof gp.nick === 'string' && gp.nick) out.nick = String(gp.nick).slice(0, 24);
+    if (typeof gp.status === 'string') out.status = String(gp.status).slice(0, 80);
+    if (typeof gp.avatarId === 'string' && gp.avatarId) out.avatarId = String(gp.avatarId).slice(0, 64);
+    if (typeof gp.avatarCustom === 'string') out.avatarCustom = gp.avatarCustom;
+    if (gp.skinId) out.skinId = String(gp.skinId).slice(0, 64);
+    if (gp.boardId) out.boardId = String(gp.boardId).slice(0, 64);
+    if (typeof gp.trophies === 'number' && isFinite(gp.trophies)) {
+      out.trophies = Math.max(typeof out.trophies === 'number' ? out.trophies : 0, gp.trophies | 0);
+    }
+    if (typeof gp.diamonds === 'number' && isFinite(gp.diamonds)) {
+      out.diamonds = Math.max(typeof out.diamonds === 'number' ? out.diamonds : 0, gp.diamonds | 0);
+    }
+    if (typeof gp.best === 'number' && isFinite(gp.best)) {
+      out.best = Math.max(typeof out.best === 'number' ? out.best : 0, gp.best | 0);
+    }
+    if (Array.isArray(gp.ownedSkins) && gp.ownedSkins.length) {
+      const prev = Array.isArray(out.ownedSkins) ? out.ownedSkins : [];
+      out.ownedSkins = Array.from(new Set(prev.concat(gp.ownedSkins.map(String)).filter(Boolean))).slice(0, 64);
+    }
+    if (Array.isArray(gp.ownedBoards) && gp.ownedBoards.length) {
+      const prev = Array.isArray(out.ownedBoards) ? out.ownedBoards : [];
+      out.ownedBoards = Array.from(new Set(prev.concat(gp.ownedBoards.map(String)).filter(Boolean))).slice(0, 64);
+    }
+    if (Array.isArray(gp.friends) && gp.friends.length) {
+      const map = new Map();
+      (Array.isArray(out.friends) ? out.friends : []).forEach((f) => {
+        if (f && f.code) map.set(String(f.code).toUpperCase(), f);
+      });
+      gp.friends.forEach((f) => {
+        if (f && f.code) map.set(String(f.code).toUpperCase(), f);
+      });
+      out.friends = Array.from(map.values()).slice(0, 200);
+    }
+    if (Array.isArray(gp.history) && gp.history.length) {
+      const map = new Map();
+      (Array.isArray(out.history) ? out.history : []).forEach((h, i) => {
+        if (h) map.set(String(h.id || ('p' + i)), h);
+      });
+      gp.history.forEach((h, i) => {
+        if (h) map.set(String(h.id || ('n' + i)), h);
+      });
+      out.history = Array.from(map.values()).slice(0, 30);
+    }
+    if (gp.achievements && typeof gp.achievements === 'object') {
+      out.achievements = Object.assign({}, out.achievements || {}, gp.achievements);
+    }
+  }
+  return out;
+}
+
+function setIpGuestProgress(ip, progress) {
+  if (!ip) return;
+  if (!_ipBinds[ip]) _ipBinds[ip] = { ids: [IP_GUEST_MARK], ts: Date.now() };
+  if (!_ipBinds[ip].ids) _ipBinds[ip].ids = [];
+  if (_ipBinds[ip].ids.indexOf(IP_GUEST_MARK) === -1) _ipBinds[ip].ids.push(IP_GUEST_MARK);
+  const cleaned = sanitizeGuestProgress(progress);
+  if (cleaned) _ipBinds[ip].guestProgress = cleaned;
+  _ipBinds[ip].ts = Date.now();
+  saveIpBinds();
+  // Durable server copy by friend code (same lifecycle as registered account data)
+  try {
+    const code = cleaned && cleaned.friendCode
+      ? String(cleaned.friendCode).toUpperCase().replace(/[^A-Z0-9]/g, '')
+      : '';
+    if (code && store && typeof store.saveGuestProgress === 'function') {
+      store.saveGuestProgress(code, cleaned).catch(() => {});
+    }
+  } catch (_) {}
+}
+function getIpGuestProgress(ip) {
+  const e = _ipBinds[ip];
+  if (!e || !e.guestProgress) return null;
+  return e.guestProgress;
+}
+function clearIpGuestProgress(ip) {
+  const e = _ipBinds[ip];
+  if (!e) return;
+  delete e.guestProgress;
+  if (Array.isArray(e.ids)) e.ids = e.ids.filter((x) => x !== IP_GUEST_MARK);
+  if (!e.ids.length && !e.guestProgress) delete _ipBinds[ip];
+  else e.ts = Date.now();
+  saveIpBinds();
+}
+/** Mark IP as having used guest mode (blocks further NEW guests after browser wipe). */
+function bindIpGuest(ip, progress) {
+  if (!ip) return false;
+  if (ipHasRealAccount(ip)) return false;
+  bindIpToAccount(ip, IP_GUEST_MARK);
+  if (progress) setIpGuestProgress(ip, progress);
+  return true;
+}
+function unbindIpFully(ip) {
+  if (!ip || !_ipBinds[ip]) return;
+  delete _ipBinds[ip];
+  saveIpBinds();
+}
+function unbindAccountFromIps(accountId) {
+  if (!accountId) return;
+  const id = String(accountId);
+  let changed = false;
+  for (const ip of Object.keys(_ipBinds)) {
+    const e = _ipBinds[ip];
+    if (!e || !Array.isArray(e.ids)) continue;
+    const next = e.ids.filter((x) => x !== id);
+    if (next.length !== e.ids.length) {
+      changed = true;
+      if (next.length === 0 && !e.guestProgress) delete _ipBinds[ip];
+      else {
+        e.ids = next;
+        e.ts = Date.now();
+      }
+    }
+  }
+  if (changed) saveIpBinds();
+}
+try { loadIpBinds(); } catch (_) {}
+
+
 function persistRoom(room) {
   if (!store || !room) return;
   try {
@@ -333,6 +547,25 @@ function normalizePlatform(p) {
   if (s === 'tablet' || s === 'ipad') return 'tablet';
   if (s === 'desktop' || s === 'pc' || s === 'web') return 'desktop';
   return s || 'web';
+}
+
+/** Wins / played / winrate from account match history (result field). */
+function computeWinStats(history) {
+  let wins = 0;
+  let played = 0;
+  try {
+    if (Array.isArray(history)) {
+      for (const h of history.slice(0, 200)) {
+        if (!h || typeof h !== 'object') continue;
+        const r = String(h.result || '').toLowerCase();
+        if (!r || r === 'void' || r === 'cancelled' || r === 'cancel') continue;
+        played++;
+        if (r === 'win' || r === 'won' || r === 'victory') wins++;
+      }
+    }
+  } catch (_) {}
+  const winrate = played > 0 ? Math.round((wins / played) * 100) : null;
+  return { wins, played, winrate };
 }
 
 function queueKey(duration, trophies) {
@@ -894,6 +1127,10 @@ class MatchRoom {
     if (!this.clockEndTs || this.status === 'loading') {
       return this.duration || 120;
     }
+    // During intro (before playStartTs) report full match duration
+    if (this.playStartTs && Date.now() < this.playStartTs) {
+      return this.duration || 120;
+    }
     return Math.max(0, Math.ceil((this.clockEndTs - Date.now()) / 1000));
   }
 
@@ -1248,9 +1485,12 @@ class MatchRoom {
         this.send(token, {
           type: 'match_go',
           matchId: this.id,
+          playStartTs: this.playStartTs || 0,
           clockEndTs: this.clockEndTs,
           vsTimeLeft: this.timeLeft(),
-          duration: this.duration
+          duration: this.duration,
+          introMs: this.playStartTs ? Math.max(0, (this.playStartTs - Date.now()) | 0) : 0,
+          serverNow: Date.now()
         });
       }
       return;
@@ -1270,7 +1510,14 @@ class MatchRoom {
       });
     }
     if (this.ready.a && this.ready.b) {
-      this.goLive();
+      // Only go live when both seats still have a live socket
+      const tokA = this.seatOf && this.seatOf.a;
+      const tokB = this.seatOf && this.seatOf.b;
+      const aOk = !!(tokA && this.players[tokA] && this.players[tokA].ws
+        && this.players[tokA].ws.readyState === 1);
+      const bOk = !!(tokB && this.players[tokB] && this.players[tokB].ws
+        && this.players[tokB].ws.readyState === 1);
+      if (aOk && bOk) this.goLive();
     }
     persistRoom(this);
   }
@@ -1279,19 +1526,23 @@ class MatchRoom {
   goLive() {
     if (this.status !== 'loading') return;
     this.status = 'live';
-    // Intro buffer: clients show «Загрузка» → «Старт!» before play; clock includes that delay
-    // so remaining time after intro equals full match duration.
-    const INTRO_MS = 1800;
-    this.clockEndTs = Date.now() + INTRO_MS + (this.duration || 120) * 1000;
+    // Server wall-clock intro: both clients unlock at the same playStartTs.
+    // Match duration starts AFTER intro, so a late-painting client never loses seconds.
+    const INTRO_MS = 2200;
+    const now = Date.now();
+    this.playStartTs = now + INTRO_MS;
+    this.clockEndTs = this.playStartTs + (this.duration || 120) * 1000;
     if (!this.ready) this.ready = { a: true, b: true };
     else { this.ready.a = true; this.ready.b = true; }
     this.broadcast({
       type: 'match_go',
       matchId: this.id,
+      playStartTs: this.playStartTs,
       clockEndTs: this.clockEndTs,
       vsTimeLeft: this.timeLeft(),
       duration: this.duration,
-      introMs: INTRO_MS
+      introMs: INTRO_MS,
+      serverNow: now
     });
     persistRoom(this);
   }
@@ -1979,20 +2230,175 @@ const server = http.createServer((req, res) => {
 
     // —— Accounts API ——
     if (url.startsWith('/api/')) {
-      if (!accountsApi) {
+      // Guest IP bind endpoints work without full accounts service
+      const isGuestIpApi = (
+        (url === '/api/auth/guest-allowed' && req.method === 'GET') ||
+        (url === '/api/auth/guest-bind' && req.method === 'POST') ||
+        (url === '/api/auth/guest-sync' && req.method === 'POST')
+      );
+      if (!accountsApi && !isGuestIpApi) {
         sendJson(res, 503, { ok: false, error: 'accounts_unavailable', message: 'Сервис аккаунтов недоступен' });
         return;
       }
       (async () => {
         try {
+          if (url === '/api/auth/guest-allowed' && req.method === 'GET') {
+            const ip = normalizeClientIp(req);
+            const real = ipHasRealAccount(ip);
+            const canResume = ipCanResumeGuest(ip);
+            const guestProgress = canResume ? getIpGuestProgress(ip) : null;
+            // New guest only if IP never used
+            const allowed = !ipHasBoundAccount(ip);
+            return sendJson(res, 200, {
+              ok: true,
+              guestAllowed: allowed,
+              canResumeGuest: canResume,
+              guestProgress: guestProgress,
+              bound: real
+            });
+          }
+          // Claim guest slot for this IP — blocks another NEW guest after browser data wipe
+          if (url === '/api/auth/guest-bind' && req.method === 'POST') {
+            const ip = normalizeClientIp(req);
+            const body = await readJsonBody(req, 256 * 1024).catch(() => ({}));
+            if (ipHasRealAccount(ip)) {
+              return sendJson(res, 403, {
+                ok: false,
+                guestAllowed: false,
+                canResumeGuest: false,
+                bound: true,
+                error: 'already_bound',
+                message: 'С этой сети уже был аккаунт'
+              });
+            }
+            // Already has guest — treat as resume/update, not error
+            if (ipCanResumeGuest(ip) || ipHasBoundAccount(ip)) {
+              if (body && body.progress) setIpGuestProgress(ip, body.progress);
+              return sendJson(res, 200, {
+                ok: true,
+                resumed: true,
+                guestAllowed: false,
+                canResumeGuest: true,
+                guestProgress: getIpGuestProgress(ip)
+              });
+            }
+            bindIpGuest(ip, body && body.progress);
+            return sendJson(res, 200, { ok: true, guestAllowed: false, canResumeGuest: true, bound: false });
+          }
+          // Sync guest progress while playing (IP-bound)
+          if (url === '/api/auth/guest-sync' && req.method === 'POST') {
+            const ip = normalizeClientIp(req);
+            if (ipHasRealAccount(ip)) {
+              return sendJson(res, 403, { ok: false, error: 'real_account', message: 'Войдите в аккаунт' });
+            }
+            // Always ensure guest mark exists so progress is resumable after browser wipe
+            if (!ipHasBoundAccount(ip)) {
+              bindIpGuest(ip);
+            } else if (!ipCanResumeGuest(ip)) {
+              bindIpToAccount(ip, IP_GUEST_MARK);
+            }
+            let body = {};
+            try { body = await readJsonBody(req, 512 * 1024); } catch (_) { body = {}; }
+            if (body && body.progress) {
+              setIpGuestProgress(ip, body.progress);
+            }
+            const gp = getIpGuestProgress(ip);
+            return sendJson(res, 200, {
+              ok: true,
+              canResumeGuest: true,
+              guestProgress: gp
+            });
+          }
           if (url === '/api/auth/register' && req.method === 'POST') {
-            const body = await readJsonBody(req, 16384);
+            // Larger body: may include full guestProgress for migration
+            const body = await readJsonBody(req, 512 * 1024);
+            const ip = normalizeClientIp(req);
+            // Server is the authority: merge stored guest progress (friendCode) + IP + client body
+            let guestProgress = null;
+            try {
+              const bodyGp = (body && body.guestProgress && typeof body.guestProgress === 'object')
+                ? body.guestProgress : null;
+              const ipGp = getIpGuestProgress(ip);
+              let storedGp = null;
+              const prefCode = String(
+                (body && body.preferredFriendCode) ||
+                (bodyGp && bodyGp.friendCode) ||
+                (ipGp && ipGp.friendCode) ||
+                ''
+              ).toUpperCase().replace(/[^A-Z0-9]/g, '');
+              if (prefCode && store && typeof store.loadGuestProgress === 'function') {
+                try { storedGp = await store.loadGuestProgress(prefCode); } catch (_) { storedGp = null; }
+              }
+              // Also try IP friend code if different
+              if (!storedGp && ipGp && ipGp.friendCode && store && typeof store.loadGuestProgress === 'function') {
+                try {
+                  const c2 = String(ipGp.friendCode).toUpperCase().replace(/[^A-Z0-9]/g, '');
+                  if (c2) storedGp = await store.loadGuestProgress(c2);
+                } catch (_) {}
+              }
+              guestProgress = mergeGuestProgressLayers(storedGp, ipGp, bodyGp);
+              // Ensure friendCode is set for resolveFriendCode
+              if (guestProgress && !guestProgress.friendCode && prefCode) {
+                guestProgress.friendCode = prefCode;
+              }
+            } catch (_) {
+              guestProgress = (body && body.guestProgress && typeof body.guestProgress === 'object')
+                ? body.guestProgress : null;
+            }
+            const preferredFriendCode = (body && body.preferredFriendCode)
+              || (guestProgress && guestProgress.friendCode)
+              || '';
             const result = await accountsApi.register({
               login: body.login,
               password: body.password,
-              nick: body.nick
+              nick: body.nick,
+              guestProgress,
+              preferredFriendCode
             });
             if (!result.ok) return sendJson(res, 400, result);
+            try {
+              const accId = result.account && (result.account.id || result.account.login);
+              if (accId) bindIpToAccount(ip, accId);
+              // Clear guest slot — progress already merged into account
+              clearIpGuestProgress(ip);
+              try {
+                const delCode = (result.account && result.account.friendCode) ||
+                  (guestProgress && guestProgress.friendCode) ||
+                  (body && body.preferredFriendCode) || '';
+                const c = String(delCode).toUpperCase().replace(/[^A-Z0-9]/g, '');
+                if (c && store && typeof store.deleteGuestProgress === 'function') {
+                  store.deleteGuestProgress(c).catch(() => {});
+                }
+              } catch (_) {}
+              if (guestProgress) result.guestProgress = guestProgress;
+            } catch (_) {}
+            // Sync cosmetics profile (shop diamonds/skins) to match migrated account
+            // so cosmetics_state does not overwrite guest progress with an empty profile
+            try {
+              const acc = result.account;
+              const code = acc && acc.friendCode ? String(acc.friendCode).toUpperCase() : '';
+              if (code) {
+                let profile = await loadCosmeticsProfile(code);
+                if (typeof acc.diamonds === 'number') {
+                  profile.diamonds = Math.max(0, acc.diamonds | 0);
+                }
+                if (Array.isArray(acc.ownedSkins) && acc.ownedSkins.length) {
+                  const set = new Set((profile.ownedSkins || []).map(String));
+                  acc.ownedSkins.forEach((id) => { if (id) set.add(String(id)); });
+                  profile.ownedSkins = Array.from(set);
+                }
+                if (Array.isArray(acc.ownedBoards) && acc.ownedBoards.length) {
+                  const set = new Set((profile.ownedBoards || []).map(String));
+                  acc.ownedBoards.forEach((id) => { if (id) set.add(String(id)); });
+                  profile.ownedBoards = Array.from(set);
+                }
+                if (acc.skinId) profile.equippedSkin = String(acc.skinId);
+                if (acc.boardId) profile.equippedBoard = String(acc.boardId);
+                profile.migrated = true;
+                profile.updatedAt = Date.now();
+                await saveCosmeticsProfile(code, profile);
+              }
+            } catch (_) {}
             return sendJson(res, 201, result);
           }
           if (url === '/api/auth/login' && req.method === 'POST') {
@@ -2002,6 +2408,11 @@ const server = http.createServer((req, res) => {
               password: body.password
             });
             if (!result.ok) return sendJson(res, 401, result);
+            try {
+              const ip = normalizeClientIp(req);
+              const accId = result.account && (result.account.id || result.account.login);
+              if (accId) bindIpToAccount(ip, accId);
+            } catch (_) {}
             return sendJson(res, 200, result);
           }
           if (url === '/api/auth/logout' && req.method === 'POST') {
@@ -2029,6 +2440,47 @@ const server = http.createServer((req, res) => {
             try {
               if (delCode && profileCache.has(delCode)) profileCache.delete(delCode);
               if (delCode && presence.has(delCode)) presence.delete(delCode);
+            } catch (_) {}
+            // Notify former friends (online) so they drop this code from their local list
+            try {
+              const fc = delCode || result.friendCode || null;
+              const targets = Array.isArray(result.hadFriends) ? result.hadFriends : [];
+              if (fc) {
+                // Also clear pending social for this code
+                try {
+                  pendingSocial.delete(fc);
+                  if (store && typeof store.setSocial === 'function') store.setSocial(fc, []).catch(() => {});
+                } catch (_) {}
+                for (const to of targets) {
+                  const tCode = String(to || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+                  if (!tCode || tCode === fc) continue;
+                  const msg = {
+                    type: 'friend_remove',
+                    code: fc,
+                    from: fc,
+                    name: '',
+                    reason: 'account_deleted',
+                    ts: Date.now()
+                  };
+                  const target = presence.get(tCode);
+                  if (target && target.ws && target.ws.readyState === 1) {
+                    try { send(target.ws, { type: 'social_msg', msg }); } catch (_) {}
+                  } else {
+                    try {
+                      if (!pendingSocial.has(tCode)) pendingSocial.set(tCode, []);
+                      const box = pendingSocial.get(tCode);
+                      box.push(msg);
+                      if (box.length > 30) box.splice(0, box.length - 30);
+                      if (store) store.setSocial(tCode, box).catch(() => {});
+                    } catch (_) {}
+                  }
+                }
+              }
+            } catch (_) {}
+            // Free IP binding when account is fully deleted (guest can be used again)
+            try {
+              if (result.id) unbindAccountFromIps(result.id);
+              unbindIpFully(normalizeClientIp(req));
             } catch (_) {}
             return sendJson(res, 200, result);
           }
@@ -2577,39 +3029,89 @@ wss.on('connection', (ws) => {
       return;
     }
     if (type === 'presence_register') {
-      const code = String(data.friendCode || '').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 16);
-      if (!code) return;
-      const presEntry = {
-        token: ws._token, ws,
-        name: String(data.name || 'Игрок').slice(0, 24),
-        activity: String(data.activity || 'online').slice(0, 32),
-        trophies: Math.max(0, data.trophies | 0),
-        avatarId: data.avatarId ? String(data.avatarId).slice(0, 32) : 'init',
-        avatarCustom: (typeof data.avatarCustom === 'string') ? data.avatarCustom.slice(0, 49152) : '',
-        platform: normalizePlatform(data.platform || ws._platform || 'web'),
-        os: String(data.os || ws._os || 'unknown').slice(0, 24),
-        lastSeen: Date.now(),
-        ts: Date.now()
-      };
-      presence.set(code, presEntry);
-      ws._friendCode = code;
-      if (store && store.kind !== 'memory') {
-        store.savePresence(code, {
-          name: presEntry.name,
-          activity: presEntry.activity,
-          trophies: presEntry.trophies,
-          avatarId: presEntry.avatarId,
-          avatarCustom: presEntry.avatarCustom,
-          platform: presEntry.platform,
-          os: presEntry.os,
-          lastSeen: presEntry.lastSeen,
-          online: true
-        }, PRESENCE_TTL).catch(() => {});
-      }
-      schedulePersistMeta();
-      send(ws, { type: 'presence_ok', friendCode: code });
-      // Server-authoritative cosmetics: load/migrate profile and push state
+      // Individual friend code for guests and registered players alike.
+      // If the proposed code is already held by another live connection, assign a unique one.
+      // Registered accounts keep their code (even if a guest offline-collided with it).
       (async () => {
+        let code = String(data.friendCode || '').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 16);
+        let reassigned = false;
+
+        const liveTakenByOther = (c) => {
+          if (!c || c.length < 4) return true;
+          const live = presence.get(c);
+          return !!(live && live.token && live.token !== ws._token && live.ws && live.ws.readyState === 1);
+        };
+
+        const needNewCode = !code || code.length < 6 || liveTakenByOther(code);
+
+        if (needNewCode) {
+          try {
+            if (accountsApi && typeof accountsApi.uniqueFriendCode === 'function') {
+              code = await accountsApi.uniqueFriendCode();
+            } else {
+              const { genFriendCode } = require('./lib/accounts');
+              let found = null;
+              for (let i = 0; i < 64; i++) {
+                const tryCode = genFriendCode(6);
+                if (!liveTakenByOther(tryCode)) {
+                  // Also avoid registered accounts when generating brand-new codes
+                  let taken = false;
+                  try {
+                    if (store && typeof store.loadAccountByCode === 'function') {
+                      const acc = await store.loadAccountByCode(tryCode);
+                      if (acc) taken = true;
+                    }
+                  } catch (_) {}
+                  if (!taken) { found = tryCode; break; }
+                }
+              }
+              code = found || (genFriendCode(8) + Date.now().toString(36).toUpperCase().slice(-2)).replace(/[^A-Z0-9]/g, '').slice(0, 10);
+            }
+            reassigned = true;
+          } catch (_) {
+            const { genFriendCode } = require('./lib/accounts');
+            code = genFriendCode(8);
+            reassigned = true;
+          }
+        }
+
+        const presEntry = {
+          token: ws._token, ws,
+          name: String(data.name || 'Игрок').slice(0, 24),
+          activity: String(data.activity || 'online').slice(0, 32),
+          trophies: Math.max(0, data.trophies | 0),
+          avatarId: data.avatarId ? String(data.avatarId).slice(0, 32) : 'init',
+          avatarCustom: (typeof data.avatarCustom === 'string') ? data.avatarCustom.slice(0, 49152) : '',
+          status: typeof data.status === 'string' ? String(data.status).slice(0, 80) : '',
+          platform: normalizePlatform(data.platform || ws._platform || 'web'),
+          os: String(data.os || ws._os || 'unknown').slice(0, 24),
+          lastSeen: Date.now(),
+          ts: Date.now()
+        };
+        // If this socket previously held another code, clear it so we do not leak presence
+        if (ws._friendCode && ws._friendCode !== code) {
+          const old = presence.get(ws._friendCode);
+          if (old && old.token === ws._token) presence.delete(ws._friendCode);
+        }
+        presence.set(code, presEntry);
+        ws._friendCode = code;
+        if (store && store.kind !== 'memory') {
+          store.savePresence(code, {
+            name: presEntry.name,
+            activity: presEntry.activity,
+            trophies: presEntry.trophies,
+            avatarId: presEntry.avatarId,
+            avatarCustom: presEntry.avatarCustom,
+            status: presEntry.status || '',
+            platform: presEntry.platform,
+            os: presEntry.os,
+            lastSeen: presEntry.lastSeen,
+            online: true
+          }, PRESENCE_TTL).catch(() => {});
+        }
+        schedulePersistMeta();
+        send(ws, { type: 'presence_ok', friendCode: code, reassigned: !!reassigned });
+        // Server-authoritative cosmetics: load/migrate profile and push state
         try {
           let profile = await loadCosmeticsProfile(code);
           if (!profile.migrated && data.cosmeticsHint) {
@@ -2621,21 +3123,21 @@ wss.on('connection', (ws) => {
           }
           send(ws, cosmeticsStatePayload(profile));
         } catch (_) {}
-      })();
-      const deliverBox = (box) => {
-        if (!box || !box.length) return;
-        pendingSocial.delete(code);
-        if (store) store.setSocial(code, []).catch(() => {});
-        for (const msg of box) {
-          try { send(ws, { type: 'social_msg', msg }); } catch (_) {}
+        const deliverBox = (box) => {
+          if (!box || !box.length) return;
+          pendingSocial.delete(code);
+          if (store) store.setSocial(code, []).catch(() => {});
+          for (const msg of box) {
+            try { send(ws, { type: 'social_msg', msg }); } catch (_) {}
+          }
+        };
+        const memBox = pendingSocial.get(code);
+        if (memBox && memBox.length) {
+          deliverBox(memBox);
+        } else if (store) {
+          store.getSocial(code).then((box) => deliverBox(box)).catch(() => {});
         }
-      };
-      const memBox = pendingSocial.get(code);
-      if (memBox && memBox.length) {
-        deliverBox(memBox);
-      } else if (store) {
-        store.getSocial(code).then((box) => deliverBox(box)).catch(() => {});
-      }
+      })().catch(() => {});
       return;
     }
     if (type === 'presence_query') {
@@ -2646,52 +3148,162 @@ wss.on('connection', (ws) => {
         if (code) normalized.push(code);
       }
       const result = {};
-      const needStore = [];
+      const needEnrich = [];
       for (const code of normalized) {
         const p = presence.get(code);
         if (p && p.ws && p.ws.readyState === 1) {
           result[code] = {
             online: true,
-            name: p.name,
+            name: p.name || '',
             activity: p.activity || 'online',
             trophies: p.trophies | 0,
+            avatarId: p.avatarId ? String(p.avatarId).slice(0, 32) : 'init',
+            avatarCustom: (typeof p.avatarCustom === 'string' && p.avatarId === 'custom')
+              ? p.avatarCustom.slice(0, 49152) : '',
+            status: typeof p.status === 'string' ? p.status.slice(0, 80) : '',
             lastSeen: p.lastSeen || p.ts || Date.now()
           };
-        } else if (p && (p.name || p.trophies)) {
+          needEnrich.push(code);
+        } else if (p && (p.name || p.trophies || p.avatarId)) {
           result[code] = {
             online: false,
             name: p.name || '',
             activity: p.activity || 'away',
             trophies: p.trophies | 0,
+            avatarId: p.avatarId ? String(p.avatarId).slice(0, 32) : 'init',
+            avatarCustom: (typeof p.avatarCustom === 'string' && p.avatarId === 'custom')
+              ? p.avatarCustom.slice(0, 49152) : '',
+            status: typeof p.status === 'string' ? p.status.slice(0, 80) : '',
             lastSeen: p.lastSeen || p.ts || 0
           };
+          needEnrich.push(code);
         } else {
-          needStore.push(code);
           result[code] = { online: false };
+          needEnrich.push(code);
         }
       }
-      const finish = () => send(ws, { type: 'presence_state', friends: result });
-      if (!needStore.length || !store || store.kind === 'memory') {
-        finish();
+      const enrichFromStoreAndAccount = async (code) => {
+        const snap = result[code] || { online: false };
+        try {
+          if (store && typeof store.loadPresence === 'function') {
+            const data = await store.loadPresence(code);
+            if (data) {
+              if (!snap.name && data.name) snap.name = String(data.name).slice(0, 24);
+              if (!snap.activity) snap.activity = data.activity || 'offline';
+              if (!(snap.trophies > 0) && data.trophies) snap.trophies = data.trophies | 0;
+              if ((!snap.avatarId || snap.avatarId === 'init') && data.avatarId) {
+                snap.avatarId = String(data.avatarId).slice(0, 32);
+              }
+              if (!snap.avatarCustom && data.avatarCustom && snap.avatarId === 'custom') {
+                snap.avatarCustom = String(data.avatarCustom).slice(0, 49152);
+              }
+              if (!snap.lastSeen && data.lastSeen) snap.lastSeen = data.lastSeen;
+              if (!snap.status && data.status) snap.status = String(data.status).slice(0, 80);
+            }
+          }
+        } catch (_) {}
+        try {
+          if (store && typeof store.loadAccountByCode === 'function') {
+            const acc = await store.loadAccountByCode(code);
+            if (acc) {
+              if (acc.nick || acc.login) snap.name = String(acc.nick || acc.login).slice(0, 24);
+              if (typeof acc.trophies === 'number') snap.trophies = acc.trophies | 0;
+              if (acc.avatarId) snap.avatarId = String(acc.avatarId).slice(0, 32);
+              if (typeof acc.avatarCustom === 'string' && snap.avatarId === 'custom') {
+                snap.avatarCustom = acc.avatarCustom.slice(0, 49152);
+              }
+              if (typeof acc.status === 'string') snap.status = String(acc.status).slice(0, 80);
+              const stats = computeWinStats(acc.history);
+              snap.wins = stats.wins;
+              snap.played = stats.played;
+              snap.winrate = stats.winrate;
+            }
+          }
+        } catch (_) {}
+        result[code] = snap;
+      };
+      Promise.all(needEnrich.map(enrichFromStoreAndAccount))
+        .then(() => send(ws, { type: 'presence_state', friends: result }))
+        .catch(() => send(ws, { type: 'presence_state', friends: result }));
+      return;
+    }
+    if (type === 'friend_profile') {
+      const code = String(data.code || data.friendCode || '').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 16);
+      if (!code || code.length < 4) {
+        send(ws, { type: 'friend_profile_result', ok: false, reason: 'bad_code' });
         return;
       }
-      Promise.all(needStore.map((code) =>
-        store.loadPresence(code).then((data) => {
-          if (!data) return;
-          result[code] = {
-            online: false,
-            name: data.name || '',
-            activity: data.activity || 'offline',
-            trophies: data.trophies | 0,
-            lastSeen: data.lastSeen || 0
-          };
-        }).catch(() => {})
-      )).then(finish).catch(finish);
+      (async () => {
+        const out = {
+          ok: true,
+          code,
+          online: false,
+          name: '',
+          trophies: 0,
+          avatarId: 'init',
+          avatarCustom: '',
+          status: '',
+          wins: 0,
+          played: 0,
+          winrate: null,
+          activity: 'offline'
+        };
+        const live = presence.get(code);
+        if (live && live.ws && live.ws.readyState === 1) {
+          out.online = true;
+          out.name = String(live.name || '').slice(0, 24);
+          out.trophies = live.trophies | 0;
+          out.avatarId = live.avatarId ? String(live.avatarId).slice(0, 32) : 'init';
+          out.avatarCustom = (typeof live.avatarCustom === 'string' && out.avatarId === 'custom')
+            ? live.avatarCustom.slice(0, 49152) : '';
+          out.status = typeof live.status === 'string' ? live.status.slice(0, 80) : '';
+          out.activity = live.activity || 'online';
+        }
+        try {
+          if (store && typeof store.loadPresence === 'function') {
+            const data = await store.loadPresence(code);
+            if (data) {
+              if (!out.name && data.name) out.name = String(data.name).slice(0, 24);
+              if (!(out.trophies > 0) && data.trophies) out.trophies = data.trophies | 0;
+              if ((!out.avatarId || out.avatarId === 'init') && data.avatarId) {
+                out.avatarId = String(data.avatarId).slice(0, 32);
+              }
+              if (!out.avatarCustom && data.avatarCustom && out.avatarId === 'custom') {
+                out.avatarCustom = String(data.avatarCustom).slice(0, 49152);
+              }
+              if (!out.online) out.activity = data.activity || 'offline';
+              if (!out.status && data.status) out.status = String(data.status).slice(0, 80);
+            }
+          }
+        } catch (_) {}
+        try {
+          if (store && typeof store.loadAccountByCode === 'function') {
+            const acc = await store.loadAccountByCode(code);
+            if (acc) {
+              out.name = String(acc.nick || acc.login || out.name || code).slice(0, 24);
+              if (typeof acc.trophies === 'number') out.trophies = acc.trophies | 0;
+              if (acc.avatarId) out.avatarId = String(acc.avatarId).slice(0, 32);
+              if (typeof acc.avatarCustom === 'string' && out.avatarId === 'custom') {
+                out.avatarCustom = acc.avatarCustom.slice(0, 49152);
+              }
+              if (typeof acc.status === 'string') out.status = String(acc.status).slice(0, 80);
+              const stats = computeWinStats(acc.history);
+              out.wins = stats.wins;
+              out.played = stats.played;
+              out.winrate = stats.winrate;
+            }
+          }
+        } catch (_) {}
+        if (!out.name) out.name = code;
+        send(ws, Object.assign({ type: 'friend_profile_result' }, out));
+      })().catch(() => {
+        send(ws, { type: 'friend_profile_result', ok: false, code, reason: 'error' });
+      });
       return;
     }
     if (type === 'friend_code_check') {
-      const code = String(data.code || data.friendCode || '').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 6);
-      if (!code || code.length !== 6) {
+      const code = String(data.code || data.friendCode || '').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 12);
+      if (!code || code.length < 6) {
         send(ws, { type: 'friend_code_check_result', code: code || '', ok: false, reason: 'bad_code' });
         return;
       }
@@ -2712,25 +3324,46 @@ wss.on('connection', (ws) => {
         });
         return;
       }
-      // Recently seen (persisted presence)
-      const finish = (snap) => {
-        if (snap && (snap.name || snap.lastSeen)) {
+      // Recently seen (persisted presence) OR registered account offline
+      const finish = (snap, fromAccount) => {
+        if (snap && (snap.name || snap.lastSeen || fromAccount)) {
           send(ws, {
             type: 'friend_code_check_result',
             code,
             ok: true,
             online: false,
-            name: String(snap.name || '').slice(0, 24) || code,
+            name: String(snap.name || snap.nick || '').slice(0, 24) || code,
             trophies: (snap.trophies | 0)
           });
         } else {
           send(ws, { type: 'friend_code_check_result', code, ok: false, reason: 'not_found' });
         }
       };
+      const tryAccount = () => {
+        if (store && typeof store.loadAccountByCode === 'function') {
+          store.loadAccountByCode(code).then((acc) => {
+            if (acc) {
+              finish({
+                name: acc.nick || acc.login || code,
+                nick: acc.nick || acc.login,
+                trophies: acc.trophies | 0,
+                lastSeen: acc.updatedAt || acc.createdAt || 1
+              }, true);
+            } else {
+              finish(null, false);
+            }
+          }).catch(() => finish(null, false));
+        } else {
+          finish(null, false);
+        }
+      };
       if (store && typeof store.loadPresence === 'function') {
-        store.loadPresence(code).then(finish).catch(() => finish(null));
+        store.loadPresence(code).then((snap) => {
+          if (snap && (snap.name || snap.lastSeen)) finish(snap, false);
+          else tryAccount();
+        }).catch(() => tryAccount());
       } else {
-        finish(null);
+        tryAccount();
       }
       return;
     }
@@ -2954,9 +3587,54 @@ wss.on('connection', (ws) => {
       const kind = data.kind === 'board' ? 'board' : 'skin';
       const id = String(data.id || '').slice(0, 32);
       loadCosmeticsProfile(code).then(async (profile) => {
+        // Keep cosmetics balance in sync with registered account when present
+        try {
+          if (store && typeof store.loadAccountByCode === 'function') {
+            const acc = await store.loadAccountByCode(code);
+            if (acc && typeof acc.diamonds === 'number') {
+              // Account is source of truth for registered players
+              profile.diamonds = Math.max(0, acc.diamonds | 0);
+              if (Array.isArray(acc.ownedSkins) && acc.ownedSkins.length) {
+                const set = new Set((profile.ownedSkins || []).map(String));
+                acc.ownedSkins.forEach((x) => { if (x) set.add(String(x)); });
+                profile.ownedSkins = Array.from(set);
+              }
+              if (Array.isArray(acc.ownedBoards) && acc.ownedBoards.length) {
+                const set = new Set((profile.ownedBoards || []).map(String));
+                acc.ownedBoards.forEach((x) => { if (x) set.add(String(x)); });
+                profile.ownedBoards = Array.from(set);
+              }
+            }
+          }
+        } catch (_) {}
         const result = Cosmetics.tryBuy(profile, kind, id);
         if (result.ok) {
           await saveCosmeticsProfile(code, result.profile);
+          // Persist spend on registered account too
+          try {
+            if (store && typeof store.loadAccountByCode === 'function') {
+              const acc = await store.loadAccountByCode(code);
+              if (acc) {
+                acc.diamonds = result.profile.diamonds | 0;
+                if (Array.isArray(result.profile.ownedSkins)) acc.ownedSkins = result.profile.ownedSkins.slice(0, 64);
+                if (Array.isArray(result.profile.ownedBoards)) acc.ownedBoards = result.profile.ownedBoards.slice(0, 64);
+                acc.updatedAt = Date.now();
+                await store.saveAccount(acc);
+              }
+            }
+          } catch (_) {}
+          // Keep guest progress balance in sync
+          try {
+            if (store && typeof store.saveGuestProgress === 'function') {
+              const gp = await (store.loadGuestProgress ? store.loadGuestProgress(code) : null);
+              if (gp && typeof gp === 'object') {
+                gp.diamonds = result.profile.diamonds | 0;
+                if (Array.isArray(result.profile.ownedSkins)) gp.ownedSkins = result.profile.ownedSkins.slice();
+                if (Array.isArray(result.profile.ownedBoards)) gp.ownedBoards = result.profile.ownedBoards.slice();
+                await store.saveGuestProgress(code, gp);
+              }
+            }
+          } catch (_) {}
           send(ws, Object.assign({ type: 'cosmetics_buy_result', ok: true, kind, id }, cosmeticsStatePayload(result.profile)));
         } else {
           send(ws, Object.assign({ type: 'cosmetics_buy_result', ok: false, error: result.error, kind, id }, cosmeticsStatePayload(result.profile)));

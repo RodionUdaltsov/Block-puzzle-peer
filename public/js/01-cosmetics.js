@@ -28,19 +28,19 @@ const DEFAULT_COLORS = _R
 let COLORS = DEFAULT_COLORS.slice();
 
 // —— Piece skins (shop / inventory) ——
-// Free starters are always owned and never sold in the shop
-const FREE_SKIN_IDS = ['default', 'ocean', 'forest'];
+// Only the base skin is free; everything else is bought (sync-test friendly)
+const FREE_SKIN_IDS = ['default'];
 const SKIN_CATALOG = [
   {
     id: 'default', name: 'Классика', desc: 'Стандартная палитра', price: 0, rarity: 'common',
     colors: ['#00d4aa','#7c5cff','#ff5c7a','#ffb347','#4fc3f7','#ff6bcb','#a8e063','#ff8a65']
   },
   {
-    id: 'ocean', name: 'Океан', desc: 'Глубокие синие тона', price: 0, rarity: 'common',
+    id: 'ocean', name: 'Океан', desc: 'Глубокие синие тона', price: 30, rarity: 'common',
     colors: ['#00c2ff','#0077b6','#48cae4','#90e0ef','#023e8a','#0096c7','#ade8f4','#5ee7ff']
   },
   {
-    id: 'forest', name: 'Лес', desc: 'Зелень и янтарь', price: 0, rarity: 'common',
+    id: 'forest', name: 'Лес', desc: 'Зелень и янтарь', price: 30, rarity: 'common',
     colors: ['#2d6a4f','#40916c','#52b788','#95d5b2','#d8f3dc','#b7e4c7','#74c69d','#ffb703']
   },
   {
@@ -104,7 +104,7 @@ function loadOwnedSkins() {
       const parsed = JSON.parse(raw);
       if (Array.isArray(parsed) && parsed.length) {
         const ids = parsed.map((id) => String(id)).filter((id) => SKIN_CATALOG.some((s) => s.id === id));
-        // Always grant free starters
+        // Only ensure the base free skin is present
         for (const free of FREE_SKIN_IDS) {
           if (!ids.includes(free)) ids.push(free);
         }
@@ -351,7 +351,7 @@ function skinMetaForSide(side) {
 applyEquippedSkin();
 
 // —— Board fields (поля) ——
-const FREE_BOARD_IDS = ['field_default', 'field_slate', 'field_charcoal'];
+const FREE_BOARD_IDS = ['field_default'];
 const BOARD_CATALOG = [
   {
     id: 'field_default', name: 'Стандарт', desc: 'Классическое поле без эффектов',
@@ -360,12 +360,12 @@ const BOARD_CATALOG = [
   },
   {
     id: 'field_slate', name: 'Сланец', desc: 'Холодный серый камень',
-    price: 0, rarity: 'common', fx: 'none',
+    price: 25, rarity: 'common', fx: 'none',
     empty: '#1a1e24', surface: '#1c2128', surface2: '#262c34', border: '#343b46', accent: '#8b9bb0'
   },
   {
     id: 'field_charcoal', name: 'Уголь', desc: 'Тёплый угольный фон',
-    price: 0, rarity: 'common', fx: 'none',
+    price: 25, rarity: 'common', fx: 'none',
     empty: '#1c1816', surface: '#221c1a', surface2: '#2c2420', border: '#3a322c', accent: '#a8988c'
   },
   {
@@ -438,14 +438,20 @@ const BOARD_CATALOG = [
 
 
 function loadOwnedBoards() {
-  // TEST: unlock all boards for testing
   try {
-    const all = BOARD_CATALOG.map(b => b.id);
-    localStorage.setItem('bp_boards_owned', JSON.stringify(all));
-    return all.slice();
-  } catch (_) {
-    return BOARD_CATALOG.map(b => b.id);
-  }
+    const raw = localStorage.getItem('bp_boards_owned');
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed) && parsed.length) {
+        const ids = parsed.map((id) => String(id)).filter((id) => BOARD_CATALOG.some((b) => b.id === id));
+        for (const free of FREE_BOARD_IDS) {
+          if (!ids.includes(free)) ids.push(free);
+        }
+        return ids;
+      }
+    }
+  } catch (_) {}
+  return FREE_BOARD_IDS.slice();
 }
 let ownedBoards = loadOwnedBoards();
 let equippedBoardId = localStorage.getItem('bp_board_equipped') || 'field_default';
@@ -587,15 +593,24 @@ function buyBoard(id) {
   if (!board || board.price <= 0) return false;
   if (ownedBoards.includes(id)) return false;
   // Prefer server-authoritative purchase when online
+  if (diamonds < board.price) return false;
   try {
     if (typeof MatchClient !== 'undefined' && MatchClient.ws && MatchClient.ws.readyState === 1 && typeof MatchClient.cosmeticsBuy === 'function') {
+      // Optimistic local deduct; server confirms via cosmetics_buy_result
+      diamonds -= board.price;
+      try { localStorage.setItem('bp_diamonds', String(diamonds)); } catch (_) {}
+      try { updateMenuStats(); } catch (_) {}
       MatchClient.cosmeticsBuy('board', id);
-      return true; // optimistic UI; state confirmed via cosmetics_buy_result
+      return true;
     }
   } catch (_) {}
-  if (diamonds < board.price) return false;
   diamonds -= board.price;
   try { localStorage.setItem('bp_diamonds', diamonds); } catch (_) {}
+  try {
+    if (typeof syncGuestProgressToServer === 'function' && !(typeof authToken !== 'undefined' && authToken)) {
+      syncGuestProgressToServer({ force: true }).catch(function () {});
+    }
+  } catch (_) {}
   ownedBoards.push(id);
   saveBoardsState();
   try {
@@ -696,15 +711,23 @@ function buySkin(id) {
   const skin = getSkinById(id);
   if (!skin || skin.price <= 0) return false;
   if (ownedSkins.includes(id)) return false;
+  if (diamonds < skin.price) return false;
   try {
     if (typeof MatchClient !== 'undefined' && MatchClient.ws && MatchClient.ws.readyState === 1 && typeof MatchClient.cosmeticsBuy === 'function') {
+      diamonds -= skin.price;
+      try { localStorage.setItem('bp_diamonds', String(diamonds)); } catch (_) {}
+      try { updateMenuStats(); } catch (_) {}
       MatchClient.cosmeticsBuy('skin', id);
       return true;
     }
   } catch (_) {}
-  if (diamonds < skin.price) return false;
   diamonds -= skin.price;
   try { localStorage.setItem('bp_diamonds', diamonds); } catch (_) {}
+  try {
+    if (typeof syncGuestProgressToServer === 'function' && !(typeof authToken !== 'undefined' && authToken)) {
+      syncGuestProgressToServer({ force: true }).catch(function () {});
+    }
+  } catch (_) {}
   ownedSkins.push(id);
   saveSkinsState();
   try { updateMenuStats(); } catch (_) {}
@@ -1341,17 +1364,31 @@ function applyCosmeticsStateFromServer(data) {
   if (!data || typeof data !== 'object') return;
   try {
     if (typeof data.diamonds === 'number' && data.diamonds >= 0) {
-      diamonds = data.diamonds;
+      // Server cosmetics profile is authoritative for shop balance.
+      // Never Math.max with local — that undid purchases (local stayed high while
+      // buySkin/buyBoard only deducted on the server path).
+      diamonds = Math.max(0, data.diamonds | 0);
       try { localStorage.setItem('bp_diamonds', String(diamonds)); } catch (_) {}
+      try {
+        const loggedIn = !!(typeof authToken !== 'undefined' && authToken);
+        if (!loggedIn && typeof syncGuestProgressToServer === 'function') {
+          syncGuestProgressToServer({ force: true }).catch(function () {});
+        }
+      } catch (_) {}
     }
     if (Array.isArray(data.ownedSkins) && data.ownedSkins.length) {
-      ownedSkins = data.ownedSkins.map(String);
+      // Union with local ownership so migration is not wiped
+      const set = new Set((Array.isArray(ownedSkins) ? ownedSkins : []).map(String));
+      data.ownedSkins.forEach((id) => { if (id) set.add(String(id)); });
+      ownedSkins = Array.from(set);
       for (const free of FREE_SKIN_IDS) {
         if (!ownedSkins.includes(free)) ownedSkins.push(free);
       }
     }
     if (Array.isArray(data.ownedBoards) && data.ownedBoards.length) {
-      ownedBoards = data.ownedBoards.map(String);
+      const set = new Set((Array.isArray(ownedBoards) ? ownedBoards : []).map(String));
+      data.ownedBoards.forEach((id) => { if (id) set.add(String(id)); });
+      ownedBoards = Array.from(set);
       for (const free of FREE_BOARD_IDS) {
         if (!ownedBoards.includes(free)) ownedBoards.push(free);
       }

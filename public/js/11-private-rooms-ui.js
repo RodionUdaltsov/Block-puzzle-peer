@@ -4109,8 +4109,8 @@ document.getElementById('btnAddFriend')?.addEventListener('click', () => {
 });
 document.getElementById('friendCodeInput')?.addEventListener('input', (e) => {
   const el = e.target;
-  // Code field only: A–Z0–9, max 6
-  const clean = String(el.value || '').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 6);
+  // Code field only: A–Z0–9, max 12 (server may assign longer unique codes)
+  const clean = String(el.value || '').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 12);
   if (el.value !== clean) {
     const pos = el.selectionStart;
     el.value = clean;

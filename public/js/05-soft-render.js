@@ -98,6 +98,7 @@ function softRenderPieces(areaEl) {
   try {
     if (typeof isDragging !== 'undefined' && isDragging) return;
     if (typeof activeDragSlot !== 'undefined' && activeDragSlot) return;
+    if (typeof selectedIdx === 'number' && selectedIdx >= 0 && typeof isDragging !== 'undefined' && isDragging) return;
   } catch (_) {}
   try {
     if (!pieces || !pieces.length) {
@@ -105,6 +106,7 @@ function softRenderPieces(areaEl) {
     }
     if (!pieces || !pieces.length) return;
     const slots = areaEl.querySelectorAll('.piece-slot');
+    const heldSlot = (typeof activeDragSlot !== 'undefined' && activeDragSlot) ? activeDragSlot : null;
     // Same count: update used flags only — no innerHTML wipe (no jump)
     if (slots.length === pieces.length) {
       let needsFull = false;
@@ -112,6 +114,9 @@ function softRenderPieces(areaEl) {
         const p = pieces[i];
         const slot = slots[i];
         if (!slot) { needsFull = true; break; }
+        // Never mutate the slot currently under the finger
+        if (heldSlot && slot === heldSlot) continue;
+        if (slot.classList.contains('lifting')) continue;
         // Shape mismatch (rejoin desync) → full rebuild so pieces stay pickable
         const domSig = slot.dataset && slot.dataset.handSig;
         const pSig = _pieceHandSig(p);
@@ -134,7 +139,6 @@ function softRenderPieces(areaEl) {
               slot.style.padding = '0';
               slot.style.border = 'none';
               slot.style.pointerEvents = 'none';
-              // Keep handSig so later sync doesn't force full rebuild
               if (pSig) slot.dataset.handSig = pSig;
               setTimeout(() => { try { slot.innerHTML = ''; } catch (_) {} }, 260);
             } catch (_) {}
@@ -143,28 +147,20 @@ function softRenderPieces(areaEl) {
             break;
           }
         } else if (domSig && pSig && domSig !== pSig && p.used) {
-          // used piece sig drift — update quietly without rebuild
           try { slot.dataset.handSig = pSig; } catch (_) {}
         }
       }
       if (!needsFull) {
-        // Ensure visible unused slots stay interactive (clear stuck lifting)
+        // Only clear STUCK lifting (not the active drag slot)
         slots.forEach(s => {
+          if (heldSlot && s === heldSlot) return;
+          if (s.classList.contains('lifting')) return; // leave mid-lift alone
           if (!s.classList.contains('used')) {
-            s.classList.remove('lifting');
             s.classList.add('show');
             s.style.opacity = '1';
             s.style.visibility = '';
             s.style.pointerEvents = 'auto';
             s.style.touchAction = 'none';
-            s.style.width = '';
-            s.style.minWidth = '';
-            s.style.maxWidth = '';
-            s.style.height = '';
-            s.style.filter = '';
-            s.style.margin = '';
-            s.style.padding = '';
-            s.style.border = '';
           }
         });
         return;

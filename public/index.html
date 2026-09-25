@@ -31,12 +31,30 @@
   <div id="entryGate" class="entry-gate" hidden aria-hidden="true" style="display:none">
     <div class="entry-gate-bg" aria-hidden="true"></div>
     <div class="entry-gate-card" role="dialog" aria-labelledby="entryGateTitle" aria-modal="true">
+      <button type="button" class="entry-gate-close" id="entryGateClose" aria-label="Закрыть" hidden title="Назад">×</button>
       <div class="entry-gate-logo">Block Puzzle</div>
       <h2 id="entryGateTitle">Добро пожаловать</h2>
       <p class="entry-gate-lead">Войди в аккаунт или продолжай гостем</p>
       <div class="auth-tabs entry-gate-tabs">
         <button type="button" class="auth-tab on" data-entry-auth-tab="login" id="entryAuthTabLogin">Войти</button>
         <button type="button" class="auth-tab" data-entry-auth-tab="register" id="entryAuthTabRegister">Регистрация</button>
+      </div>
+      <div id="entryGateGuestBlock" class="entry-gate-guest-block">
+        <button type="button" class="ghost entry-gate-btn" id="entryGateGuest">
+          <span class="entry-gate-btn-ico">👤</span>
+          <span class="entry-gate-btn-text">
+            <strong>Играть гостем</strong>
+            <small>Данные на сервере живут до 48 часов</small>
+          </span>
+        </button>
+        <div id="entryGateGuestWarn" class="entry-gate-warn" hidden>
+          <p><strong>Внимание:</strong> гостевой прогресс на сервере удаляется примерно через <strong>48 часов</strong> бездействия. Трофеи, друзья и история не переносятся между устройствами. Зарегистрируйся, чтобы ничего не потерять.</p>
+          <div class="entry-gate-warn-actions">
+            <button type="button" class="primary" id="entryGateGuestConfirm">Понятно, играть гостем</button>
+            <button type="button" class="ghost" id="entryGateGuestCancel">Отмена</button>
+          </div>
+        </div>
+        <div class="entry-gate-or"><span>или войди / зарегистрируйся</span></div>
       </div>
       <form id="entryAuthForm" autocomplete="on">
         <div class="profile-field">
@@ -52,47 +70,25 @@
           <label for="entryAuthPassword">Пароль</label>
           <input id="entryAuthPassword" name="password" type="password" maxlength="72" placeholder="минимум 6 символов" autocomplete="current-password" required />
         </div>
+        <div class="profile-field" id="entryAuthPasswordConfirmField" hidden>
+          <label for="entryAuthPasswordConfirm">Повторите пароль</label>
+          <input id="entryAuthPasswordConfirm" name="password_confirm" type="password" maxlength="72" placeholder="ещё раз" autocomplete="new-password" />
+        </div>
         <div id="entryAuthError" class="auth-error" hidden></div>
         <button type="submit" class="primary" id="entryAuthSubmit" style="width:100%;min-height:42px;margin-top:8px">Войти</button>
       </form>
-      <div id="entryGateGuestBlock" class="entry-gate-guest-block">
-        <div class="entry-gate-or"><span>или</span></div>
-        <button type="button" class="ghost entry-gate-btn" id="entryGateGuest">
-          <span class="entry-gate-btn-ico">👤</span>
-          <span class="entry-gate-btn-text">
-            <strong>Играть гостем</strong>
-            <small>Данные на сервере живут до 48 часов</small>
-          </span>
-        </button>
-        <div id="entryGateGuestWarn" class="entry-gate-warn" hidden>
-          <p><strong>Внимание:</strong> гостевой прогресс на сервере удаляется примерно через <strong>48 часов</strong> бездействия. Трофеи, друзья и история не переносятся между устройствами. Зарегистрируйся, чтобы ничего не потерять.</p>
-          <div class="entry-gate-warn-actions">
-            <button type="button" class="primary" id="entryGateGuestConfirm">Понятно, играть гостем</button>
-            <button type="button" class="ghost" id="entryGateGuestCancel">Отмена</button>
-          </div>
-        </div>
-      </div>
     </div>
   </div>
   
     <script>
-  /* Early entry gate: hide game UI until account/guest is chosen */
+  /* Early: hide game UI until auth JS is ready — do NOT show incomplete entry gate (prevents jump) */
   (function () {
     try {
       var tok = localStorage.getItem('bp_auth_token');
       var guest = localStorage.getItem('bp_guest_ok') === '1';
       if (!tok && !guest) {
         document.documentElement.classList.add('entry-gate-pending');
-        document.addEventListener('DOMContentLoaded', function () {
-          try { document.body.classList.add('entry-gate-open'); } catch (e) {}
-          var el = document.getElementById('entryGate');
-          if (el) {
-            el.hidden = false;
-            el.style.display = 'flex';
-            el.classList.add('visible');
-            el.setAttribute('aria-hidden', 'false');
-          }
-        });
+        document.documentElement.classList.add('entry-gate-booting');
       }
     } catch (e) {}
   })();
@@ -121,6 +117,10 @@
         <div class="profile-field">
           <label for="authPassword">Пароль</label>
           <input id="authPassword" name="password" type="password" maxlength="72" placeholder="минимум 6 символов" autocomplete="current-password" required />
+        </div>
+        <div class="profile-field" id="authPasswordConfirmField" hidden>
+          <label for="authPasswordConfirm">Повторите пароль</label>
+          <input id="authPasswordConfirm" name="password_confirm" type="password" maxlength="72" placeholder="ещё раз" autocomplete="new-password" />
         </div>
         <div id="authError" class="auth-error" hidden></div>
         <button type="submit" class="primary" id="authSubmit" style="width:100%;min-height:42px;margin-top:8px">Войти</button>
@@ -782,7 +782,7 @@
         </div>
       </div>
       <div class="friend-add-row">
-        <input id="friendCodeInput" maxlength="6" placeholder="Код друга (6 символов)" data-i18n-placeholder="friends.code.ph" autocomplete="off" spellcheck="false" />
+        <input id="friendCodeInput" maxlength="12" placeholder="Код друга (6+ символов)" data-i18n-placeholder="friends.code.ph" autocomplete="off" spellcheck="false" />
         <button class="primary" id="btnAddFriend" data-i18n="friends.add">Добавить</button>
       </div>
       <button type="button" class="ghost friend-find-nick-btn" id="btnFindByNick" style="width:100%;margin-top:8px">Найти по нику</button>
@@ -830,6 +830,27 @@
       <div id="nickSearchResults" class="friend-find-list nick-search-results hide-scrollbar" style="max-height:40vh;overflow-y:auto;margin-bottom:10px"></div>
       <div class="friends-section-empty" id="nickSearchEmpty" style="display:none">Никого не нашли</div>
       <button type="button" class="ghost" id="btnNickSearchClose" style="width:100%">Закрыть</button>
+    </div>
+  </div>
+
+  <div class="overlay" id="friendMiniProfileModal" aria-hidden="true">
+    <div class="modal lobby-modal friend-mini-profile" role="dialog" aria-labelledby="friendMiniName">
+      <button type="button" class="friend-mini-close" id="btnFriendMiniClose" aria-label="Закрыть">×</button>
+      <div class="friend-mini-av" id="friendMiniAv"></div>
+      <h2 id="friendMiniName" class="friend-mini-name">—</h2>
+      <div class="friend-mini-bio" id="friendMiniCode"></div>
+      <div class="friend-mini-stats">
+        <div class="friend-mini-stat">
+          <div class="friend-mini-stat-val" id="friendMiniTrophies">0</div>
+          <div class="friend-mini-stat-label">Кубки</div>
+        </div>
+        <div class="friend-mini-stat">
+          <div class="friend-mini-stat-val" id="friendMiniWinrate">—</div>
+          <div class="friend-mini-stat-label">Winrate</div>
+        </div>
+      </div>
+      <div class="friend-mini-status" id="friendMiniStatus"></div>
+      <button type="button" class="ghost" id="btnFriendMiniClose2" style="width:100%;margin-top:12px">Закрыть</button>
     </div>
   </div>
 

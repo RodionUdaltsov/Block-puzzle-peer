@@ -3145,6 +3145,76 @@
   opacity: 0;
   transition: transform 0.55s cubic-bezier(0.22, 1, 0.36, 1), opacity 0.45s ease;
 }
+.entry-gate-close {
+  position: absolute;
+  top: 10px;
+  right: 12px;
+  z-index: 2;
+  width: 36px;
+  height: 36px;
+  border: none;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.06);
+  color: #c8e8dc;
+  font-size: 1.35rem;
+  line-height: 1;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0.85;
+  transition: background 0.15s ease, opacity 0.15s ease;
+}
+.entry-gate-close:hover {
+  background: rgba(255, 255, 255, 0.12);
+  opacity: 1;
+}
+.entry-gate-close[hidden] {
+  display: none !important;
+}
+
+/* While auth JS boots: solid cover, no incomplete gate flash */
+html.entry-gate-booting body {
+  overflow: hidden !important;
+}
+html.entry-gate-booting body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: 100040;
+  background: #050c0a;
+  pointer-events: all;
+}
+html.entry-gate-booting #entryGate {
+  visibility: hidden !important;
+  opacity: 0 !important;
+  pointer-events: none !important;
+}
+/* Reserve space for optional register fields — less jump when switching tabs */
+#entryAuthNickField,
+#entryAuthPasswordConfirmField {
+  min-height: 0;
+  transition: opacity 0.18s ease, max-height 0.22s ease;
+  overflow: hidden;
+}
+#entryAuthNickField[hidden],
+#entryAuthPasswordConfirmField[hidden] {
+  display: block !important;
+  visibility: hidden;
+  opacity: 0;
+  max-height: 0 !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  min-height: 0 !important;
+  pointer-events: none;
+  border: none !important;
+}
+#entryAuthNickField:not([hidden]),
+#entryAuthPasswordConfirmField:not([hidden]) {
+  opacity: 1;
+  max-height: 120px;
+}
+
 .entry-gate.visible .entry-gate-card {
   transform: translateY(0) scale(1);
   opacity: 1;
@@ -3283,10 +3353,14 @@ html.entry-gate-pending body {
 }
 
 .entry-gate-guest-block {
-  margin-top: 4px;
+  margin: 2px 0 6px;
   display: flex;
   flex-direction: column;
   gap: 10px;
+  flex-shrink: 0;
+}
+.entry-gate-guest-block[hidden] {
+  display: none !important;
 }
 .entry-gate-or {
   display: flex;

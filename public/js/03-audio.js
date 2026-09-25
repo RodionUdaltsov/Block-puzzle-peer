@@ -236,9 +236,9 @@ let mode = 'menu';
 let grid = [], score = 0;
 let best = parseInt(localStorage.getItem('bp_best')||'0',10); if (!Number.isFinite(best) || best < 0) best = 0;
 let rankedBest = parseInt(localStorage.getItem('bp_ranked_best')||'0',10); if (!Number.isFinite(rankedBest) || rankedBest < 0) rankedBest = 0;
-// TEST: plenty of diamonds for testing
-let diamonds = parseInt(localStorage.getItem('bp_diamonds')||'9999',10); if (!Number.isFinite(diamonds) || diamonds < 0) diamonds = 9999;
-if (diamonds < 9999) { diamonds = 9999; try { localStorage.setItem('bp_diamonds', String(diamonds)); } catch (_) {} }
+// Diamonds: keep stored value; default starter only when missing
+let diamonds = parseInt(localStorage.getItem('bp_diamonds') || '9999', 10);
+if (!Number.isFinite(diamonds) || diamonds < 0) diamonds = 9999;
 let trophies = parseInt(localStorage.getItem('bp_trophies')||'0',10); if (!Number.isFinite(trophies) || trophies < 0) trophies = 0;
 let pieces = [], selectedIdx = -1, dragPiece = null, isDragging = false;
 let lastPreview = null, boardRect = null, cellSize = 0, gap = 3;

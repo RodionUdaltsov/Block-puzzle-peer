@@ -175,6 +175,9 @@ function saveProfile(data) {
   }
   refreshProfileUI();
   try { updateMenuStats(); } catch (_) {}
+  // Push updated nick/avatar to server presence so friends list refreshes live
+  try { ensureFriendPresence(); } catch (_) {}
+  try { scheduleGuestProgressSync && scheduleGuestProgressSync(); } catch (_) {}
   return { ok: true };
 }
 function refreshProfileUI() {
@@ -186,7 +189,8 @@ function refreshProfileUI() {
     const badge = document.querySelector('.home-profile-badge');
     if (badge) {
       if (authToken && authAccount) {
-        badge.textContent = myNickname || authAccount.login || 'Аккаунт';
+        const st = (myStatus || '').trim();
+        badge.textContent = st || (typeof globalThis.t==='function'?globalThis.t('menu.account','Аккаунт'):'Аккаунт');
         badge.classList.remove('guest');
         badge.classList.add('account');
       } else {
@@ -841,14 +845,40 @@ function ensureFriendPresence() {
       trophies: typeof trophies === 'number' ? trophies : 0,
       avatarId: typeof myAvatarId !== 'undefined' ? myAvatarId : 'init',
       avatarCustom: (typeof myAvatarId !== 'undefined' && myAvatarId === 'custom' && myAvatarCustom) ? myAvatarCustom : '',
+      status: (typeof myStatus === 'string') ? myStatus : '',
       cosmeticsHint: hint
     });
   } catch (_) {}
 }
 
+/** Server may reassign friend code when the local one collides with another live guest. */
+(function bindPresenceOkHandler() {
+  if (typeof MatchClient === 'undefined') return;
+  try {
+    MatchClient.on('presence_ok', (data) => {
+      if (!data || !data.friendCode) return;
+      const serverCode = String(data.friendCode).toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 16);
+      if (!serverCode || serverCode.length < 4) return;
+      if (serverCode === myFriendCode) return;
+      // Accept server-assigned unique code (guests and anyone whose proposed code was taken)
+      myFriendCode = serverCode;
+      try { localStorage.setItem('bp_my_code', myFriendCode); } catch (_) {}
+      try {
+        const codeEl = document.getElementById('profileFriendCode');
+        if (codeEl) codeEl.textContent = myFriendCode;
+      } catch (_) {}
+      try {
+        const codeEl2 = document.getElementById('myFriendCode');
+        if (codeEl2) codeEl2.textContent = myFriendCode;
+      } catch (_) {}
+      try { scheduleGuestProgressSync && scheduleGuestProgressSync(); } catch (_) {}
+    });
+  } catch (_) {}
+})();
+
 
 function normalizeFriendCode(raw) {
-  return String(raw || '').trim().toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 6);
+  return String(raw || '').trim().toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 12);
 }
 
 function clearFriendRequestState(code) {
@@ -1349,6 +1379,48 @@ function setFriendPresence(code, state) {
   paintFriendStatusLine(code, state);
 }
 
+/** Apply live profile fields from presence_query / friend_profile onto local friends list. */
+function applyFriendProfileUpdate(code, info) {
+  code = normalizeFriendCode(code);
+  if (!code || !info || typeof info !== 'object') return false;
+  const f = friends.find(x => normalizeFriendCode(x.code) === code);
+  if (!f) return false;
+  let changed = false;
+  if (info.name && typeof info.name === 'string') {
+    const n = info.name.trim().slice(0, 24);
+    // Prefer real nick over placeholder guest/player names
+    if (n && n !== f.name) {
+      f.name = n;
+      changed = true;
+    }
+  }
+  if (typeof info.trophies === 'number' && isFinite(info.trophies)) {
+    const t = Math.max(0, info.trophies | 0);
+    if (f.trophies !== t) { f.trophies = t; changed = true; }
+  }
+  if (info.avatarId && String(info.avatarId) !== String(f.avatarId || '')) {
+    f.avatarId = String(info.avatarId).slice(0, 32);
+    changed = true;
+  }
+  if (typeof info.avatarCustom === 'string' && info.avatarCustom && f.avatarId === 'custom') {
+    if (f.avatarCustom !== info.avatarCustom) {
+      f.avatarCustom = info.avatarCustom.slice(0, 49152);
+      changed = true;
+    }
+  }
+  if (typeof info.wins === 'number') f.wins = info.wins | 0;
+  if (typeof info.played === 'number') f.played = info.played | 0;
+  if (info.winrate != null && isFinite(info.winrate)) f.winrate = info.winrate | 0;
+  if (typeof info.status === 'string') {
+    const st = info.status.slice(0, 80);
+    if (st !== (f.status || '')) { f.status = st; changed = true; }
+  }
+  if (changed) {
+    try { saveFriends(); } catch (_) {}
+  }
+  return changed;
+}
+
 function probeFriendOnline(code) {
   code = normalizeFriendCode(code);
   if (!code) return Promise.resolve(false);
@@ -1370,12 +1442,9 @@ function probeFriendOnline(code) {
       if (!data || !data.friends) return;
       const info = data.friends[code];
       if (info === undefined) return;
+      try { applyFriendProfileUpdate(code, info); } catch (_) {}
       if (info && info.online) {
         if (info.activity) setFriendActivity(code, info.activity);
-        if (typeof info.trophies === 'number') {
-          const f = friends.find(x => x.code === code);
-          if (f) { f.trophies = info.trophies; try { saveFriends(); } catch (_) {} }
-        }
         finish(true);
       } else {
         finish(false);
@@ -1395,18 +1464,75 @@ function probeFriendOnline(code) {
 async function refreshFriendsPresence() {
   if (friendPresenceBusy) return;
   if (!friends || !friends.length) return;
-  if (true /* no client mesh */) return;
+  if (typeof MatchClient === 'undefined') return;
   friendPresenceBusy = true;
   try {
-    // Probe sequentially with small gaps to avoid server spam
-    for (const f of friends.slice(0, 30)) {
+    const codes = [];
+    for (const f of friends.slice(0, 40)) {
       const c = normalizeFriendCode(f.code);
-      if (!c) continue;
-      await probeFriendOnline(c);
-      await new Promise(r => setTimeout(r, 180));
+      if (c) codes.push(c);
     }
-  } catch (_) {}
-  friendPresenceBusy = false;
+    if (!codes.length) {
+      friendPresenceBusy = false;
+      return;
+    }
+    for (const c of codes) setFriendPresence(c, 'checking');
+    let settled = false;
+    const onState = (data) => {
+      if (settled || !data || !data.friends) return;
+      settled = true;
+      try { MatchClient.off('presence_state', onState); } catch (_) {}
+      let anyProfileChange = false;
+      for (const code of codes) {
+        const info = data.friends[code];
+        if (!info) {
+          setFriendPresence(code, 'offline');
+          continue;
+        }
+        try {
+          if (applyFriendProfileUpdate(code, info)) anyProfileChange = true;
+        } catch (_) {}
+        if (info.online) {
+          setFriendPresence(code, 'online');
+          if (info.activity) setFriendActivity(code, info.activity);
+        } else {
+          setFriendPresence(code, 'offline');
+        }
+      }
+      // Re-render friends list when names/avatars changed so UI stays in sync
+      if (anyProfileChange) {
+        try {
+          const scr = document.getElementById('screenFriends');
+          if (scr && scr.classList.contains('active')) renderFriends(false);
+        } catch (_) {}
+      } else {
+        // Still refresh status lines without full re-render
+        try {
+          for (const code of codes) paintFriendStatusLine(code, getFriendPresence(code));
+        } catch (_) {}
+      }
+      friendPresenceBusy = false;
+    };
+    try { MatchClient.on('presence_state', onState); } catch (_) {}
+    setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      try { MatchClient.off('presence_state', onState); } catch (_) {}
+      for (const c of codes) {
+        if (getFriendPresence(c) === 'checking') setFriendPresence(c, 'offline');
+      }
+      friendPresenceBusy = false;
+    }, 6000);
+    try {
+      MatchClient.queryPresence(codes);
+    } catch (_) {
+      settled = true;
+      try { MatchClient.off('presence_state', onState); } catch (_) {}
+      friendPresenceBusy = false;
+    }
+  } catch (_) {
+    friendPresenceBusy = false;
+  }
 }
 
 function scheduleFriendsPresence() {
@@ -1446,6 +1572,135 @@ function scheduleActivityBroadcast() {
     try { broadcastMyActivity(false); } catch (_) {}
   }, 400);
 }
+
+function closeFriendMiniProfile() {
+  const modal = document.getElementById('friendMiniProfileModal');
+  if (!modal) return;
+  modal.classList.remove('visible');
+  modal.setAttribute('aria-hidden', 'true');
+  try { modal.style.display = ''; } catch (_) {}
+}
+
+function openFriendMiniProfile(friendOrCode) {
+  let code = '';
+  let local = null;
+  if (friendOrCode && typeof friendOrCode === 'object') {
+    local = friendOrCode;
+    code = normalizeFriendCode(friendOrCode.code);
+  } else {
+    code = normalizeFriendCode(friendOrCode);
+    local = friends.find(x => normalizeFriendCode(x.code) === code) || null;
+  }
+  if (!code) return;
+  const modal = document.getElementById('friendMiniProfileModal');
+  if (!modal) return;
+
+  const nameEl = document.getElementById('friendMiniName');
+  const codeEl = document.getElementById('friendMiniCode');
+  const tropEl = document.getElementById('friendMiniTrophies');
+  const wrEl = document.getElementById('friendMiniWinrate');
+  const stEl = document.getElementById('friendMiniStatus');
+  const avEl = document.getElementById('friendMiniAv');
+
+  const paint = (p) => {
+    const name = (p && p.name) || (local && local.name) || code;
+    const trophies = (p && typeof p.trophies === 'number') ? (p.trophies | 0)
+      : (local && typeof local.trophies === 'number') ? (local.trophies | 0) : 0;
+    const avatarId = (p && p.avatarId) || (local && local.avatarId) || 'init';
+    const avatarCustom = (p && p.avatarCustom) || (local && local.avatarCustom) || '';
+    let winrateStr = '—';
+    if (p && p.winrate != null && isFinite(p.winrate)) {
+      winrateStr = (p.winrate | 0) + '%';
+      if (typeof p.played === 'number' && p.played > 0) {
+        winrateStr += ' (' + (p.wins | 0) + '/' + (p.played | 0) + ')';
+      }
+    } else if (local && local.winrate != null && isFinite(local.winrate)) {
+      winrateStr = (local.winrate | 0) + '%';
+    }
+    if (nameEl) nameEl.textContent = name;
+    // Under nick: profile status text (not the code in CAPS)
+    const profileStatus = (p && typeof p.status === 'string' && p.status.trim())
+      ? p.status.trim()
+      : (local && typeof local.status === 'string' && local.status.trim())
+        ? local.status.trim()
+        : '';
+    if (codeEl) {
+      codeEl.textContent = profileStatus || '';
+      codeEl.style.display = profileStatus ? '' : 'none';
+      codeEl.classList.toggle('friend-mini-status-text', !!profileStatus);
+    }
+    if (tropEl) tropEl.textContent = '🏆 ' + trophies;
+    if (wrEl) wrEl.textContent = winrateStr;
+    // Online / activity line
+    if (stEl) {
+      const online = p ? !!p.online : (getFriendPresence(code) === 'online');
+      const act = (p && p.activity) || getFriendActivity(code);
+      if (online) {
+        stEl.textContent = act ? activityLabel(act) : 'В сети';
+        stEl.style.color = '#3dce6a';
+      } else {
+        stEl.textContent = 'Не в сети';
+        stEl.style.color = '';
+      }
+    }
+    if (avEl) {
+      avEl.innerHTML = '';
+      try {
+        renderAvatarInto(avEl, {
+          avatarId: avatarId,
+          nick: name,
+          custom: (avatarId === 'custom' && avatarCustom) ? avatarCustom : null,
+          big: true
+        });
+      } catch (_) {
+        avEl.textContent = String(name || code).slice(0, 2).toUpperCase();
+      }
+    }
+  };
+
+  // Show immediately with local data, then refresh from server
+  paint(null);
+  modal.classList.add('visible');
+  modal.setAttribute('aria-hidden', 'false');
+  try { modal.style.display = 'flex'; } catch (_) {}
+
+  if (typeof MatchClient === 'undefined') return;
+  let settled = false;
+  const onRes = (data) => {
+    if (settled) return;
+    if (!data || normalizeFriendCode(data.code) !== code) return;
+    settled = true;
+    try { MatchClient.off('friend_profile_result', onRes); } catch (_) {}
+    if (data.ok === false) return;
+    try { applyFriendProfileUpdate(code, data); } catch (_) {}
+    paint(data);
+    // Keep friends list in sync if still on the screen
+    try {
+      const scr = document.getElementById('screenFriends');
+      if (scr && scr.classList.contains('active')) renderFriends(false);
+    } catch (_) {}
+  };
+  try { MatchClient.on('friend_profile_result', onRes); } catch (_) {}
+  try {
+    if (typeof MatchClient.friendProfile === 'function') MatchClient.friendProfile(code);
+    else MatchClient.send({ type: 'friend_profile', code: code });
+  } catch (_) {}
+  setTimeout(() => {
+    if (settled) return;
+    settled = true;
+    try { MatchClient.off('friend_profile_result', onRes); } catch (_) {}
+  }, 8000);
+}
+
+(function bindFriendMiniProfileUI() {
+  if (window._friendMiniBound) return;
+  window._friendMiniBound = true;
+  document.getElementById('btnFriendMiniClose')?.addEventListener('click', closeFriendMiniProfile);
+  document.getElementById('btnFriendMiniClose2')?.addEventListener('click', closeFriendMiniProfile);
+  document.getElementById('friendMiniProfileModal')?.addEventListener('click', (e) => {
+    if (e.target && e.target.id === 'friendMiniProfileModal') closeFriendMiniProfile();
+  });
+})();
 
 function getFriendSearchQuery() {
   const el = document.getElementById('friendSearchInput');
@@ -1504,7 +1759,7 @@ function renderFriends(highlightNew) {
       </div>
     </div>`;
   }).join('');
-  // Paint real avatars into friend cards
+  // Paint real avatars into friend cards + open mini profile on click
   try {
     list.querySelectorAll('.f-av[data-av-fi]').forEach((avEl) => {
       const fi = parseInt(avEl.getAttribute('data-av-fi'), 10);
@@ -1525,6 +1780,13 @@ function renderFriends(highlightNew) {
           avEl.appendChild(d);
         }
       }
+      avEl.style.cursor = 'pointer';
+      avEl.title = 'Профиль';
+      avEl.addEventListener('click', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        try { openFriendMiniProfile(f); } catch (_) {}
+      });
     });
   } catch (_) {}
   list.querySelectorAll('.f-challenge').forEach(btn => {
@@ -1588,7 +1850,7 @@ function cleanupOutgoingSearch() {
 function sendFriendRequestToCode(code, displayName, opts) {
   opts = opts || {};
   code = normalizeFriendCode(code);
-  if (!code || code.length !== 6) {
+  if (!code || code.length < 6) {
     setFriendAddStatus('Нужен код из 6 символов', 'err');
     return;
   }
@@ -1704,7 +1966,7 @@ function addFriendByCode(raw) {
   }
 
   const asCode = normalizeFriendCode(typed);
-  if (asCode.length === 6) {
+  if (asCode.length >= 6) {
     sendFriendRequestToCode(asCode);
     return;
   }
@@ -1844,13 +2106,7 @@ function renderNickSearchResults(results, q) {
       closeNickSearchModal();
       const mainIn = document.getElementById('friendCodeInput');
       if (mainIn) mainIn.value = code;
-      try {
-        addFriendRecord(code, name, {
-          trophies: r.trophies,
-          avatarId: r.avatarId,
-          avatarCustom: r.avatarCustom
-        });
-      } catch (_) {}
+      // Only send invitation — do NOT add to friends until they accept
       sendFriendRequestToCode(code, name, { skipCheck: true });
     });
     card.appendChild(btn);
@@ -2088,12 +2344,25 @@ function startMatchWallClock(endTs) {
     } else if (!(typeof BPState.matchClockEndTs === 'number' && BPState.matchClockEndTs > 0)) {
       BPState.matchClockEndTs = Date.now() + Math.max(0, vsTimeLeft || vsDuration || 120) * 1000;
     }
-    vsTimeLeft = Math.max(0, Math.ceil((BPState.matchClockEndTs - Date.now()) / 1000));
+    // Before playStartTs show full duration (intro is not match time)
+    const playStart = (typeof BPState.matchPlayStartTs === 'number' && BPState.matchPlayStartTs > 0)
+      ? BPState.matchPlayStartTs : 0;
+    if (playStart && Date.now() < playStart) {
+      vsTimeLeft = (typeof vsDuration === 'number' ? vsDuration : 120) | 0;
+    } else {
+      vsTimeLeft = Math.max(0, Math.ceil((BPState.matchClockEndTs - Date.now()) / 1000));
+    }
     try { updateTimerDisplay(); } catch (_) {}
     if (vsTimerId) { try { clearInterval(vsTimerId); } catch (_) {} vsTimerId = null; }
     vsTimerId = setInterval(() => {
       if (!vsActive || BPState.matchEnded) return;
-      vsTimeLeft = Math.max(0, Math.ceil((BPState.matchClockEndTs - Date.now()) / 1000));
+      const ps = (typeof BPState.matchPlayStartTs === 'number' && BPState.matchPlayStartTs > 0)
+        ? BPState.matchPlayStartTs : 0;
+      if (ps && Date.now() < ps) {
+        vsTimeLeft = (typeof vsDuration === 'number' ? vsDuration : 120) | 0;
+      } else {
+        vsTimeLeft = Math.max(0, Math.ceil((BPState.matchClockEndTs - Date.now()) / 1000));
+      }
       try { updateTimerDisplay(); } catch (_) {}
       if (vsTimeLeft <= 0) {
         // Server-authoritative online/room: ONLY server may end the match.
@@ -2644,17 +2913,21 @@ function applyServerAccount(account) {
       myStatus = account.status;
       localStorage.setItem('bp_status', myStatus);
     }
-    if (Array.isArray(account.ownedSkins) && account.ownedSkins.length && typeof ownedSkins !== 'undefined') {
+    if (Array.isArray(account.ownedSkins) && typeof ownedSkins !== 'undefined') {
       try {
-        const free = ['default', 'ocean', 'forest'];
+        const free = (typeof FREE_SKIN_IDS !== 'undefined' && Array.isArray(FREE_SKIN_IDS))
+          ? FREE_SKIN_IDS.slice()
+          : ['default'];
         ownedSkins = account.ownedSkins.map(String);
         free.forEach((id) => { if (!ownedSkins.includes(id)) ownedSkins.push(id); });
         localStorage.setItem('bp_skins_owned', JSON.stringify(ownedSkins));
       } catch (_) {}
     }
-    if (Array.isArray(account.ownedBoards) && account.ownedBoards.length && typeof ownedBoards !== 'undefined') {
+    if (Array.isArray(account.ownedBoards) && typeof ownedBoards !== 'undefined') {
       try {
-        const freeB = ['field_default', 'field_slate', 'field_charcoal'];
+        const freeB = (typeof FREE_BOARD_IDS !== 'undefined' && Array.isArray(FREE_BOARD_IDS))
+          ? FREE_BOARD_IDS.slice()
+          : ['field_default'];
         ownedBoards = account.ownedBoards.map(String);
         freeB.forEach((id) => { if (!ownedBoards.includes(id)) ownedBoards.push(id); });
         localStorage.setItem('bp_boards_owned', JSON.stringify(ownedBoards));
@@ -2795,12 +3068,13 @@ function updateAccountUI() {
       pill.hidden = false;
     }
   }
-  // Home profile badge
+  // Home profile badge — status under nick (not the nick again)
   try {
     const badge = document.querySelector('.home-profile-badge');
     if (badge) {
       if (isIn) {
-        badge.textContent = myNickname || (authAccount && authAccount.login) || 'Аккаунт';
+        const st = (myStatus || '').trim();
+        badge.textContent = st || (typeof globalThis.t==='function'?globalThis.t('menu.account','Аккаунт'):'Аккаунт');
         badge.classList.remove('guest');
         badge.classList.add('account');
       } else {
@@ -2817,7 +3091,7 @@ function updateAccountUI() {
   try { setProfileNameStatusLocked(!isIn); } catch (_) {}
 }
 
-function showAuthLoading(text) {
+function showAuthLoading(text, subText) {
   let el = document.getElementById('authLoadingOverlay');
   if (!el) {
     el = document.createElement('div');
@@ -2830,36 +3104,43 @@ function showAuthLoading(text) {
       '<div class="auth-load-sub" id="authLoadSub">Синхронизация прогресса</div>' +
       '</div>';
     document.body.appendChild(el);
-    // Inject minimal styles once
+    // Inject minimal styles once — z-index ABOVE entry-gate (100000)
     if (!document.getElementById('authLoadStyles')) {
       const st = document.createElement('style');
       st.id = 'authLoadStyles';
       st.textContent =
-        '#authLoadingOverlay{position:fixed;inset:0;z-index:99999;display:flex;align-items:center;justify-content:center;' +
-        'background:rgba(4,12,10,.72);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);opacity:0;transition:opacity .28s ease;pointer-events:none}' +
+        '#authLoadingOverlay{position:fixed;inset:0;z-index:100050;display:flex;align-items:center;justify-content:center;' +
+        'background:rgba(4,12,10,.82);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);opacity:0;transition:opacity .25s ease;pointer-events:none}' +
         '#authLoadingOverlay.visible{opacity:1;pointer-events:auto}' +
         '.auth-load-card{display:flex;flex-direction:column;align-items:center;gap:14px;padding:28px 32px;border-radius:20px;' +
-        'background:linear-gradient(160deg,rgba(20,40,36,.95),rgba(10,22,20,.95));border:1px solid rgba(0,212,170,.22);box-shadow:0 20px 60px rgba(0,0,0,.45);min-width:220px}' +
+        'background:linear-gradient(160deg,rgba(20,40,36,.97),rgba(10,22,20,.97));border:1px solid rgba(0,212,170,.28);box-shadow:0 20px 60px rgba(0,0,0,.55);min-width:240px}' +
         '.auth-load-spin{width:42px;height:42px;border-radius:50%;border:3px solid rgba(0,212,170,.18);border-top-color:#00d4aa;' +
         'animation:authSpin .75s linear infinite}' +
         '@keyframes authSpin{to{transform:rotate(360deg)}}' +
-        '.auth-load-title{font-weight:800;font-size:1.05rem;color:#e8fff8}' +
-        '.auth-load-sub{font-size:.8rem;opacity:.65;color:#b8e8d8}';
+        '.auth-load-title{font-weight:800;font-size:1.05rem;color:#e8fff8;text-align:center}' +
+        '.auth-load-sub{font-size:.8rem;opacity:.7;color:#b8e8d8;text-align:center}';
       document.head.appendChild(st);
     }
   }
   const title = document.getElementById('authLoadTitle');
   const sub = document.getElementById('authLoadSub');
   if (title) title.textContent = text || 'Загрузка аккаунта…';
-  if (sub) sub.textContent = 'Синхронизация прогресса';
-  el.classList.add('visible');
+  if (sub) sub.textContent = subText || 'Синхронизация прогресса';
   el.style.display = 'flex';
+  el.style.zIndex = '100050';
+  // Force reflow so opacity transition always plays
+  try { void el.offsetWidth; } catch (_) {}
+  el.classList.add('visible');
+  el.style.opacity = '1';
+  el.style.pointerEvents = 'auto';
 }
 function hideAuthLoading() {
   const el = document.getElementById('authLoadingOverlay');
   if (!el) return;
   el.classList.remove('visible');
-  setTimeout(() => { try { el.style.display = 'none'; } catch (_) {} }, 300);
+  el.style.opacity = '0';
+  el.style.pointerEvents = 'none';
+  setTimeout(() => { try { el.style.display = 'none'; } catch (_) {} }, 320);
 }
 
 function snapshotGuestProgress() {
@@ -2879,15 +3160,134 @@ function snapshotGuestProgress() {
     nick: typeof myNickname === 'string' ? myNickname : null,
     status: typeof myStatus === 'string' ? myStatus : null,
     avatarId: typeof myAvatarId === 'string' ? myAvatarId : null,
-    avatarCustom: typeof myAvatarCustom === 'string' ? myAvatarCustom : null
+    avatarCustom: typeof myAvatarCustom === 'string' ? myAvatarCustom : null,
+    friendCode: (typeof myFriendCode === 'string' && myFriendCode)
+      ? String(myFriendCode).toUpperCase()
+      : (function () {
+          try { return String(localStorage.getItem('bp_my_code') || '').toUpperCase() || null; } catch (_) { return null; }
+        })()
   };
 }
 
-/** On login: wipe entire guest progress — account is the only source of truth. */
+/** True if nick looks like auto-generated guest default (PlayerABC / Гость / …). */
+function isDefaultGuestNick(n) {
+  const s = String(n || '').trim();
+  if (!s) return true;
+  if (s === 'Гость' || s === 'Guest' || s === 'Игрок') return true;
+  if (/^Player[A-Z0-9]{0,8}$/i.test(s)) return true;
+  if (/^Игрок\s/i.test(s)) return true;
+  return false;
+}
+
+/** Merge local guest + IP-bound progress for registration transfer. */
+function collectGuestProgressForRegister() {
+  const local = snapshotGuestProgress() || {};
+  const ip = (typeof _ipGuestProgress !== 'undefined' && _ipGuestProgress) ? _ipGuestProgress : null;
+  if (!ip) return local;
+
+  // Start from IP, then layer local — but never let empty local arrays wipe IP data
+  const merged = Object.assign({}, ip);
+
+  // Currencies: max of both
+  try {
+    merged.diamonds = Math.max(
+      typeof ip.diamonds === 'number' ? ip.diamonds : 0,
+      typeof local.diamonds === 'number' ? local.diamonds : 0
+    );
+    merged.trophies = Math.max(
+      typeof ip.trophies === 'number' ? ip.trophies : 0,
+      typeof local.trophies === 'number' ? local.trophies : 0
+    );
+    merged.best = Math.max(
+      typeof ip.best === 'number' ? ip.best : 0,
+      typeof local.best === 'number' ? local.best : 0
+    );
+  } catch (_) {}
+
+  // Cosmetics inventory: union
+  try {
+    const skins = [];
+    (Array.isArray(ip.ownedSkins) ? ip.ownedSkins : []).forEach((x) => { if (x) skins.push(String(x)); });
+    (Array.isArray(local.ownedSkins) ? local.ownedSkins : []).forEach((x) => { if (x) skins.push(String(x)); });
+    if (skins.length) merged.ownedSkins = Array.from(new Set(skins));
+  } catch (_) {}
+  try {
+    const boards = [];
+    (Array.isArray(ip.ownedBoards) ? ip.ownedBoards : []).forEach((x) => { if (x) boards.push(String(x)); });
+    (Array.isArray(local.ownedBoards) ? local.ownedBoards : []).forEach((x) => { if (x) boards.push(String(x)); });
+    if (boards.length) merged.ownedBoards = Array.from(new Set(boards));
+  } catch (_) {}
+
+  // Equipped: prefer local if set
+  if (local.skinId) merged.skinId = local.skinId;
+  if (local.boardId) merged.boardId = local.boardId;
+  if (local.avatarId) merged.avatarId = local.avatarId;
+  if (typeof local.avatarCustom === 'string' && local.avatarCustom) merged.avatarCustom = local.avatarCustom;
+  if (typeof local.status === 'string' && local.status) merged.status = local.status;
+
+  // Friend code: local session first
+  if (local.friendCode) merged.friendCode = local.friendCode;
+  else if (ip.friendCode) merged.friendCode = ip.friendCode;
+
+  // Friends: union by code
+  try {
+    const map = new Map();
+    (Array.isArray(ip.friends) ? ip.friends : []).forEach((f) => {
+      if (f && f.code) map.set(String(f.code).toUpperCase(), f);
+    });
+    (Array.isArray(local.friends) ? local.friends : []).forEach((f) => {
+      if (f && f.code) map.set(String(f.code).toUpperCase(), f);
+    });
+    merged.friends = Array.from(map.values());
+  } catch (_) {}
+
+  // History: prefer longer / merge by id
+  try {
+    const byId = new Map();
+    (Array.isArray(ip.history) ? ip.history : []).forEach((h, i) => {
+      if (!h) return;
+      byId.set(String(h.id || ('ip' + i)), h);
+    });
+    (Array.isArray(local.history) ? local.history : []).forEach((h, i) => {
+      if (!h) return;
+      byId.set(String(h.id || ('loc' + i)), h);
+    });
+    merged.history = Array.from(byId.values()).slice(0, 30);
+  } catch (_) {}
+
+  // Achievements: merge
+  try {
+    merged.achievements = Object.assign(
+      {},
+      (ip.achievements && typeof ip.achievements === 'object') ? ip.achievements : {},
+      (local.achievements && typeof local.achievements === 'object') ? local.achievements : {}
+    );
+  } catch (_) {}
+
+  // Nick is NOT transferred to registration — form/login wins on server.
+  // Still keep best available guest nick in snapshot for display only.
+  try {
+    const lNick = local.nick ? String(local.nick) : '';
+    const iNick = ip.nick ? String(ip.nick) : '';
+    if (!isDefaultGuestNick(lNick)) merged.nick = lNick;
+    else if (!isDefaultGuestNick(iNick)) merged.nick = iNick;
+    else merged.nick = lNick || iNick || null;
+  } catch (_) {}
+
+  return merged;
+}
+try { window.collectGuestProgressForRegister = collectGuestProgressForRegister; } catch (_) {}
+
+/**
+ * Wipe ALL local progress to a clean slate.
+ * Account data on the server is NOT touched — only this device's local state.
+ * Generates a new friend code so the guest does not inherit the previous
+ * account's server cosmetics / presence profile.
+ */
 function discardGuestProgressFully() {
   try {
     trophies = 0;
-    diamonds = 0;
+    diamonds = 9999;
     best = 0;
     friends = [];
     matchHistory = [];
@@ -2895,13 +3295,17 @@ function discardGuestProgressFully() {
     try { localStorage.setItem('bp_friends', '[]'); } catch (_) {}
     try { localStorage.setItem('bp_history', '[]'); } catch (_) {}
     try { localStorage.setItem('bp_trophies', '0'); } catch (_) {}
-    try { localStorage.setItem('bp_diamonds', '0'); } catch (_) {}
+    try { localStorage.setItem('bp_diamonds', '9999'); } catch (_) {}
     try { localStorage.setItem('bp_best', '0'); } catch (_) {}
     try { localStorage.removeItem('bp_status'); myStatus = ''; } catch (_) {}
-    // Reset skins/boards to free defaults (account will overwrite via applyServerAccount)
+    // Reset skins/boards to base defaults only (no free pack)
     try {
-      ownedSkins = ['default', 'ocean', 'forest'];
-      ownedBoards = ['field_default', 'field_slate', 'field_charcoal'];
+      ownedSkins = (typeof FREE_SKIN_IDS !== 'undefined' && Array.isArray(FREE_SKIN_IDS))
+        ? FREE_SKIN_IDS.slice()
+        : ['default'];
+      ownedBoards = (typeof FREE_BOARD_IDS !== 'undefined' && Array.isArray(FREE_BOARD_IDS))
+        ? FREE_BOARD_IDS.slice()
+        : ['field_default'];
       equippedSkinId = 'default';
       equippedBoardId = 'field_default';
       localStorage.setItem('bp_skins_owned', JSON.stringify(ownedSkins));
@@ -2913,46 +3317,160 @@ function discardGuestProgressFully() {
     } catch (_) {}
     try { localStorage.removeItem('bp_avatar_custom'); myAvatarCustom = ''; } catch (_) {}
     try { myAvatarId = 'init'; localStorage.setItem('bp_avatar', 'init'); } catch (_) {}
+    // New local identity — do not keep previous account friend code / nick
+    try {
+      if (typeof genCode === 'function') {
+        myFriendCode = genCode(6);
+      } else {
+        const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+        let s = '';
+        for (let i = 0; i < 6; i++) s += chars[Math.floor(Math.random() * chars.length)];
+        myFriendCode = s;
+      }
+      localStorage.setItem('bp_my_code', myFriendCode);
+    } catch (_) {}
+    try {
+      myNickname = 'Гость';
+      localStorage.setItem('bp_nickname', 'Гость');
+    } catch (_) {}
+    try { localStorage.removeItem('bp_guest_shop_warned'); } catch (_) {}
+    try { sessionStorage.removeItem('bp_guest_shop_warned'); } catch (_) {}
   } catch (_) {}
 }
 
 async function finishAuthSuccess(account, mode) {
-  showAuthLoading(mode === 'register' ? 'Создаём аккаунт…' : 'Входим в аккаунт…');
+  // If registering after browser wipe: restore IP guest progress into local state first
+  // so snapshotGuestProgress() / migration carries diamonds, skins, etc.
+  if (mode === 'register') {
+    try {
+      if (_ipGuestProgress) applyGuestProgressSnapshot(_ipGuestProgress);
+      else if (account && account._guestProgress) applyGuestProgressSnapshot(account._guestProgress);
+    } catch (_) {}
+  }
+  const loadTitle = mode === 'register' ? 'Создаём аккаунт…' : 'Входим в аккаунт…';
+  const loadSub = mode === 'register' ? 'Аккаунт создан, загружаем данные…' : 'Загрузка данных с сервера…';
+  const t0 = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
+  // Loading MUST be above entry-gate (z-index fixed in showAuthLoading)
+  showAuthLoading(loadTitle, loadSub);
+  // Let the overlay paint before heavy work / closing the gate
+  await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
   try {
-    const guestSnap = snapshotGuestProgress();
+    // Prefer merged local+IP guest progress for migration
+    let guestSnap = snapshotGuestProgress();
+    try {
+      if (mode === 'register') {
+        const merged = collectGuestProgressForRegister();
+        if (merged) guestSnap = merged;
+      }
+    } catch (_) {}
     if (mode === 'login') {
       // Full wipe of guest — nothing carries over on login
       discardGuestProgressFully();
     }
     applyServerAccount(account);
     if (mode === 'register') {
-      // Migrate full guest progress onto the new account (incl. skins, purchases, ach)
+      // Prefer guest friend code if server kept it (or if account has it)
       try {
-        if (guestSnap.trophies > (trophies | 0)) trophies = guestSnap.trophies;
-        if (guestSnap.diamonds > (diamonds | 0)) diamonds = guestSnap.diamonds;
-        if (guestSnap.best > (best | 0)) best = guestSnap.best;
-        if (guestSnap.ownedSkins && guestSnap.ownedSkins.length) {
-          const set = new Set([...(ownedSkins || []), ...guestSnap.ownedSkins]);
-          ownedSkins = Array.from(set);
+        const gCode = guestSnap && guestSnap.friendCode
+          ? String(guestSnap.friendCode).toUpperCase()
+          : '';
+        const aCode = account && account.friendCode
+          ? String(account.friendCode).toUpperCase()
+          : '';
+        if (gCode && aCode && gCode === aCode) {
+          myFriendCode = gCode;
+          localStorage.setItem('bp_my_code', gCode);
+        } else if (aCode) {
+          myFriendCode = aCode;
+          localStorage.setItem('bp_my_code', aCode);
         }
-        if (guestSnap.ownedBoards && guestSnap.ownedBoards.length) {
-          const set = new Set([...(ownedBoards || []), ...guestSnap.ownedBoards]);
-          ownedBoards = Array.from(set);
+      } catch (_) {}
+      // Server account is the converted guest — sole source of truth for progress.
+      // Re-apply only to fill gaps if server omitted a field; never re-introduce local defaults (9999).
+      try {
+        if (account && typeof account.trophies === 'number') {
+          trophies = Math.max(0, account.trophies | 0);
+        } else if (guestSnap && typeof guestSnap.trophies === 'number') {
+          trophies = Math.max(0, guestSnap.trophies | 0);
         }
-        if (guestSnap.skinId) equippedSkinId = guestSnap.skinId;
-        if (guestSnap.boardId) equippedBoardId = guestSnap.boardId;
-        if (guestSnap.avatarId && (!account.avatarId || account.avatarId === 'init')) {
+        if (account && typeof account.diamonds === 'number') {
+          diamonds = Math.max(0, account.diamonds | 0);
+        } else if (guestSnap && typeof guestSnap.diamonds === 'number') {
+          diamonds = Math.max(0, guestSnap.diamonds | 0);
+        }
+        if (account && typeof account.best === 'number') {
+          best = Math.max(0, account.best | 0);
+        } else if (guestSnap && typeof guestSnap.best === 'number') {
+          best = Math.max(0, guestSnap.best | 0);
+        }
+
+        // Cosmetics inventory — account (converted guest) first, then guest snap gaps
+        {
+          const free = (typeof FREE_SKIN_IDS !== 'undefined' && Array.isArray(FREE_SKIN_IDS))
+            ? FREE_SKIN_IDS : ['default'];
+          const fromAcc = (account && Array.isArray(account.ownedSkins) && account.ownedSkins.length)
+            ? account.ownedSkins : [];
+          const fromGuest = (guestSnap && guestSnap.ownedSkins && guestSnap.ownedSkins.length)
+            ? guestSnap.ownedSkins : [];
+          ownedSkins = Array.from(new Set([
+            ...fromAcc.map(String),
+            ...fromGuest.map(String),
+            ...free.map(String)
+          ].filter(Boolean)));
+        }
+        {
+          const freeB = (typeof FREE_BOARD_IDS !== 'undefined' && Array.isArray(FREE_BOARD_IDS))
+            ? FREE_BOARD_IDS : ['field_default'];
+          const fromAcc = (account && Array.isArray(account.ownedBoards) && account.ownedBoards.length)
+            ? account.ownedBoards : [];
+          const fromGuest = (guestSnap && guestSnap.ownedBoards && guestSnap.ownedBoards.length)
+            ? guestSnap.ownedBoards : [];
+          ownedBoards = Array.from(new Set([
+            ...fromAcc.map(String),
+            ...fromGuest.map(String),
+            ...freeB.map(String)
+          ].filter(Boolean)));
+        }
+        if (account && account.skinId) equippedSkinId = account.skinId;
+        else if (guestSnap && guestSnap.skinId) equippedSkinId = guestSnap.skinId;
+        if (account && account.boardId) equippedBoardId = account.boardId;
+        else if (guestSnap && guestSnap.boardId) equippedBoardId = guestSnap.boardId;
+
+        // Profile cosmetics
+        if (guestSnap.avatarId) {
           myAvatarId = guestSnap.avatarId;
           try { localStorage.setItem('bp_avatar', myAvatarId); } catch (_) {}
         }
-        if (guestSnap.avatarCustom && !account.avatarCustom) {
+        if (guestSnap.avatarCustom) {
           myAvatarCustom = guestSnap.avatarCustom;
           try { localStorage.setItem('bp_avatar_custom', myAvatarCustom); } catch (_) {}
+        } else if (guestSnap.avatarCustom === '') {
+          myAvatarCustom = '';
+          try { localStorage.removeItem('bp_avatar_custom'); } catch (_) {}
         }
-        if (guestSnap.status && !account.status) {
+        if (typeof guestSnap.status === 'string' && guestSnap.status) {
           myStatus = guestSnap.status;
           try { localStorage.setItem('bp_status', myStatus); } catch (_) {}
         }
+
+        // Nick: ALWAYS from registration account (form nick || login). Never keep PlayerABC.
+        try {
+          const regNick = (account && (account.nick || account.login))
+            ? String(account.nick || account.login).slice(0, 24)
+            : '';
+          if (regNick) {
+            myNickname = regNick;
+            localStorage.setItem('bp_nickname', myNickname);
+          }
+          // Reflect in profile «Имя и статус» inputs
+          try {
+            const nickIn = document.getElementById('profileNickInput');
+            if (nickIn) nickIn.value = myNickname || '';
+            if (typeof profileDraft === 'object' && profileDraft) profileDraft.nick = myNickname || '';
+          } catch (_) {}
+        } catch (_) {}
+
+        // Social / history / achievements — full guest carry-over
         if (guestSnap.friends && guestSnap.friends.length) {
           try { mergeFriendsFromServer(guestSnap.friends); } catch (_) {}
         }
@@ -2961,26 +3479,46 @@ async function finishAuthSuccess(account, mode) {
         }
         if (guestSnap.achievements && typeof guestSnap.achievements === 'object') {
           try {
-            const merged = Object.assign({}, guestSnap.achievements, achProgress || {});
+            const merged = Object.assign({}, guestSnap.achievements);
             for (const k of Object.keys(guestSnap.achievements)) {
               const g = guestSnap.achievements[k];
-              const a = (achProgress && achProgress[k]) || 0;
-              if (typeof g === 'number' && typeof a === 'number') merged[k] = Math.max(g, a);
+              if (typeof g === 'number') merged[k] = g;
               else if (g) merged[k] = g;
             }
             achProgress = merged;
             localStorage.setItem('bp_ach', JSON.stringify(achProgress));
           } catch (_) {}
         }
+
+        // Persist local mirror
         try { localStorage.setItem('bp_trophies', String(trophies)); } catch (_) {}
         try { localStorage.setItem('bp_diamonds', String(diamonds)); } catch (_) {}
         try { localStorage.setItem('bp_best', String(best)); } catch (_) {}
         try { localStorage.setItem('bp_skins_owned', JSON.stringify(ownedSkins)); } catch (_) {}
         try { localStorage.setItem('bp_boards_owned', JSON.stringify(ownedBoards)); } catch (_) {}
+        try {
+          if (equippedSkinId) {
+            localStorage.setItem('bp_skin_equipped', equippedSkinId);
+            localStorage.setItem('bp_skin', equippedSkinId);
+          }
+          if (equippedBoardId) {
+            localStorage.setItem('bp_board_equipped', equippedBoardId);
+            localStorage.setItem('bp_board', equippedBoardId);
+          }
+        } catch (_) {}
+        try { if (typeof applyEquippedSkin === 'function') applyEquippedSkin(); } catch (_) {}
+        try { if (typeof applyEquippedBoard === 'function') applyEquippedBoard(); } catch (_) {}
       } catch (_) {}
     }
     try { localStorage.setItem('bp_guest_ok', '1'); } catch (_) {}
+    // Device is now bound to a real account — guest option locked until account delete
+    markDeviceHadBoundAccount();
+    // Keep loading visible while gate closes under it
     try { hideEntryGate(); } catch (_) {}
+    showAuthLoading(
+      mode === 'register' ? 'Загрузка аккаунта…' : 'Загрузка аккаунта…',
+      'Синхронизация прогресса с сервером'
+    );
     // Persist full progress to account
     try {
       await syncProfileToServer({
@@ -3004,41 +3542,324 @@ async function finishAuthSuccess(account, mode) {
     try {
       if (typeof MatchClient !== 'undefined' && MatchClient.cosmeticsGet) MatchClient.cosmeticsGet();
     } catch (_) {}
+    try {
+      // Keep profile form fields in sync (Имя и статус)
+      const nickIn = document.getElementById('profileNickInput');
+      if (nickIn) nickIn.value = myNickname || '';
+      const stIn = document.getElementById('profileStatusInput');
+      if (stIn) stIn.value = myStatus || '';
+      if (typeof profileDraft === 'object' && profileDraft) {
+        profileDraft.nick = myNickname || '';
+        profileDraft.status = myStatus || '';
+        profileDraft.avatarId = myAvatarId;
+        profileDraft.custom = myAvatarCustom;
+      }
+    } catch (_) {}
     try { if (typeof refreshProfileUI === 'function') refreshProfileUI(); } catch (_) {}
     try { if (typeof updateAccountUI === 'function') updateAccountUI(); } catch (_) {}
     try { if (typeof updateMenuStats === 'function') updateMenuStats(); } catch (_) {}
     try { if (typeof renderShop === 'function') renderShop(); } catch (_) {}
     try { if (typeof updateAchievementsButton === 'function') updateAchievementsButton(); } catch (_) {}
-    await new Promise((r) => setTimeout(r, 800));
+    // Minimum visible loading time so registration never feels instant
+    const elapsed = ((typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now()) - t0;
+    const minMs = mode === 'register' ? 1400 : 1100;
+    if (elapsed < minMs) {
+      await new Promise((r) => setTimeout(r, minMs - elapsed));
+    }
   } finally {
     hideAuthLoading();
   }
   try {
     if (typeof showInfoToast === 'function') {
-      showInfoToast('Аккаунт', mode === 'register' ? 'Регистрация успешна — прогресс перенесён' : 'Вход выполнен', 'ok');
+      showInfoToast('Аккаунт', mode === 'register' ? 'Регистрация успешна' : 'Вход выполнен', 'ok');
     }
   } catch (_) {}
 }
 
+/** When true, entry gate shows × to dismiss (guest already active — just cancel login/register). */
+let entryGateDismissible = false;
+/** When true, «Играть гостем» is allowed (ONLY first visit). Never from profile. */
+let entryGateShowGuest = false;
+
+/** Device once registered/logged in — no more guest accounts until account delete. */
+function deviceHadBoundAccount() {
+  try { return localStorage.getItem('bp_device_had_account') === '1'; } catch (_) { return false; }
+}
+function markDeviceHadBoundAccount() {
+  try { localStorage.setItem('bp_device_had_account', '1'); } catch (_) {}
+}
+function clearDeviceHadBoundAccount() {
+  try { localStorage.removeItem('bp_device_had_account'); } catch (_) {}
+}
+/** Server IP binding state (survives browser wipe). */
+let _ipGuestBlocked = false;      // cannot CREATE a new guest
+let _ipCanResumeGuest = false;    // can CONTINUE previous IP guest
+let _ipGuestProgress = null;      // snapshot from server
+let _ipHasRealAccount = false;
+function ipBlocksGuest() {
+  return !!_ipGuestBlocked;
+}
+function ipCanResumeGuest() {
+  return !!_ipCanResumeGuest;
+}
+function getIpGuestProgress() {
+  return _ipGuestProgress;
+}
+/**
+ * Ask server whether guest is allowed / resumable for this client IP.
+ */
+async function refreshGuestAllowedFromServer() {
+  try {
+    const { ok, data } = await apiFetch('/api/auth/guest-allowed');
+    if (ok && data && data.ok) {
+      _ipHasRealAccount = !!data.bound;
+      _ipCanResumeGuest = !!data.canResumeGuest;
+      _ipGuestProgress = data.guestProgress || null;
+      if (data.bound) {
+        _ipGuestBlocked = true;
+        markDeviceHadBoundAccount();
+        return false;
+      }
+      if (data.guestAllowed === false) {
+        // IP used (guest or account) — no NEW guest
+        _ipGuestBlocked = true;
+        if (!_ipCanResumeGuest) markDeviceHadBoundAccount();
+        return false;
+      }
+      _ipGuestBlocked = false;
+      return true;
+    }
+  } catch (_) {}
+  return !deviceHadBoundAccount();
+}
+/** Apply server-stored guest progress into local state (after browser wipe resume). */
+function applyGuestProgressSnapshot(snap) {
+  if (!snap || typeof snap !== 'object') return;
+  try {
+    if (typeof snap.trophies === 'number') {
+      trophies = Math.max(0, snap.trophies | 0);
+      localStorage.setItem('bp_trophies', String(trophies));
+    }
+    if (typeof snap.diamonds === 'number') {
+      diamonds = Math.max(0, snap.diamonds | 0);
+      localStorage.setItem('bp_diamonds', String(diamonds));
+    }
+    if (typeof snap.best === 'number') {
+      best = Math.max(0, snap.best | 0);
+      localStorage.setItem('bp_best', String(best));
+    }
+    if (Array.isArray(snap.ownedSkins) && snap.ownedSkins.length) {
+      ownedSkins = snap.ownedSkins.slice();
+      try { localStorage.setItem('bp_owned_skins', JSON.stringify(ownedSkins)); } catch (_) {}
+    }
+    if (Array.isArray(snap.ownedBoards) && snap.ownedBoards.length) {
+      ownedBoards = snap.ownedBoards.slice();
+      try { localStorage.setItem('bp_owned_boards', JSON.stringify(ownedBoards)); } catch (_) {}
+    }
+    if (snap.skinId) {
+      equippedSkinId = snap.skinId;
+      try { localStorage.setItem('bp_skin', snap.skinId); } catch (_) {}
+    }
+    if (snap.boardId) {
+      equippedBoardId = snap.boardId;
+      try { localStorage.setItem('bp_board', snap.boardId); } catch (_) {}
+    }
+    if (typeof snap.nick === 'string' && snap.nick) {
+      myNickname = snap.nick;
+      try { localStorage.setItem('bp_nickname', snap.nick); } catch (_) {}
+    }
+    if (typeof snap.status === 'string') {
+      myStatus = snap.status;
+      try { localStorage.setItem('bp_status', snap.status); } catch (_) {}
+    }
+    if (typeof snap.avatarId === 'string') {
+      myAvatarId = snap.avatarId;
+      try { localStorage.setItem('bp_avatar_id', snap.avatarId); } catch (_) {}
+    }
+    if (typeof snap.avatarCustom === 'string') {
+      myAvatarCustom = snap.avatarCustom;
+      try { localStorage.setItem('bp_avatar_custom', snap.avatarCustom); } catch (_) {}
+    }
+    if (snap.friendCode) {
+      myFriendCode = String(snap.friendCode).toUpperCase();
+      try { localStorage.setItem('bp_my_code', myFriendCode); } catch (_) {}
+    }
+    if (Array.isArray(snap.friends)) {
+      try { mergeFriendsFromServer(snap.friends); } catch (_) {
+        friends = snap.friends.slice();
+        try { localStorage.setItem('bp_friends', JSON.stringify(friends)); } catch (_) {}
+      }
+    }
+    if (Array.isArray(snap.history)) {
+      try { mergeHistoryFromServer(snap.history); } catch (_) {
+        matchHistory = snap.history.slice();
+        try { localStorage.setItem('bp_history', JSON.stringify(matchHistory)); } catch (_) {}
+      }
+    }
+    if (snap.achievements && typeof snap.achievements === 'object') {
+      try {
+        achProgress = Object.assign({}, snap.achievements);
+        localStorage.setItem('bp_ach', JSON.stringify(achProgress));
+      } catch (_) {}
+    }
+  } catch (_) {}
+}
+/** Push current local guest progress to server (IP-bound). */
+let _guestSyncInFlight = false;
+let _guestSyncTimer = null;
+let _guestSyncLastAt = 0;
+
+function buildGuestProgressPayload(full) {
+  const progress = snapshotGuestProgress();
+  try {
+    if (typeof myFriendCode === 'string' && myFriendCode) progress.friendCode = myFriendCode;
+  } catch (_) {}
+  // Skip heavy fields on frequent sync to avoid body limits / lag
+  if (!full) {
+    try { delete progress.avatarCustom; } catch (_) {}
+    try { delete progress.history; } catch (_) {}
+  }
+  return progress;
+}
+
+async function syncGuestProgressToServer(opts) {
+  opts = opts || {};
+  if (authToken) return false;
+  try {
+    if (localStorage.getItem('bp_guest_ok') !== '1') return false;
+  } catch (_) { return false; }
+  if (_guestSyncInFlight && !opts.force) return false;
+  const now = Date.now();
+  if (!opts.force && now - _guestSyncLastAt < 2000) return false;
+  _guestSyncInFlight = true;
+  try {
+    const progress = buildGuestProgressPayload(!!opts.full);
+    const result = await apiFetch('/api/auth/guest-sync', {
+      method: 'POST',
+      body: { progress }
+    });
+    _guestSyncLastAt = Date.now();
+    if (result && result.ok) {
+      _ipCanResumeGuest = true;
+      if (result.data && result.data.guestProgress) {
+        _ipGuestProgress = result.data.guestProgress;
+      }
+      return true;
+    }
+    // If not bound yet, claim guest slot with progress
+    if (result && (result.status === 403 || result.status === 400)) {
+      try {
+        await apiFetch('/api/auth/guest-bind', { method: 'POST', body: { progress } });
+        _guestSyncLastAt = Date.now();
+        return true;
+      } catch (_) {}
+    }
+    return false;
+  } catch (_) {
+    return false;
+  } finally {
+    _guestSyncInFlight = false;
+  }
+}
+
+/** Fire-and-forget sync when tab closes (best-effort). */
+function syncGuestProgressBeacon() {
+  try {
+    if (authToken) return;
+    if (localStorage.getItem('bp_guest_ok') !== '1') return;
+    const progress = buildGuestProgressPayload(true);
+    const url = apiBase() + '/api/auth/guest-sync';
+    const body = JSON.stringify({ progress });
+    if (typeof navigator !== 'undefined' && navigator.sendBeacon) {
+      const blob = new Blob([body], { type: 'application/json' });
+      navigator.sendBeacon(url, blob);
+      return;
+    }
+    // keepalive fetch fallback
+    try {
+      fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body,
+        keepalive: true
+      });
+    } catch (_) {}
+  } catch (_) {}
+}
+
+function scheduleGuestProgressSync() {
+  try {
+    if (_guestSyncTimer) return;
+    _guestSyncTimer = setInterval(function () {
+      try {
+        if (authToken) return;
+        if (localStorage.getItem('bp_guest_ok') !== '1') return;
+        syncGuestProgressToServer({ full: false }).catch(function () {});
+      } catch (_) {}
+    }, 15000);
+    // Page hide / background
+    if (!window._bpGuestSyncVisBound) {
+      window._bpGuestSyncVisBound = true;
+      document.addEventListener('visibilitychange', function () {
+        if (document.visibilityState === 'hidden') {
+          syncGuestProgressBeacon();
+          syncGuestProgressToServer({ force: true, full: true }).catch(function () {});
+        }
+      });
+      window.addEventListener('pagehide', function () {
+        syncGuestProgressBeacon();
+      });
+      window.addEventListener('beforeunload', function () {
+        syncGuestProgressBeacon();
+      });
+    }
+  } catch (_) {}
+}
+try { window.syncGuestProgressToServer = syncGuestProgressToServer; } catch (_) {}
+try { window.scheduleGuestProgressSync = scheduleGuestProgressSync; } catch (_) {}
+/**
+ * «Играть гостем» only when:
+ * - not logged in, AND
+ * - not already a guest, AND
+ * - device never had a real account (local), AND
+ * - this IP is not bound on the server
+ */
+function hasLocalGuestSession() {
+  try { if (localStorage.getItem('bp_guest_ok') === '1') return true; } catch (_) {}
+  return false;
+}
+function shouldAllowGuestButton() {
+  try { if (authToken) return false; } catch (_) {}
+  try { if (localStorage.getItem('bp_guest_ok') === '1') return false; } catch (_) {}
+  if (deviceHadBoundAccount()) return false;
+  if (ipBlocksGuest()) return false;
+  return true;
+}
+
+
+
 function openAuthModal(mode) {
   authMode = mode === 'register' ? 'register' : 'login';
-  // Prefer the full-screen entry gate so a second auth window never stacks behind it
-  const gate = document.getElementById('entryGate');
-  const gateOpen = !!(gate && (!gate.hidden || gate.classList.contains('visible') ||
-    (document.body && document.body.classList.contains('entry-gate-open'))));
-  if (gateOpen || !(authToken && authAccount)) {
+  // Guest (or not logged in): use entry gate; allow closing without recreating guest
+  const isLoggedIn = !!(authToken && authAccount);
+  if (!isLoggedIn) {
     try { closeAuthModal(); } catch (_) {}
-    if (!gateOpen) {
-      try { showEntryGate(); } catch (_) {}
-    }
+    let guestOk = false;
+    try { guestOk = localStorage.getItem('bp_guest_ok') === '1'; } catch (_) {}
+    // From profile: do not create a NEW guest; allow «Продолжить играть гостем»
+    entryGateShowGuest = false; // no new guest slot
+    entryGateDismissible = true; // can close / continue as guest
+    try { showEntryGate({ dismissible: true, showGuest: false }); } catch (_) {}
     try { entryGateSetMode(authMode); } catch (_) {}
     try {
       setTimeout(() => document.getElementById('entryAuthLogin')?.focus(), 40);
     } catch (_) {}
     return;
   }
+  // Logged in: secondary modal (rare path)
   const modal = document.getElementById('authModal');
   const nickField = document.getElementById('authNickField');
+  const passConfirmField = document.getElementById('authPasswordConfirmField');
   const title = document.getElementById('authModalTitle');
   const submit = document.getElementById('authSubmit');
   const err = document.getElementById('authError');
@@ -3046,6 +3867,7 @@ function openAuthModal(mode) {
     tab.classList.toggle('on', tab.getAttribute('data-auth-tab') === authMode);
   });
   if (nickField) nickField.hidden = authMode !== 'register';
+  if (passConfirmField) passConfirmField.hidden = authMode !== 'register';
   if (title) title.textContent = authMode === 'register' ? 'Регистрация' : 'Вход';
   if (submit) submit.textContent = authMode === 'register' ? 'Создать аккаунт' : 'Войти';
   if (err) { err.hidden = true; err.textContent = ''; }
@@ -3080,16 +3902,47 @@ async function submitAuthForm(e) {
   const login = (document.getElementById('authLogin')?.value || '').trim();
   const password = document.getElementById('authPassword')?.value || '';
   const nick = (document.getElementById('authNick')?.value || '').trim();
+  const passwordConfirm = (document.getElementById('authPasswordConfirm')?.value || '');
   const err = document.getElementById('authError');
   const submit = document.getElementById('authSubmit');
   if (err) { err.hidden = true; err.textContent = ''; }
+  if (authMode === 'register') {
+    if (password.length < 6) {
+      if (err) { err.textContent = 'Пароль: минимум 6 символов'; err.hidden = false; }
+      return;
+    }
+    if (password !== passwordConfirm) {
+      if (err) { err.textContent = 'Пароли не совпадают'; err.hidden = false; }
+      return;
+    }
+  }
   if (submit) submit.disabled = true;
+  showAuthLoading(
+    authMode === 'register' ? 'Создаём аккаунт…' : 'Входим в аккаунт…',
+    authMode === 'register' ? 'Регистрация на сервере…' : 'Проверка данных…'
+  );
   try {
     const path = authMode === 'register' ? '/api/auth/register' : '/api/auth/login';
     const body = { login, password };
     if (authMode === 'register' && nick) body.nick = nick;
+    if (authMode === 'register') {
+      try { await refreshGuestAllowedFromServer(); } catch (_) {}
+      try { await syncGuestProgressToServer({ force: true, full: true }); } catch (_) {}
+      const gp = collectGuestProgressForRegister();
+      if (gp) {
+        body.guestProgress = gp;
+        try { applyGuestProgressSnapshot(gp); } catch (_) {}
+        _ipGuestProgress = gp;
+      }
+      // Keep the same friend code on the new account
+      try {
+        const fc = (gp && gp.friendCode) || myFriendCode || localStorage.getItem('bp_my_code');
+        if (fc) body.preferredFriendCode = String(fc).toUpperCase();
+      } catch (_) {}
+    }
     const { ok, data, status, networkError, contentType } = await apiFetch(path, { method: 'POST', body });
     if (!ok || !data || !data.ok) {
+      hideAuthLoading();
       let msg = (data && (data.message || data.error)) || null;
       if (!msg) {
         if (networkError || status === 0) {
@@ -3114,9 +3967,16 @@ async function submitAuthForm(e) {
     }
     authToken = data.token;
     try { localStorage.setItem('bp_auth_token', authToken); } catch (_) {}
+    try {
+      if (data.guestProgress) {
+        _ipGuestProgress = data.guestProgress;
+        applyGuestProgressSnapshot(data.guestProgress);
+      }
+    } catch (_) {}
     closeAuthModal();
     await finishAuthSuccess(data.account, authMode);
   } catch (ex) {
+    hideAuthLoading();
     if (err) {
       err.textContent = 'Нет связи с сервером';
       err.hidden = false;
@@ -3159,7 +4019,25 @@ async function logoutAccount() {
   } catch (_) {}
   await new Promise((r) => setTimeout(r, 600));
   try { if (typeof hideAuthLoading === 'function') hideAuthLoading(); } catch (_) {}
-  try { showEntryGate(); } catch (_) {}
+  // Server account data stays; local slate is clean. First-choice gate again.
+  // After logout: brief loading, then gate (guest only if device never bound)
+  entryGateDismissible = false;
+  entryGateShowGuest = shouldAllowGuestButton();
+  try {
+    if (typeof showAuthLoading === 'function') {
+      showAuthLoading('Выход выполнен', 'Подготовка меню…');
+    }
+  } catch (_) {}
+  await new Promise(function (r) { setTimeout(r, 400); });
+  try { if (typeof hideAuthLoading === 'function') hideAuthLoading(); } catch (_) {}
+  try {
+    showEntryGate({
+      dismissible: false,
+      showGuest: shouldAllowGuestButton()
+    });
+    entryGateSetMode('login');
+    try { bindEntryGate(); } catch (_) {}
+  } catch (_) {}
 }
 
 /** Open in-app modal to permanently delete server account (no native prompt/confirm). */
@@ -3255,25 +4133,84 @@ async function submitAccountDelete() {
     try { localStorage.removeItem('bp_auth_token'); } catch (_) {}
     try { localStorage.removeItem('bp_guest_ok'); } catch (_) {}
     try { sessionStorage.removeItem('bp_guest_shop_warned'); } catch (_) {}
+    // Unlock guest on this device BEFORE discard (clean slate like first visit)
+    clearDeviceHadBoundAccount();
     try { discardGuestProgressFully(); } catch (_) {}
     try {
       myNickname = 'Гость';
       localStorage.setItem('bp_nickname', 'Гость');
     } catch (_) {}
     closeAccountDeleteModal();
-    try { updateAccountUI(); } catch (_) {}
-    try {
-      if (typeof showInfoToast === 'function') showInfoToast('Аккаунт', 'Аккаунт удалён', 'ok');
-    } catch (_) {}
     try {
       if (typeof showScreen === 'function') showScreen('menu');
       else if (typeof navigateScreen === 'function') navigateScreen('menu');
-      if (typeof updateMenuStats === 'function') updateMenuStats();
-      if (typeof refreshProfileUI === 'function') refreshProfileUI();
-      if (typeof applyEquippedSkin === 'function') applyEquippedSkin();
-      if (typeof applyEquippedBoard === 'function') applyEquippedBoard();
     } catch (_) {}
-    try { showEntryGate(); } catch (_) {}
+    try { updateAccountUI(); } catch (_) {}
+    try { if (typeof updateMenuStats === 'function') updateMenuStats(); } catch (_) {}
+    try { if (typeof refreshProfileUI === 'function') refreshProfileUI(); } catch (_) {}
+    try { if (typeof applyEquippedSkin === 'function') applyEquippedSkin(); } catch (_) {}
+    try { if (typeof applyEquippedBoard === 'function') applyEquippedBoard(); } catch (_) {}
+    // Keep loading overlay while preparing first-visit gate
+    try {
+      if (typeof showAuthLoading === 'function') {
+        showAuthLoading('Аккаунт удалён', 'Подготовка экрана входа…');
+      }
+    } catch (_) {}
+    await new Promise(function (r) { setTimeout(r, 500); });
+    entryGateDismissible = false;
+    authMode = 'login';
+    // Blank slate: guest progress was merged into the account and is gone with it.
+    // Never offer «Продолжить играть гостем» — only a fresh guest (or login/register).
+    clearDeviceHadBoundAccount();
+    _ipGuestBlocked = false;
+    _ipCanResumeGuest = false;
+    _ipGuestProgress = null;
+    _ipHasRealAccount = false;
+    try { localStorage.removeItem('bp_guest_ok'); } catch (_) {}
+    try { localStorage.removeItem('bp_auth_token'); } catch (_) {}
+    authToken = null;
+    authAccount = null;
+    // Confirm server released IP bind after delete
+    try { await refreshGuestAllowedFromServer(); } catch (_) {}
+    // Override whatever the server returned: after delete there is nothing to resume
+    _ipCanResumeGuest = false;
+    _ipGuestProgress = null;
+    _ipHasRealAccount = false;
+    _ipGuestBlocked = false;
+    clearDeviceHadBoundAccount();
+    try { localStorage.removeItem('bp_guest_ok'); } catch (_) {}
+    // Allow only NEW empty guest (like first visit), not continue
+    entryGateShowGuest = true;
+    try { hideAuthLoading(); } catch (_) {}
+    try {
+      showEntryGate({ dismissible: false, showGuest: true });
+      entryGateSetMode('login');
+      // Force guest block into CREATE mode (not continue)
+      try {
+        const guestBlock = document.getElementById('entryGateGuestBlock');
+        if (guestBlock) {
+          guestBlock.setAttribute('data-guest-mode', 'create');
+          const strong = guestBlock.querySelector('.entry-gate-btn-text strong');
+          const small = guestBlock.querySelector('.entry-gate-btn-text small');
+          if (strong) strong.textContent = 'Играть гостем';
+          if (small) small.textContent = 'Чистый старт — прошлый прогресс удалён вместе с аккаунтом';
+        }
+        const lead = document.querySelector('#entryGate .entry-gate-lead');
+        if (lead) lead.textContent = 'Аккаунт удалён. Войди, зарегистрируйся или начни заново гостем';
+      } catch (_) {}
+      try {
+        const gb = document.getElementById('entryGateGuest');
+        const cb = document.getElementById('entryGateGuestConfirm');
+        const xb = document.getElementById('entryGateGuestCancel');
+        if (gb) gb._egBound = false;
+        if (cb) cb._egBound = false;
+        if (xb) xb._egBound = false;
+        bindEntryGate();
+      } catch (_) {}
+    } catch (_) {}
+    try {
+      if (typeof showInfoToast === 'function') showInfoToast('Аккаунт', 'Аккаунт удалён', 'ok');
+    } catch (_) {}
   } catch (e) {
     if (err) { err.hidden = false; err.textContent = 'Нет связи с сервером'; }
     try {
@@ -3381,7 +4318,11 @@ try { window.bpConfirm = bpConfirm; } catch (_) {}
 
 /** Push local profile fields to server (when logged in). Full progress bind. */
 async function syncProfileToServer(extra) {
-  if (!authToken) return null;
+  if (!authToken) {
+    // Guest: persist progress on server by IP so it survives browser wipe
+    try { await syncGuestProgressToServer(); } catch (_) {}
+    return null;
+  }
   const body = Object.assign({
     nick: typeof myNickname !== 'undefined' ? myNickname : undefined,
     status: typeof myStatus !== 'undefined' ? myStatus : undefined,
@@ -3418,6 +4359,7 @@ async function restoreSessionFromToken() {
     if (ok && data && data.account) {
       applyServerAccount(data.account);
       try { localStorage.setItem('bp_guest_ok', '1'); } catch (_) {}
+      markDeviceHadBoundAccount();
       return true;
     }
     authToken = null;
@@ -3436,10 +4378,12 @@ function entryGateSetMode(mode) {
   const title = document.getElementById('entryGateTitle');
   const lead = document.querySelector('#entryGate .entry-gate-lead');
   const nickField = document.getElementById('entryAuthNickField');
+  const passConfirmField = document.getElementById('entryAuthPasswordConfirmField');
   const submit = document.getElementById('entryAuthSubmit');
   const err = document.getElementById('entryAuthError');
   const guestBlock = document.getElementById('entryGateGuestBlock');
   const warn = document.getElementById('entryGateGuestWarn');
+  const closeBtn = document.getElementById('entryGateClose');
   if (err) { err.hidden = true; err.textContent = ''; }
   if (warn) warn.hidden = true;
   document.querySelectorAll('[data-entry-auth-tab]').forEach((tab) => {
@@ -3448,16 +4392,102 @@ function entryGateSetMode(mode) {
   });
   if (title) title.textContent = 'Добро пожаловать';
   if (lead) {
-    lead.textContent = authMode === 'register'
-      ? 'Создай аккаунт — прогресс сохранится навсегда'
-      : 'Войди в аккаунт или продолжай гостем';
+    if (!authToken && (hasLocalGuestSession() || ipCanResumeGuest())) {
+      lead.textContent = authMode === 'register'
+        ? 'Создай аккаунт — весь гостевой прогресс перенесётся'
+        : 'Войди в аккаунт или продолжай играть гостем';
+    } else {
+      lead.textContent = authMode === 'register'
+        ? 'Создай аккаунт — прогресс сохранится навсегда'
+        : (entryGateDismissible
+          ? 'Войди в аккаунт или продолжай гостем'
+          : 'Войди в аккаунт или продолжай гостем');
+    }
   }
   if (submit) submit.textContent = authMode === 'register' ? 'Создать аккаунт' : 'Войти';
   if (nickField) nickField.hidden = authMode !== 'register';
-  // Guest only on Login tab
-  if (guestBlock) guestBlock.hidden = authMode !== 'login';
+  if (passConfirmField) passConfirmField.hidden = authMode !== 'register';
+  // Guest block:
+  //  - CREATE: first visit / after account delete (entryGateShowGuest + allowed)
+  //  - CONTINUE: local guest session already exists (bp_guest_ok) — keep progress
+  // CREATE: first visit only (entryGateShowGuest + allowed)
+  // CONTINUE: start gate only (entryGateShowGuest) + local guest OR IP-resumable guest
+  // Profile openAuthModal sets entryGateShowGuest=false → no guest button at all
+  const allowCreateGuest = shouldAllowGuestButton() && !!entryGateShowGuest;
+  const allowContinueGuest = !!entryGateShowGuest && !authToken && (hasLocalGuestSession() || ipCanResumeGuest());
+  const showGuestBlock = allowCreateGuest || allowContinueGuest;
+  if (guestBlock) {
+    if (showGuestBlock) {
+      guestBlock.hidden = false;
+      guestBlock.removeAttribute('hidden');
+      guestBlock.style.setProperty('display', 'flex', 'important');
+      guestBlock.style.setProperty('visibility', 'visible', 'important');
+      guestBlock.style.setProperty('opacity', '1', 'important');
+      // Update button label
+      try {
+        const strong = guestBlock.querySelector('.entry-gate-btn-text strong');
+        const small = guestBlock.querySelector('.entry-gate-btn-text small');
+        if (allowContinueGuest) {
+          if (strong) strong.textContent = 'Продолжить играть гостем';
+          if (small) {
+            small.textContent = hasLocalGuestSession()
+              ? 'Вернуться в игру с текущим прогрессом'
+              : 'Восстановить гостевой прогресс с этого устройства';
+          }
+          guestBlock.setAttribute('data-guest-mode', 'continue');
+        } else {
+          if (strong) strong.textContent = 'Играть гостем';
+          if (small) small.textContent = 'Данные на сервере живут до 48 часов';
+          guestBlock.setAttribute('data-guest-mode', 'create');
+        }
+      } catch (_) {}
+      const warnEl = document.getElementById('entryGateGuestWarn');
+      if (warnEl) {
+        warnEl.hidden = true;
+        warnEl.style.removeProperty('display');
+        warnEl.style.removeProperty('visibility');
+        warnEl.style.removeProperty('opacity');
+      }
+      // Hide «или» divider text nuance
+      try {
+        const orEl = guestBlock.querySelector('.entry-gate-or span');
+        if (orEl) {
+          orEl.textContent = allowContinueGuest
+            ? 'или войди / зарегистрируйся (прогресс перенесётся)'
+            : 'или войди / зарегистрируйся';
+        }
+      } catch (_) {}
+    } else {
+      guestBlock.hidden = true;
+      guestBlock.setAttribute('hidden', '');
+      guestBlock.style.setProperty('display', 'none', 'important');
+      const warnEl = document.getElementById('entryGateGuestWarn');
+      if (warnEl) {
+        warnEl.hidden = true;
+        warnEl.style.setProperty('display', 'none', 'important');
+      }
+    }
+  }
+  if (closeBtn) {
+    if (entryGateDismissible) {
+      closeBtn.hidden = false;
+      closeBtn.removeAttribute('hidden');
+    } else {
+      closeBtn.hidden = true;
+      closeBtn.setAttribute('hidden', '');
+    }
+  }
   const pw = document.getElementById('entryAuthPassword');
   if (pw) pw.setAttribute('autocomplete', authMode === 'register' ? 'new-password' : 'current-password');
+  const pw2 = document.getElementById('entryAuthPasswordConfirm');
+  if (pw2) {
+    if (authMode === 'register') {
+      pw2.setAttribute('required', '');
+    } else {
+      pw2.removeAttribute('required');
+      pw2.value = '';
+    }
+  }
 }
 function entryGateShowAuth(mode) {
   entryGateSetMode(mode);
@@ -3465,12 +4495,30 @@ function entryGateShowAuth(mode) {
 function entryGateShowChoice() {
   entryGateSetMode('login');
 }
-function showEntryGate() {
+/** Close login/register overlay without touching guest or server account. */
+function dismissEntryGate() {
+  entryGateDismissible = false;
+  hideEntryGate();
+  try { updateAccountUI(); } catch (_) {}
+  try { if (typeof refreshProfileUI === 'function') refreshProfileUI(); } catch (_) {}
+}
+let _entryGateHideTimer = null;
+let _entryGateGen = 0;
+
+function showEntryGate(opts) {
+  opts = opts || {};
   const el = document.getElementById('entryGate');
   if (!el) return;
-  // Never stack the old auth modal behind the welcome screen
+  // Cancel pending hide so it cannot wipe flags right after reopen (e.g. after account delete)
+  if (_entryGateHideTimer) {
+    clearTimeout(_entryGateHideTimer);
+    _entryGateHideTimer = null;
+  }
+  _entryGateGen += 1;
+  if (typeof opts.dismissible === 'boolean') entryGateDismissible = opts.dismissible;
+  if (typeof opts.showGuest === 'boolean') entryGateShowGuest = opts.showGuest;
   try { closeAuthModal(); } catch (_) {}
-  entryGateSetMode('login');
+  entryGateSetMode(authMode || 'login');
   el.hidden = false;
   el.style.display = 'flex';
   el.setAttribute('aria-hidden', 'false');
@@ -3478,60 +4526,208 @@ function showEntryGate() {
   el.classList.add('visible');
   try { document.body.classList.add('entry-gate-open'); } catch (_) {}
   try { document.documentElement.classList.add('entry-gate-pending'); } catch (_) {}
+  try { document.documentElement.classList.remove('entry-gate-booting'); } catch (_) {}
+  // Re-apply guest visibility after paint (guards against stale style/hidden)
+  try {
+    const gen = _entryGateGen;
+    setTimeout(function () {
+      if (gen !== _entryGateGen) return;
+      try { entryGateSetMode(authMode || 'login'); } catch (_) {}
+    }, 50);
+  } catch (_) {}
 }
 function hideEntryGate() {
+  try { document.documentElement.classList.remove('entry-gate-booting'); } catch (_) {}
   const el = document.getElementById('entryGate');
   if (!el) return;
   el.classList.remove('visible');
-  const finish = () => {
+  const genAtHide = _entryGateGen;
+  if (_entryGateHideTimer) {
+    clearTimeout(_entryGateHideTimer);
+    _entryGateHideTimer = null;
+  }
+  _entryGateHideTimer = setTimeout(function () {
+    _entryGateHideTimer = null;
+    // If gate was reopened meanwhile, do not reset flags / hide it
+    if (genAtHide !== _entryGateGen) return;
+    if (el.classList.contains('visible')) return;
     el.hidden = true;
     el.style.display = 'none';
     el.setAttribute('aria-hidden', 'true');
     try { document.body.classList.remove('entry-gate-open'); } catch (_) {}
     try { document.documentElement.classList.remove('entry-gate-pending'); } catch (_) {}
-    entryGateSetMode('login');
-  };
-  setTimeout(finish, 420);
+    entryGateDismissible = false;
+    // Do not force entryGateShowGuest=false here — shouldAllowGuestButton + open path control it
+  }, 420);
 }
-function acceptGuestMode() {
-  try { discardGuestProgressFully(); } catch (_) {}
+/**
+ * Guest account is created ONLY when the player explicitly chooses guest mode.
+ * Always a clean slate (new friend code, default skins, nick «Гость»).
+ */
+/** Resume existing guest (local session or IP-bound server progress). */
+async function resumeGuestMode() {
+  try { showAuthLoading('Загрузка гостевого аккаунта…'); } catch (_) {}
   try {
-    myNickname = localStorage.getItem('bp_nickname') || '';
-    if (!myNickname || myNickname === 'Гость') {
-      try {
-        if (typeof myFriendCode === 'string' && myFriendCode) {
-          myNickname = 'Player' + myFriendCode.slice(0, 3);
-        } else {
-          myNickname = 'Гость';
-        }
-      } catch (_) { myNickname = 'Гость'; }
+    try { await refreshGuestAllowedFromServer(); } catch (_) {}
+    // Prefer server snapshot (after browser wipe)
+    if (_ipGuestProgress) {
+      applyGuestProgressSnapshot(_ipGuestProgress);
+    } else if (!hasLocalGuestSession()) {
+      // Guest mark without progress — enter as clean guest with same IP bind
+      try { discardGuestProgressFully(); } catch (_) {}
     }
-    localStorage.setItem('bp_nickname', myNickname);
-  } catch (_) {}
-  try { localStorage.setItem('bp_guest_ok', '1'); } catch (_) {}
-  hideEntryGate();
-  try { updateAccountUI(); } catch (_) {}
-  try { if (typeof refreshProfileUI === 'function') refreshProfileUI(); } catch (_) {}
-  try { if (typeof applyEquippedSkin === 'function') applyEquippedSkin(); } catch (_) {}
-  try { if (typeof applyEquippedBoard === 'function') applyEquippedBoard(); } catch (_) {}
-  try { if (typeof updateMenuStats === 'function') updateMenuStats(); } catch (_) {}
+    try { localStorage.setItem('bp_guest_ok', '1'); } catch (_) {}
+    // Refresh bind / progress on server
+    try {
+      const progress = snapshotGuestProgress();
+      try { if (myFriendCode) progress.friendCode = myFriendCode; } catch (_) {}
+      await apiFetch('/api/auth/guest-bind', { method: 'POST', body: { progress } });
+    } catch (_) {}
+    await new Promise((r) => setTimeout(r, 500));
+    try { if (typeof applyEquippedSkin === 'function') applyEquippedSkin(); } catch (_) {}
+    try { if (typeof applyEquippedBoard === 'function') applyEquippedBoard(); } catch (_) {}
+    try { updateAccountUI(); } catch (_) {}
+    try { if (typeof refreshProfileUI === 'function') refreshProfileUI(); } catch (_) {}
+    try { if (typeof updateMenuStats === 'function') updateMenuStats(); } catch (_) {}
+    try { scheduleGuestProgressSync(); } catch (_) {}
+    try { await syncGuestProgressToServer({ force: true, full: true }); } catch (_) {}
+    hideEntryGate();
+  } finally {
+    try { hideAuthLoading(); } catch (_) {}
+  }
 }
-async function maybeShowEntryGate() {
-  if (authToken) {
-    const ok = await restoreSessionFromToken();
-    if (ok) {
+
+async function acceptGuestMode() {
+  // Already local guest — just enter
+  try {
+    if (localStorage.getItem('bp_guest_ok') === '1') {
       hideEntryGate();
       return;
+    }
+  } catch (_) {}
+  // If IP has resumable guest — resume instead of creating new
+  // (unless UI explicitly asked for a fresh guest after account delete)
+  try {
+    const block = document.getElementById('entryGateGuestBlock');
+    const mode = block && block.getAttribute('data-guest-mode');
+    if (mode !== 'create') {
+      try { await refreshGuestAllowedFromServer(); } catch (_) {}
+      if (ipCanResumeGuest()) {
+        await resumeGuestMode();
+        return;
+      }
+    } else {
+      // Fresh start: ignore any leftover IP guest snapshot
+      _ipCanResumeGuest = false;
+      _ipGuestProgress = null;
+    }
+  } catch (_) {}
+  if (deviceHadBoundAccount() || ipBlocksGuest() || _ipHasRealAccount) {
+    try {
+      if (typeof showInfoToast === 'function') {
+        showInfoToast('Аккаунт', 'На этом устройстве или сети уже был аккаунт — войдите или зарегистрируйтесь', 'bad');
+      }
+    } catch (_) {}
+    try {
+      entryGateShowGuest = false;
+      entryGateSetMode(authMode || 'login');
+    } catch (_) {}
+    return;
+  }
+  try { showAuthLoading('Создаём гостевой аккаунт…'); } catch (_) {}
+  try {
+    try { discardGuestProgressFully(); } catch (_) {}
+    try { localStorage.setItem('bp_guest_ok', '1'); } catch (_) {}
+    // Bind IP + initial progress on server
+    try {
+      const progress = snapshotGuestProgress();
+      try { if (myFriendCode) progress.friendCode = myFriendCode; } catch (_) {}
+      const { ok, data } = await apiFetch('/api/auth/guest-bind', { method: 'POST', body: { progress } });
+      if (!ok || (data && data.ok === false && data.error === 'already_bound')) {
+        _ipGuestBlocked = true;
+        if (data && data.canResumeGuest) {
+          _ipCanResumeGuest = true;
+          _ipGuestProgress = data.guestProgress || null;
+          await resumeGuestMode();
+          return;
+        }
+        markDeviceHadBoundAccount();
+        try {
+          if (typeof showInfoToast === 'function') {
+            showInfoToast('Аккаунт', (data && data.message) || 'С этой сети уже был аккаунт или гость', 'bad');
+          }
+        } catch (_) {}
+        entryGateShowGuest = false;
+        try { entryGateSetMode(authMode || 'login'); } catch (_) {}
+        return;
+      }
+      _ipGuestBlocked = true;
+      _ipCanResumeGuest = true;
+    } catch (_) {
+      markDeviceHadBoundAccount();
+    }
+    await new Promise((r) => setTimeout(r, 700));
+    try { if (typeof applyEquippedSkin === 'function') applyEquippedSkin(); } catch (_) {}
+    try { if (typeof applyEquippedBoard === 'function') applyEquippedBoard(); } catch (_) {}
+    try { updateAccountUI(); } catch (_) {}
+    try { if (typeof refreshProfileUI === 'function') refreshProfileUI(); } catch (_) {}
+    try { if (typeof updateMenuStats === 'function') updateMenuStats(); } catch (_) {}
+    try { if (typeof renderShop === 'function') renderShop(); } catch (_) {}
+    try { if (typeof renderFriends === 'function') renderFriends(false); } catch (_) {}
+    try { scheduleGuestProgressSync(); } catch (_) {}
+    try { await syncGuestProgressToServer({ force: true, full: true }); } catch (_) {}
+    hideEntryGate();
+  } finally {
+    try { hideAuthLoading(); } catch (_) {}
+  }
+}
+/**
+ * First visit: only the registration/login gate.
+ * No guest account and no server account are loaded until the player chooses.
+ * Returning guest (bp_guest_ok) or valid token may enter the game.
+ */
+async function maybeShowEntryGate() {
+  if (authToken) {
+    try { showAuthLoading('Загрузка аккаунта…'); } catch (_) {}
+    try {
+      const ok = await restoreSessionFromToken();
+      if (ok) {
+        // Account loaded from server only at this moment
+        await new Promise((r) => setTimeout(r, 600));
+        hideEntryGate();
+        return;
+      }
+    } finally {
+      try { hideAuthLoading(); } catch (_) {}
     }
   }
   let guestOk = false;
   try { guestOk = localStorage.getItem('bp_guest_ok') === '1'; } catch (_) {}
   if (guestOk) {
+    // Explicit prior guest choice — enter menu without creating a new account
     hideEntryGate();
     try { updateAccountUI(); } catch (_) {}
+    try { scheduleGuestProgressSync(); } catch (_) {}
+    try { syncGuestProgressToServer({ force: true, full: true }).catch(function () {}); } catch (_) {}
     return;
   }
-  showEntryGate();
+  // First entry: check server IP bind, then loading, then gate
+  try { showAuthLoading('Загрузка…', 'Подготовка меню'); } catch (_) {}
+  try {
+    await refreshGuestAllowedFromServer();
+  } catch (_) {}
+  // Show guest block if can create NEW guest OR resume IP guest
+  const showGuest = shouldAllowGuestButton() || ipCanResumeGuest();
+  entryGateShowGuest = showGuest;
+  entryGateDismissible = false;
+  await new Promise(function (r) {
+    requestAnimationFrame(function () {
+      requestAnimationFrame(function () { setTimeout(r, 280); });
+    });
+  });
+  try { hideAuthLoading(); } catch (_) {}
+  showEntryGate({ dismissible: false, showGuest: showGuest });
+  try { entryGateSetMode(authMode || 'login'); } catch (_) {}
 }
 async function submitEntryAuthForm(e) {
   if (e) e.preventDefault();
@@ -3543,14 +4739,46 @@ async function submitEntryAuthForm(e) {
   const login = loginEl ? String(loginEl.value || '').trim() : '';
   const password = passEl ? String(passEl.value || '') : '';
   const nick = nickEl ? String(nickEl.value || '').trim() : '';
+  const passConfirmEl = document.getElementById('entryAuthPasswordConfirm');
+  const passwordConfirm = passConfirmEl ? String(passConfirmEl.value || '') : '';
   if (err) { err.hidden = true; err.textContent = ''; }
+  if (authMode === 'register') {
+    if (password.length < 6) {
+      if (err) { err.textContent = 'Пароль: минимум 6 символов'; err.hidden = false; }
+      return;
+    }
+    if (password !== passwordConfirm) {
+      if (err) { err.textContent = 'Пароли не совпадают'; err.hidden = false; }
+      return;
+    }
+  }
   if (submit) submit.disabled = true;
+  // Show loading immediately on submit (covers network round-trip)
+  showAuthLoading(
+    authMode === 'register' ? 'Создаём аккаунт…' : 'Входим в аккаунт…',
+    authMode === 'register' ? 'Регистрация на сервере…' : 'Проверка данных…'
+  );
   try {
     const path = authMode === 'register' ? '/api/auth/register' : '/api/auth/login';
     const body = { login, password };
     if (authMode === 'register' && nick) body.nick = nick;
+    if (authMode === 'register') {
+      try { await refreshGuestAllowedFromServer(); } catch (_) {}
+      try { await syncGuestProgressToServer({ force: true, full: true }); } catch (_) {}
+      try {
+        const gp = collectGuestProgressForRegister();
+        if (gp) {
+          body.guestProgress = gp;
+          try { applyGuestProgressSnapshot(gp); } catch (_) {}
+          _ipGuestProgress = gp;
+        }
+        const fc = (gp && gp.friendCode) || myFriendCode || localStorage.getItem('bp_my_code');
+        if (fc) body.preferredFriendCode = String(fc).toUpperCase();
+      } catch (_) {}
+    }
     const { ok, data, status, networkError } = await apiFetch(path, { method: 'POST', body });
     if (!ok || !data || !data.ok) {
+      hideAuthLoading();
       let msg = (data && (data.message || data.error)) || null;
       if (!msg) {
         if (networkError || status === 0) msg = 'Нет связи с сервером';
@@ -3563,8 +4791,15 @@ async function submitEntryAuthForm(e) {
     }
     authToken = data.token;
     try { localStorage.setItem('bp_auth_token', authToken); } catch (_) {}
+    try {
+      if (data.guestProgress) {
+        _ipGuestProgress = data.guestProgress;
+        applyGuestProgressSnapshot(data.guestProgress);
+      }
+    } catch (_) {}
     await finishAuthSuccess(data.account, authMode);
   } catch (ex) {
+    hideAuthLoading();
     if (err) { err.textContent = 'Нет связи с сервером'; err.hidden = false; }
   } finally {
     if (submit) submit.disabled = false;
@@ -3574,24 +4809,64 @@ function bindEntryGate() {
   const guestBtn = document.getElementById('entryGateGuest');
   const confirmBtn = document.getElementById('entryGateGuestConfirm');
   const cancelBtn = document.getElementById('entryGateGuestCancel');
+  const closeBtn = document.getElementById('entryGateClose');
   const form = document.getElementById('entryAuthForm');
-  if (guestBtn && !guestBtn._egBound) {
+  if (closeBtn && !closeBtn._egBound) {
+    closeBtn._egBound = true;
+    closeBtn.addEventListener('click', () => dismissEntryGate());
+  }
+  function showGuestWarn() {
+    const warn = document.getElementById('entryGateGuestWarn');
+    if (!warn) return;
+    warn.hidden = false;
+    warn.removeAttribute('hidden');
+    warn.style.setProperty('display', 'block', 'important');
+    warn.style.setProperty('visibility', 'visible', 'important');
+    warn.style.setProperty('opacity', '1', 'important');
+  }
+  function hideGuestWarn() {
+    const warn = document.getElementById('entryGateGuestWarn');
+    if (!warn) return;
+    warn.hidden = true;
+    warn.setAttribute('hidden', '');
+    warn.style.removeProperty('display');
+    warn.style.removeProperty('visibility');
+    warn.style.removeProperty('opacity');
+  }
+  // Always (re)bind guest controls
+  if (guestBtn) {
     guestBtn._egBound = true;
-    guestBtn.addEventListener('click', () => {
-      const warn = document.getElementById('entryGateGuestWarn');
-      if (warn) warn.hidden = false;
-    });
+    guestBtn.onclick = function (e) {
+      if (e) { e.preventDefault(); e.stopPropagation(); }
+      const block = document.getElementById('entryGateGuestBlock');
+      const mode = block && block.getAttribute('data-guest-mode');
+      // Explicit create mode (e.g. after account delete) — never resume old progress
+      if (mode === 'create') {
+        showGuestWarn();
+        return;
+      }
+      if (mode === 'continue' || hasLocalGuestSession() || ipCanResumeGuest()) {
+        // Resume guest (local or from IP server snapshot)
+        resumeGuestMode().catch(function (err) { console.warn('resumeGuest', err); });
+        return;
+      }
+      // New guest — show warning first
+      showGuestWarn();
+    };
   }
-  if (confirmBtn && !confirmBtn._egBound) {
+  if (confirmBtn) {
     confirmBtn._egBound = true;
-    confirmBtn.addEventListener('click', () => acceptGuestMode());
+    confirmBtn.onclick = function (e) {
+      if (e) { e.preventDefault(); e.stopPropagation(); }
+      acceptGuestMode().catch(function (err) { console.warn('acceptGuestMode', err); });
+    };
   }
-  if (cancelBtn && !cancelBtn._egBound) {
+  if (cancelBtn) {
     cancelBtn._egBound = true;
-    cancelBtn.addEventListener('click', () => {
-      const warn = document.getElementById('entryGateGuestWarn');
-      if (warn) warn.hidden = true;
-    });
+    cancelBtn.onclick = function (e) {
+      if (e) { e.preventDefault(); e.stopPropagation(); }
+      hideGuestWarn();
+    };
   }
   if (form && !form._egBound) {
     form._egBound = true;
@@ -3609,6 +4884,7 @@ function bindEntryGate() {
 try {
   window.showEntryGate = showEntryGate;
   window.hideEntryGate = hideEntryGate;
+  window.dismissEntryGate = dismissEntryGate;
   window.acceptGuestMode = acceptGuestMode;
   window.entryGateShowAuth = entryGateShowAuth;
   window.entryGateShowChoice = entryGateShowChoice;
@@ -3649,7 +4925,8 @@ function bindAccountUI() {
     form._authBound = true;
     form.addEventListener('submit', submitAuthForm);
   }
-  document.querySelectorAll('.auth-tab').forEach((tab) => {
+  // Only modal tabs — entry-gate tabs use data-entry-auth-tab and must NOT call openAuthModal
+  document.querySelectorAll('#authModal .auth-tab').forEach((tab) => {
     if (tab._authBound) return;
     tab._authBound = true;
     tab.addEventListener('click', () => {
@@ -3662,7 +4939,7 @@ function bindAccountUI() {
 if (!window._authDelegateBound) {
   window._authDelegateBound = true;
   document.addEventListener('click', (e) => {
-    const t = e.target && e.target.closest && e.target.closest('#btnProfileBind, #btnAccountLogout, #btnAccountDelete, #authModalClose, .auth-tab');
+    const t = e.target && e.target.closest && e.target.closest('#btnProfileBind, #btnAccountLogout, #btnAccountDelete, #authModalClose, #authModal .auth-tab');
     if (!t) return;
     if (t.id === 'btnProfileBind') {
       e.preventDefault();
@@ -3675,7 +4952,8 @@ if (!window._authDelegateBound) {
       deleteAccount();
     } else if (t.id === 'authModalClose') {
       closeAuthModal();
-    } else if (t.classList && t.classList.contains('auth-tab')) {
+    } else if (t.closest && t.closest('#authModal') && t.classList && t.classList.contains('auth-tab')) {
+      // Never treat entry-gate tabs as modal tabs (that was killing «Играть гостем»)
       openAuthModal(t.getAttribute('data-auth-tab') === 'register' ? 'register' : 'login');
     }
   }, true);

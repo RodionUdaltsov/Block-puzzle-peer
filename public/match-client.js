@@ -525,7 +525,8 @@
         activity: opts.activity || 'online',
         trophies: opts.trophies | 0,
         avatarId: opts.avatarId ? String(opts.avatarId).slice(0, 32) : undefined,
-        avatarCustom: (typeof opts.avatarCustom === 'string') ? opts.avatarCustom.slice(0, 49152) : undefined
+        avatarCustom: (typeof opts.avatarCustom === 'string') ? opts.avatarCustom.slice(0, 49152) : undefined,
+        status: typeof opts.status === 'string' ? String(opts.status).slice(0, 80) : undefined
       };
       // One-time migration hint so server can seed ownership from localStorage
       if (opts.cosmeticsHint && typeof opts.cosmeticsHint === 'object') {
@@ -558,7 +559,11 @@
     },
     /** Check whether a 6-char friend code is known (online or recent presence). */
     friendCodeCheck(code) {
-      return this.send({ type: 'friend_code_check', code: String(code || '').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 6) });
+      return this.send({ type: 'friend_code_check', code: String(code || '').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 12) });
+    },
+    /** Fetch mini-profile (nick, avatar, trophies, winrate) for a friend code. */
+    friendProfile(code) {
+      return this.send({ type: 'friend_profile', code: String(code || '').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 12) });
     },
     setActivity(activity) {
       if (this._lastPresence) this._lastPresence.activity = activity || 'online';
