@@ -12,8 +12,8 @@ COPY vendor ./vendor
 COPY scripts ./scripts
 COPY README.md LICENSE ./
 
-# Ensure client bundle is present and up to date
-RUN node scripts/bundle-client.js
+# Ensure CSS + client bundles are present and up to date
+RUN node scripts/bundle-css.js && node scripts/bundle-client.js
 
 ENV NODE_ENV=production
 ENV PORT=9000

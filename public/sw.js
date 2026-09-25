@@ -4,13 +4,16 @@
  */
 'use strict';
 
-const CACHE = 'bp-shell-v3.9.56';
+const CACHE = 'bp-shell-v3.9.65';
 const PRECACHE = [
   '/',
   '/index.html',
   '/styles.css',
   '/site.webmanifest',
   '/favicon.svg',
+  '/icons/icon-192.png',
+  '/icons/icon-512.png',
+  '/icons/apple-touch-icon.png',
   '/icons/icon-192.svg',
   '/icons/icon-512.svg',
   '/dist/client.bundle.js',
