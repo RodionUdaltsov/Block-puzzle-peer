@@ -192,14 +192,12 @@
       const add = (u) => { if (u && !seen[u]) { seen[u] = 1; candidates.push(u); } };
       try {
         const host = (location && location.hostname) ? location.hostname : '127.0.0.1';
-        const isLocal = !host || host === 'localhost' || host === '127.0.0.1' || host === '[::1]';
-        // Production (Render etc.): ONLY same-origin /ws — never force :9000 (TLS is on 443).
-        if (isLocal || (location && location.protocol === 'file:')) {
-          add('ws://127.0.0.1:9000/ws');
-          add('ws://localhost:9000/ws');
-        }
+        const isHttps = location && location.protocol === 'https:';
+        add((isHttps ? 'wss:' : 'ws:') + '//' + host + ':9000/ws');
+        add('ws://127.0.0.1:9000/ws');
+        add('ws://localhost:9000/ws');
       } catch (_) {
-        /* no extra fallbacks */
+        add('ws://127.0.0.1:9000/ws');
       }
       const tryUrl = candidates[this._retry % candidates.length] || candidates[0];
       let ws;

@@ -1,6 +1,6 @@
 {
   "name": "block-puzzle-server",
-  "version": "3.9.66",
+  "version": "3.9.64",
   "description": "Block Puzzle \u2014 ESM client pipeline + zero-dep bundler",
   "license": "MIT",
   "main": "server.js",

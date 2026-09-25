@@ -61,7 +61,7 @@ function renderAvatarInto(el, opts) {
   opts = opts || {};
   const id = opts.avatarId || myAvatarId;
   const nick = opts.nick != null ? opts.nick : myNickname;
-  let customUrl = (opts.custom != null) ? opts.custom : myAvatarCustom;
+  const customUrl = (opts.custom != null) ? opts.custom : myAvatarCustom;
   el.innerHTML = '';
   el.classList.remove('has-photo');
   // Reset previous photo/gradient so switching presets is clean
@@ -71,12 +71,6 @@ function renderAvatarInto(el, opts) {
   el.style.backgroundPosition = '';
   el.style.backgroundRepeat = '';
   el.style.backgroundColor = '';
-  if (id === 'custom' && customUrl) {
-    if (typeof customUrl === 'string' && customUrl.length > 100000) {
-      try { console.warn('[avatar] custom too large, skipped'); } catch (_) {}
-      customUrl = '';
-    }
-  }
   if (id === 'custom' && customUrl) {
     el.style.backgroundColor = 'transparent';
     el.style.backgroundImage = 'url(' + JSON.stringify(customUrl) + ')';
@@ -290,32 +284,14 @@ function openProfileScreen() {
   const stIn = document.getElementById('profileStatusInput');
   if (nickIn) nickIn.value = myNickname;
   if (stIn) stIn.value = myStatus;
-  // Paint screen first, then heavy avatar grid (Safari freezes if both run sync)
-  const work = () => {
-    try { refreshProfileUI(); } catch (_) {}
-    try {
-      renderAvatarInto(document.getElementById('profileAvBig'), {
-        avatarId: profileDraft.avatarId,
-        nick: profileDraft.nick,
-        big: true
-      });
-    } catch (_) {}
-    try {
-      if (typeof requestAnimationFrame === 'function') {
-        requestAnimationFrame(() => {
-          try { renderProfileAvatarGrid(); } catch (_) {}
-        });
-      } else {
-        renderProfileAvatarGrid();
-      }
-    } catch (_) {}
-  };
-  if (typeof navigateScreen === 'function') {
-    navigateScreen('profile', work);
-  } else {
-    try { showScreen('profile'); } catch (_) {}
-    work();
-  }
+  renderProfileAvatarGrid();
+  refreshProfileUI();
+  renderAvatarInto(document.getElementById('profileAvBig'), {
+    avatarId: profileDraft.avatarId,
+    nick: profileDraft.nick,
+    big: true
+  });
+  showScreen('profile');
 }
 
 let friends = [];
@@ -790,15 +766,13 @@ function ensureFriendPresence() {
         equippedBoard: typeof equippedBoardId !== 'undefined' ? equippedBoardId : undefined
       };
     } catch (_) {}
-    // Never push data-URL photos over presence (can be 30–200KB) — freezes mobile Safari
-    // and hammers WS. Friends UI can load photo via profile/API when needed.
     MatchClient.registerPresence({
       friendCode: myFriendCode,
       name: myNickname || 'Игрок',
       activity: (typeof detectMyActivity === 'function' ? detectMyActivity() : 'online'),
       trophies: typeof trophies === 'number' ? trophies : 0,
       avatarId: typeof myAvatarId !== 'undefined' ? myAvatarId : 'init',
-      avatarCustom: '',
+      avatarCustom: (typeof myAvatarId !== 'undefined' && myAvatarId === 'custom' && myAvatarCustom) ? myAvatarCustom : '',
       cosmeticsHint: hint
     });
   } catch (_) {}
