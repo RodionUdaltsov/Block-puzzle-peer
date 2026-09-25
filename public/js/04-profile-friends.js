@@ -1224,12 +1224,30 @@ function renderFriendRequests() {
   });
   const ja = document.getElementById('frJoinAcc');
   const jd = document.getElementById('frJoinDec');
-  if (ja) ja.addEventListener('click', () => {  });
-  if (jd) jd.addEventListener('click', () => {  });
+  if (ja) ja.addEventListener('click', (e) => {
+    try { e.preventDefault(); e.stopPropagation(); } catch (_) {}
+    try {
+      if (typeof acceptPendingJoin === 'function') acceptPendingJoin();
+      else if (typeof acceptChallenge === 'function' && chPending) acceptChallenge();
+    } catch (err) { console.warn('frJoinAcc', err); }
+  });
+  if (jd) jd.addEventListener('click', (e) => {
+    try { e.preventDefault(); e.stopPropagation(); } catch (_) {}
+    try {
+      if (typeof declinePendingJoin === 'function') declinePendingJoin('declined');
+      else if (typeof declineChallenge === 'function') declineChallenge();
+    } catch (err) { console.warn('frJoinDec', err); }
+  });
   const ca = document.getElementById('frChAcc');
   const cd = document.getElementById('frChDec');
-  if (ca) ca.addEventListener('click', () => { try { acceptChallenge(); } catch (_) {} });
-  if (cd) cd.addEventListener('click', () => { try { declineChallenge(); } catch (_) {} });
+  if (ca) ca.addEventListener('click', (e) => {
+    try { e.preventDefault(); e.stopPropagation(); } catch (_) {}
+    try { acceptChallenge(); } catch (err) { console.warn('frChAcc', err); }
+  });
+  if (cd) cd.addEventListener('click', (e) => {
+    try { e.preventDefault(); e.stopPropagation(); } catch (_) {}
+    try { declineChallenge(); } catch (err) { console.warn('frChDec', err); }
+  });
   const ra = document.getElementById('frRmAcc');
   const rd = document.getElementById('frRmDec');
   if (ra) ra.addEventListener('click', () => { try { acceptRematchInvite(); } catch (_) {} });
@@ -1776,14 +1794,12 @@ function renderNickSearchResults(results, q) {
       closeNickSearchModal();
       const mainIn = document.getElementById('friendCodeInput');
       if (mainIn) mainIn.value = code;
+      // Only send a request — friend is added after the other side accepts
       try {
-        addFriendRecord(code, name, {
-          trophies: r.trophies,
-          avatarId: r.avatarId,
-          avatarCustom: r.avatarCustom
-        });
-      } catch (_) {}
-      sendFriendRequestToCode(code, name, { skipCheck: true });
+        sendFriendRequestToCode(code, name, { skipCheck: true });
+      } catch (err) {
+        console.warn('nickSearch add', err);
+      }
     });
     card.appendChild(btn);
     list.appendChild(card);

@@ -962,13 +962,21 @@ function mpIsLinked() {
 
 
 
+/** Room codes we intentionally left — ignore stale private_lobby snapshots */
+let _ignoredPrivateCodes = Object.create(null);
+
 function destroyMp() {
   clearMpJoinTimer();
   const closedRoom = mpRoomCode;
   try { stopLobbyPing(); } catch (_) {}
   try {
+    if (closedRoom) {
+      _ignoredPrivateCodes[String(closedRoom).toUpperCase()] = Date.now();
+    }
+  } catch (_) {}
+  try {
     if (typeof MatchClient !== 'undefined') {
-      MatchClient.leavePrivate();
+      MatchClient.leavePrivate(closedRoom);
       if (!(roomMatchMode || BPState.roomMatchMode)) {
         /* keep matchId for rematch if room mode ended */
       }
@@ -1218,8 +1226,20 @@ function showRjToast(req) {
 (function bindChToast() {
   const a = document.getElementById('chBtnAccept');
   const d = document.getElementById('chBtnDecline');
-  if (a) a.addEventListener('click', () => acceptChallenge());
-  if (d) d.addEventListener('click', () => declineChallenge());
+  if (a && !a._bpBound) {
+    a._bpBound = true;
+    a.addEventListener('click', (e) => {
+      try { e.preventDefault(); e.stopPropagation(); } catch (_) {}
+      try { acceptChallenge(); } catch (err) { console.warn('ch accept', err); }
+    });
+  }
+  if (d && !d._bpBound) {
+    d._bpBound = true;
+    d.addEventListener('click', (e) => {
+      try { e.preventDefault(); e.stopPropagation(); } catch (_) {}
+      try { declineChallenge(); } catch (err) { console.warn('ch decline', err); }
+    });
+  }
 })();
 
 function openRoomLobby() {
@@ -1254,10 +1274,36 @@ function escapeHtmlLobby(s) {
   })[c]);
 }
 
+
+function showLobbyLoading(text) {
+  try {
+    const ov = document.getElementById('lobbyLoadingOverlay');
+    const tx = document.getElementById('lobbyLoadingText');
+    if (tx) tx.textContent = text || 'Загрузка…';
+    if (ov) {
+      ov.classList.add('visible');
+      ov.setAttribute('aria-hidden', 'false');
+    }
+  } catch (_) {}
+}
+function hideLobbyLoading() {
+  try {
+    const ov = document.getElementById('lobbyLoadingOverlay');
+    if (ov) {
+      ov.classList.remove('visible');
+      ov.setAttribute('aria-hidden', 'true');
+    }
+  } catch (_) {}
+}
+
 function closeRoomLobby() {
   const el = document.getElementById('roomLobby');
   if (el) el.classList.remove('visible');
   stopLobbyPing();
+  try {
+    const ov = document.getElementById('lobbyLoadingOverlay');
+    if (ov) ov.classList.remove('visible');
+  } catch (_) {}
 }
 
 function updateLobbyUI() {

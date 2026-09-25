@@ -362,6 +362,7 @@ const {
   findMatch,
   enqueue,
   dequeueToken,
+  tryPairQueues,
   startRoom,
   genPrivateCode,
   leavePrivateLobby,
@@ -435,6 +436,7 @@ const { send, resolveMatchCtx } = attachWsHandlers(wss, {
   pendingQueueIntents,
   findMatch,
   enqueue,
+  tryPairQueues,
   dequeueToken,
   startRoom,
   genPrivateCode,
@@ -451,8 +453,15 @@ const { send, resolveMatchCtx } = attachWsHandlers(wss, {
   allowWsMessage,
   MAX_WS_MSG,
   Cosmetics,
-  PKG_VERSION
+  PKG_VERSION,
+  getStore: () => store,
+  PRESENCE_TTL
 });
+
+// Pair anyone left in queue after async join races
+setInterval(() => {
+  try { if (typeof tryPairQueues === 'function') tryPairQueues(); } catch (_) {}
+}, 1500);
 
 setInterval(() => {
   wss.clients.forEach((ws) => {
