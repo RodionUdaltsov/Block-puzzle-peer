@@ -1007,6 +1007,8 @@ function registerWsPresence() {
       name: myNickname,
       trophies: trophies | 0,
       activity: 'online',
+      avatarId: typeof myAvatarId !== 'undefined' ? myAvatarId : 'init',
+      avatarCustom: (typeof myAvatarId !== 'undefined' && myAvatarId === 'custom' && typeof myAvatarCustom !== 'undefined') ? myAvatarCustom : '',
       cosmeticsHint: hint
     });
     const codes = (friends || []).map(f => f.code).filter(Boolean);

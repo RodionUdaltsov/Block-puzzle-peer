@@ -523,7 +523,9 @@
         friendCode: opts.friendCode,
         name: opts.name || 'Игрок',
         activity: opts.activity || 'online',
-        trophies: opts.trophies | 0
+        trophies: opts.trophies | 0,
+        avatarId: opts.avatarId ? String(opts.avatarId).slice(0, 32) : undefined,
+        avatarCustom: (typeof opts.avatarCustom === 'string') ? opts.avatarCustom.slice(0, 49152) : undefined
       };
       // One-time migration hint so server can seed ownership from localStorage
       if (opts.cosmeticsHint && typeof opts.cosmeticsHint === 'object') {

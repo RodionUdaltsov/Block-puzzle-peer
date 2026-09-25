@@ -1,114 +1,160 @@
 /**
  * Block Puzzle — 06-screens-gameplay.js
  * Screens, classic/versus flow, clear lines, render pieces, core play
- * Lines ~11843-13911 from legacy game.js monolith (refactored).
- * Shares global scope with other public/js/*.js modules (no bundler).
+ * Lines ~11843-13911.
+ * Shared IIFE scope via client.bundle.js.
  */
 'use strict';
 
-function showScreen(name) {
-  // Shop mini-previews: only run while shop/inventory is visible
+function showScreen(name, opts) {
+  opts = opts || {};
+  const isPlay = (name === 'classic' || name === 'versus');
+  // Animated loader on EVERY non-play navigation (including Back → menu)
+  // so tab switches never feel frozen. Skip only if caller already owns the loader.
   try {
-    if (name !== 'shop' && name !== 'inventory') {
-      if (typeof shopMiniTimer !== 'undefined' && shopMiniTimer) {
-        clearInterval(shopMiniTimer);
-        shopMiniTimer = null;
+    if (!opts.skipLoader && !isPlay) {
+      const labels = {
+        menu: (typeof globalThis.t === 'function' ? globalThis.t('menu.main', 'Меню') : 'Меню'),
+        friends: (typeof globalThis.t === 'function' ? globalThis.t('menu.friends', 'Друзья') : 'Друзья'),
+        achievements: (typeof globalThis.t === 'function' ? globalThis.t('menu.achievements', 'Награды') : 'Награды'),
+        shop: (typeof globalThis.t === 'function' ? globalThis.t('menu.shop', 'Магазин') : 'Магазин'),
+        inventory: (typeof globalThis.t === 'function' ? globalThis.t('menu.inventory', 'Инвентарь') : 'Инвентарь'),
+        history: (typeof globalThis.t === 'function' ? globalThis.t('menu.history', 'История') : 'История'),
+        settings: (typeof globalThis.t === 'function' ? globalThis.t('menu.settings', 'Настройки') : 'Настройки'),
+        profile: (typeof globalThis.t === 'function' ? globalThis.t('menu.profile', 'Профиль') : 'Профиль'),
+        compType: (typeof globalThis.t === 'function' ? globalThis.t('comp.title', 'Соревнование') : 'Соревнование'),
+        difficulty: (typeof globalThis.t === 'function' ? globalThis.t('bots.title', 'Боты') : 'Боты'),
+        duration: (typeof globalThis.t === 'function' ? globalThis.t('duration.title', 'Время') : 'Время'),
+        match: (typeof globalThis.t === 'function' ? globalThis.t('match.searching', 'Матч') : 'Матч')
+      };
+      showScreenLoading(labels[name] || (typeof globalThis.t === 'function' ? globalThis.t('boot.loading', 'Загрузка…') : 'Загрузка…'));
+      // Auto-hide after paint if caller does not use withScreenLoading
+      if (!opts.keepLoader) {
+        const gen = ++_screenLoadingGen;
+        const t0 = performance.now();
+        const MIN_MS = 200;
+        requestAnimationFrame(() => {
+          requestAnimationFrame(() => {
+            const left = Math.max(0, MIN_MS - (performance.now() - t0));
+            setTimeout(() => {
+              if (gen === _screenLoadingGen) hideScreenLoading();
+            }, left);
+          });
+        });
       }
     }
   } catch (_) {}
-  // Leaving achievements → collapse all tabs to default order
-  try {
-    const achEl = screens.achievements;
-    const leavingAch = achEl && achEl.classList.contains('active') && name !== 'achievements';
-    if (leavingAch) {
-      closeAllAchTabs();
-      // Re-render so section order resets to default next visit
-      try { renderAchievements(); } catch (_) {}
-    }
-  } catch (_) {}
-  // Leave replay safely when navigating away from versus
-  try {
-    if (name !== 'versus' && typeof replayMode !== 'undefined' && replayMode) {
-      try { stopReplayPlay(); } catch (_) {}
-      replayMode = false;
-      document.body.classList.remove('replay-ui');
-      document.body.classList.remove('replay-playing');
-      try { hideReplayEndCard(); } catch (_) {}
-      try {
-        if (BPState.replaySkinBackup) {
-          equippedSkinId = BPState.replaySkinBackup;
-          applyEquippedSkin();
+  // Defer expensive leave-side cleanup so the new screen paints first
+  const leaveCleanup = () => {
+    try {
+      if (name !== 'shop' && name !== 'inventory') {
+        if (typeof shopMiniTimer !== 'undefined' && shopMiniTimer) {
+          clearInterval(shopMiniTimer);
+          shopMiniTimer = null;
         }
-        if (BPState.replayBoardBackup) {
-          equippedBoardId = BPState.replayBoardBackup;
-          applyEquippedBoard();
-        }
-        clearOppSkin();
-        clearOppBoard();
-        window.mpOppSkinId = null;
-        window.mpOppBoardId = null;
-        BPState.replaySkinBackup = null;
-        BPState.replayBoardBackup = null;
-      } catch (_) {}
-      try {
-        const rb = document.getElementById('reviewBar');
-        if (rb) {
-          rb.classList.remove('visible', 'replay-dock');
-        }
-      } catch (_) {}
-      try {
-        const scrub = document.getElementById('replayScrubBar');
-        if (scrub) {
-          scrub.style.display = 'none';
-          scrub.setAttribute('aria-hidden', 'true');
-        }
-      } catch (_) {}
-      try {
-        const fb = document.getElementById('btnForfeit');
-        if (fb) fb.style.display = '';
-      } catch (_) {}
-    }
-  } catch (_) {}
-  // Cancel in-progress drag when leaving play screens
-  try {
-    if (name !== 'classic' && name !== 'versus') {
-      if (typeof isDragging !== 'undefined' && isDragging) {
-        isDragging = false;
-        selectedIdx = -1;
-        dragPiece = null;
-        placingLock = false;
-        try { if (rafId) { cancelAnimationFrame(rafId); rafId = 0; } } catch (_) {}
+      }
+    } catch (_) {}
+    try {
+      const achEl = screens.achievements;
+      const leavingAch = achEl && achEl.classList.contains('active') && name !== 'achievements';
+      if (leavingAch) closeAllAchTabs();
+    } catch (_) {}
+    try {
+      if (name !== 'versus' && typeof replayMode !== 'undefined' && replayMode) {
+        try { stopReplayPlay(); } catch (_) {}
+        replayMode = false;
+        document.body.classList.remove('replay-ui');
+        document.body.classList.remove('replay-playing');
+        try { hideReplayEndCard(); } catch (_) {}
         try {
-          const g = document.getElementById('ghost');
-          if (g) { g.style.display = 'none'; g.style.opacity = '0'; }
+          if (BPState.replaySkinBackup) {
+            equippedSkinId = BPState.replaySkinBackup;
+            applyEquippedSkin();
+          }
+          if (BPState.replayBoardBackup) {
+            equippedBoardId = BPState.replayBoardBackup;
+            applyEquippedBoard();
+          }
+          clearOppSkin();
+          clearOppBoard();
+          window.mpOppSkinId = null;
+          window.mpOppBoardId = null;
+          BPState.replaySkinBackup = null;
+          BPState.replayBoardBackup = null;
+        } catch (_) {}
+        try {
+          const rb = document.getElementById('reviewBar');
+          if (rb) rb.classList.remove('visible', 'replay-dock');
+        } catch (_) {}
+        try {
+          const scrub = document.getElementById('replayScrubBar');
+          if (scrub) {
+            scrub.style.display = 'none';
+            scrub.setAttribute('aria-hidden', 'true');
+          }
+        } catch (_) {}
+        try {
+          const fb = document.getElementById('btnForfeit');
+          if (fb) fb.style.display = '';
         } catch (_) {}
       }
-    }
-  } catch (_) {}
-  // If leaving versus while a bot AI tick is still scheduled, stop it
-  try {
-    if (name !== 'versus' && !vsActive) {
-      if (typeof aiInterval !== 'undefined' && aiInterval) {
-        clearInterval(aiInterval);
-        aiInterval = null;
+    } catch (_) {}
+    try {
+      if (name !== 'classic' && name !== 'versus') {
+        if (typeof isDragging !== 'undefined' && isDragging) {
+          isDragging = false;
+          selectedIdx = -1;
+          dragPiece = null;
+          placingLock = false;
+          try { if (rafId) { cancelAnimationFrame(rafId); rafId = 0; } } catch (_) {}
+          try {
+            const g = document.getElementById('ghost');
+            if (g) { g.style.display = 'none'; g.style.opacity = '0'; }
+          } catch (_) {}
+        }
       }
-      aiBusy = false;
+    } catch (_) {}
+    try {
+      if (name !== 'versus' && !vsActive) {
+        if (typeof aiInterval !== 'undefined' && aiInterval) {
+          clearInterval(aiInterval);
+          aiInterval = null;
+        }
+        aiBusy = false;
+      }
+    } catch (_) {}
+  };
+  // Fast path: only touch the previously active screen + target
+  try {
+    const prev = document.querySelector('.screen.active');
+    if (prev && prev !== screens[name]) {
+      prev.classList.remove('active', 'screen-enter', 'screen-enter-soft');
     }
-  } catch (_) {}
-  Object.values(screens).forEach(s => {
-    s.classList.remove('active', 'screen-enter');
-  });
+  } catch (_) {
+    try {
+      Object.values(screens).forEach(s => {
+        if (s) s.classList.remove('active', 'screen-enter', 'screen-enter-soft');
+      });
+    } catch (_2) {}
+  }
   if (screens[name]) {
     const el = screens[name];
-    // Force reflow so entrance animation always replays
-    el.classList.remove('active', 'screen-enter');
-    void el.offsetWidth;
-    el.classList.add('active', 'screen-enter');
-    // Drop enter class after anim so nested dynamic content is not stuck mid-anim
-    clearTimeout(el._enterT);
-    el._enterT = setTimeout(() => {
-      try { el.classList.remove('screen-enter'); } catch (_) {}
-    }, 700);
+    el.classList.remove('screen-enter', 'screen-enter-soft');
+    el.classList.add('active');
+    if (isPlay) {
+      try { void el.offsetWidth; } catch (_) {}
+      el.classList.add('screen-enter');
+      clearTimeout(el._enterT);
+      el._enterT = setTimeout(() => {
+        try { el.classList.remove('screen-enter'); } catch (_) {}
+      }, 500);
+    } else {
+      el.classList.add('screen-enter-soft');
+      clearTimeout(el._enterT);
+      el._enterT = setTimeout(() => {
+        try { el.classList.remove('screen-enter', 'screen-enter-soft'); } catch (_) {}
+      }, 220);
+    }
   }
   mode = (name === 'classic' || name === 'versus') ? name : name;
   try {
@@ -116,7 +162,7 @@ function showScreen(name) {
     detectMyActivity();
     if (myActivity !== prevAct) scheduleActivityBroadcast();
   } catch (_) {}
-  const lock = (name === 'versus' || name === 'classic' || name === 'difficulty' || name === 'history' || name === 'achievements');
+  const lock = (name === 'versus' || name === 'classic' || name === 'difficulty');
   setFitLock(lock);
   if (lock) {
     requestAnimationFrame(() => applyBoardScales());
@@ -127,21 +173,124 @@ function showScreen(name) {
   } else {
     try { releaseWakeLock(); } catch (_) {}
   }
-  syncMusicToScreen(name);
-  // If a live match snapshot exists and we are not in versus, surface rejoin toast
-  // (covers: both left, one already back in match — the other must still see the panel)
-  try {
-    if (name === 'menu' || name === 'friends' || name === 'settings' || name === 'history') {
-      if (!vsActive && !BPState.matchEnded && !BPState.mpRejoiningMatch) {
-        const s = (typeof readLiveMatch === 'function') ? readLiveMatch() : null;
-        if (s) {
-          showMatchRejoinPanel(s);
-          try { startRejoinPanelListen(s); } catch (_2) {}
+  // Defer leave-cleanup + music + rejoin so first paint is not blocked
+  const screenName = name;
+  requestAnimationFrame(() => {
+    leaveCleanup();
+    try { syncMusicToScreen(screenName); } catch (_) {}
+    try {
+      if (screenName === 'menu' || screenName === 'friends' || screenName === 'settings' || screenName === 'history') {
+        if (!vsActive && !BPState.matchEnded && !BPState.mpRejoiningMatch) {
+          const s = (typeof readLiveMatch === 'function') ? readLiveMatch() : null;
+          if (s) {
+            showMatchRejoinPanel(s);
+            try { startRejoinPanelListen(s); } catch (_2) {}
+          }
         }
       }
-    }
+    } catch (_) {}
+  });
+}
+/** Soft loading overlay for menu tabs / Back navigation. */
+let _screenLoadingTimer = null;
+let _screenLoadingGen = 0;
+function showScreenLoading(label) {
+  try {
+    const el = document.getElementById('screenLoading');
+    if (!el) return;
+    const txt = document.getElementById('screenLoadingText');
+    if (txt && label) txt.textContent = label;
+    // Clear any failsafe inline styles that blocked the overlay
+    try {
+      el.style.display = 'flex';
+      el.style.pointerEvents = 'auto';
+      el.style.opacity = '';
+      el.style.visibility = '';
+    } catch (_) {}
+    el.hidden = false;
+    el.removeAttribute('hidden');
+    el.setAttribute('aria-hidden', 'false');
+    el.setAttribute('aria-busy', 'true');
+    // Force reflow so CSS transition plays
+    try { void el.offsetWidth; } catch (_) {}
+    el.classList.add('show');
+    clearTimeout(_screenLoadingTimer);
+    // Safety: never stick forever
+    _screenLoadingTimer = setTimeout(() => { try { hideScreenLoading(); } catch (_) {} }, 5000);
   } catch (_) {}
 }
+function hideScreenLoading() {
+  try {
+    clearTimeout(_screenLoadingTimer);
+    _screenLoadingTimer = null;
+    const el = document.getElementById('screenLoading');
+    if (!el) return;
+    el.classList.remove('show');
+    el.setAttribute('aria-hidden', 'true');
+    el.setAttribute('aria-busy', 'false');
+    setTimeout(() => {
+      try {
+        if (!el.classList.contains('show')) {
+          el.hidden = true;
+          el.setAttribute('hidden', '');
+          el.style.display = '';
+          el.style.pointerEvents = '';
+        }
+      } catch (_) {}
+    }, 220);
+  } catch (_) {}
+}
+/**
+ * Run heavy DOM work after the new screen has painted.
+ * Shows a soft spinner so tab switches feel responsive even on slow devices.
+ */
+function withScreenLoading(work, label) {
+  const gen = ++_screenLoadingGen;
+  const t0 = performance.now();
+  const MIN_VISIBLE_MS = 220;
+  showScreenLoading(label || (typeof globalThis.t === 'function' ? globalThis.t('boot.loading', 'Загрузка…') : 'Загрузка…'));
+  // Double rAF: first paints the new screen + loader, second runs work without blocking the transition
+  requestAnimationFrame(() => {
+    requestAnimationFrame(() => {
+      try {
+        if (typeof work === 'function') work();
+      } catch (e) {
+        try { console.warn('[screenLoading]', e); } catch (_) {}
+      } finally {
+        const finish = () => {
+          if (gen === _screenLoadingGen) hideScreenLoading();
+        };
+        const elapsed = performance.now() - t0;
+        if (elapsed < MIN_VISIBLE_MS) {
+          setTimeout(finish, MIN_VISIBLE_MS - elapsed);
+        } else {
+          finish();
+        }
+      }
+    });
+  });
+}
+/**
+ * Navigate to a screen with guaranteed loading overlay + deferred work.
+ * Use for Back buttons and any tab that does extra work after paint.
+ */
+function navigateScreen(name, work, label) {
+  showScreen(name, { keepLoader: true, skipLoader: false });
+  withScreenLoading(() => {
+    try {
+      if (typeof work === 'function') work();
+    } catch (e) {
+      try { console.warn('[navigateScreen]', e); } catch (_) {}
+    }
+  }, label);
+}
+try { window.navigateScreen = navigateScreen; } catch (_) {}
+try { window.showScreen = showScreen; } catch (_) {}
+try { window.showScreenLoading = showScreenLoading; } catch (_) {}
+try { window.hideScreenLoading = hideScreenLoading; } catch (_) {}
+try { window.withScreenLoading = withScreenLoading; } catch (_) {}
+/** Canonical navigation: prefer navigateScreen(name, work) for menu tabs / Back. */
+
 /** Silver = each duration win (1/2/3 min). Gold = bot fully cleared (3/3). */
 function totalSilverStars() {
   return totalBotStars();
@@ -1036,6 +1185,10 @@ function getPieceSlotPx(isVs) {
 function renderPieces(areaEl) {
   // Never overwrite replay trays with live hand
   if (typeof replayMode !== 'undefined' && replayMode) return;
+  // Critical: do not destroy hand DOM mid-drag (phones lose pointer capture → piece snaps back)
+  try {
+    if (typeof isDragging !== 'undefined' && isDragging) return;
+  } catch (_) {}
   // Rejoin / desync safety: try restore own hand from match log if empty
   try {
     if ((!pieces || !pieces.length) && (vsModeType === 'online' || mpMode || mode === 'versus')) {

@@ -186,12 +186,27 @@
     }
     .screen.active {
       display: flex;
-      animation: screenIn 0.42s cubic-bezier(0.22, 1.05, 0.36, 1) forwards;
+      /* Default: no heavy blur animation on every tab switch (was freezing low-end phones) */
+      animation: none;
+      opacity: 1;
+      transform: none;
+      filter: none;
+    }
+    /* Soft fade only when explicitly requested for menu navigation */
+    .screen.active.screen-enter-soft {
+      animation: screenInSoft 0.2s ease-out forwards;
+    }
+    @keyframes screenInSoft {
+      0%   { opacity: 0.65; transform: translateY(6px); }
+      100% { opacity: 1; transform: translateY(0); }
+    }
+    /* Full entrance reserved for play screens (classic / versus) via .screen-enter */
+    .screen.active.screen-enter {
+      animation: screenIn 0.36s cubic-bezier(0.22, 1.05, 0.36, 1) forwards;
     }
     @keyframes screenIn {
-      0%   { opacity: 0; transform: translateY(18px) scale(0.97); filter: blur(4px); }
-      60%  { opacity: 1; filter: blur(0); }
-      100% { opacity: 1; transform: translateY(0) scale(1); filter: blur(0); }
+      0%   { opacity: 0; transform: translateY(12px) scale(0.985); }
+      100% { opacity: 1; transform: translateY(0) scale(1); }
     }
     /* Staggered content rise on key menu screens */
     .screen.active.screen-enter > .menu-logo,

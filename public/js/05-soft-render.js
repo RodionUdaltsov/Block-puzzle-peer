@@ -93,6 +93,11 @@ function softRenderGrid(g, boardEl) {
 }
 function softRenderPieces(areaEl) {
   if (!areaEl) return;
+  // While the player is holding a piece, never rebuild the hand DOM —
+  // that drops pointer capture on phones and snaps the ghost back to tray.
+  try {
+    if (typeof isDragging !== 'undefined' && isDragging) return;
+  } catch (_) {}
   try {
     if (!pieces || !pieces.length) {
       try { recoverHandsFromMatchLog(); } catch (_) {}
@@ -998,7 +1003,7 @@ function roomSessionId(code) {
   return 'bp-room-' + String(code || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
 }
 
-/** @deprecated server removed — always rejects */
+/** Net status pill (online = hidden). */
 let _netOk = null;
 function setNetStatus(ok, detail) {
   _netOk = !!ok;
@@ -1325,8 +1330,7 @@ function updateLobbyUI() {
 }
 
 function tryStartMpMatch() {
-  // Server starts the match when both players are ready (private_ready).
-  // Kept as no-op for legacy callers.
+  // Server starts the match when both are ready (private_ready). No client-side start.
 }
 
 

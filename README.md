@@ -28,6 +28,8 @@ npm run build:dev
 
 Open `http://127.0.0.1:9000/`. WebSocket path: `/ws`.
 
+Protocol reference: [`docs/PROTOCOL.md`](docs/PROTOCOL.md). Health: `/health`. Metrics: `/metrics`.
+
 Windows: double-click `start-server.bat` (auto-builds bundle if missing).
 
 ## Environment
@@ -47,16 +49,31 @@ Windows: double-click `start-server.bat` (auto-builds bundle if missing).
 
 ## Architecture
 
-- **`server.js`** — HTTP static files, WS matchmaking, rooms, private lobbies, presence
-- **`shared/rules.js`** — placement, clears, scoring (mirrored to `public/shared/rules.js`)
-- **`shared/skins.js`** — piece color palettes (server deals from this)
-- **`lib/store.js`** — file (default) / memory / Redis persistence
-- **`lib/logger.js`** — structured JSON logger (`BP_LOG`)
-- **`lib/rate-limit.js`** — WS connection + message rate limits
-- **`lib/security.js`** — HTTP security headers + Origin allowlist
-- **`public/js/*`** — client modules → `public/dist/client.bundle.js`
-- **`public/css/*`** — modular CSS sources (production bundle is `public/styles.css`)
-- **`public/js/00-i18n.js`** — lightweight ru/en i18n (`t()`, `data-i18n`, settings language chips)
+**Server (Node ≥18, zero npm deps)**
+
+| File | Role |
+|------|------|
+| `server.js` | HTTP static + upgrade, boot, process lifecycle (~750 lines) |
+| `lib/match-room.js` | Authoritative match state machine |
+| `lib/matchmaking.js` | Ranked queue + private lobbies |
+| `lib/ws-handlers.js` | WebSocket message handlers |
+| `lib/http-api.js` | `/api/*`, `/health`, static files |
+| `lib/store.js` | memory / file / redis persistence |
+| `lib/accounts.js` | register / login / sessions / delete |
+| `lib/security.js` + `rate-limit.js` | headers, origin, WS rate limits |
+| `shared/rules.js` | Canonical game rules (shared with client) |
+
+**Client**
+
+| Path | Role |
+|------|------|
+| `public/js/00–14-*.js` | Source modules (IIFE shared scope) |
+| `scripts/bundle-client.js` | → `public/dist/client.bundle.js` |
+| `public/js/14-settings-ui.js` | Settings tabs (not mixed into rooms UI) |
+| `public/match-client.js` | WS client API |
+
+Online placement is **server-authoritative**: client sends only `pieceIdx`, `r`, `c`.
+
 
 ## Cosmetics (server-authoritative)
 

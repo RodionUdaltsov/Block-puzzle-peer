@@ -1223,6 +1223,7 @@ function removeFriendAt(idx) {
   const finish = () => {
     friends.splice(idx, 1);
     saveFriends();
+    try { scheduleFriendsSync(); } catch (_) {}
     renderFriends();
     setFriendAddStatus('Друг удалён', 'ok');
     try { SFX.ui(); } catch (_) {}
@@ -1348,8 +1349,9 @@ function showInfoToast(label, text, kind) {
   if (lab) lab.textContent = label || '';
   if (tx) tx.textContent = text || '';
   toast.classList.remove('out', 'dragging', 'ok', 'bad');
-  if (kind === 'ok') toast.classList.add('ok');
-  else if (kind === 'bad') toast.classList.add('bad');
+  // aliases: info/ok → ok; warn/error/bad → bad
+  if (kind === 'ok' || kind === 'info') toast.classList.add('ok');
+  else if (kind === 'bad' || kind === 'error' || kind === 'warn') toast.classList.add('bad');
   toast.style.transform = '';
   toast.style.opacity = '';
   void toast.offsetWidth;
@@ -1788,7 +1790,7 @@ function notifyChallengeCancelled(room, reason) {
 async function challengeFriend(friend) {
   if (!friend || !friend.code) return;
   if (typeof MatchClient === 'undefined') {
-    alert('Сервер матчей недоступен');
+    try { if (typeof showInfoToast === 'function') showInfoToast('Матч', 'Сервер матчей недоступен', 'bad'); } catch (_) {}
     return;
   }
   ensureFriendPresence();
@@ -2007,7 +2009,7 @@ function submitJoinRoom() {
   const input = document.getElementById('joinRoomInput');
   const code = (input && input.value || '').trim();
   if (!code) {
-    alert('Введи код комнаты');
+    try { if (typeof showInfoToast === 'function') showInfoToast('Комната', 'Введи код комнаты', 'bad'); } catch (_) {}
     return;
   }
   const modal = document.getElementById('joinRoomModal');

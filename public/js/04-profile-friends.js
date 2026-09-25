@@ -177,6 +177,21 @@ function refreshProfileUI() {
   renderAvatarInto(document.getElementById('homeProfileAv'), { avatarId: myAvatarId, nick: myNickname });
   const hn = document.getElementById('homeProfileName');
   if (hn) hn.textContent = myNickname || (typeof globalThis.t==='function'?globalThis.t('js.guest','Гость'):'Гость');
+  // Home badge: «Гость» → nick / «Аккаунт» when logged in
+  try {
+    const badge = document.querySelector('.home-profile-badge');
+    if (badge) {
+      if (authToken && authAccount) {
+        badge.textContent = myNickname || authAccount.login || 'Аккаунт';
+        badge.classList.remove('guest');
+        badge.classList.add('account');
+      } else {
+        badge.textContent = (typeof globalThis.t==='function'?globalThis.t('menu.guest','Гость'):'Гость');
+        badge.classList.add('guest');
+        badge.classList.remove('account');
+      }
+    }
+  } catch (_) {}
   renderAvatarInto(document.getElementById('profileAvBig'), { avatarId: myAvatarId, nick: myNickname, big: true });
   const heroN = document.getElementById('profileHeroName');
   if (heroN) heroN.textContent = myNickname || (typeof globalThis.t==='function'?globalThis.t('js.guest','Гость'):'Гость');
@@ -197,6 +212,7 @@ function refreshProfileUI() {
     const avMe = document.getElementById('duelAvMeInner');
     if (avMe) renderAvatarInto(avMe, { avatarId: myAvatarId, nick: myNickname, size: 'duel' });
   } catch (_) {}
+  try { if (typeof updateMenuStats === 'function') updateMenuStats(); } catch (_) {}
 }
 function renderProfileAvatarGrid() {
   const grid = document.getElementById('profileAvatarGrid');
@@ -280,7 +296,64 @@ function openProfileScreen() {
 
 let friends = [];
 try { friends = JSON.parse(localStorage.getItem('bp_friends') || '[]'); } catch (_) { friends = []; }
-function saveFriends() { localStorage.setItem('bp_friends', JSON.stringify(friends)); }
+let _friendsSyncTimer = null;
+function saveFriends() {
+  try { localStorage.setItem('bp_friends', JSON.stringify(friends)); } catch (_) {}
+  try { scheduleFriendsSync(); } catch (_) {}
+}
+function scheduleFriendsSync() {
+  if (!authToken) return;
+  if (_friendsSyncTimer) clearTimeout(_friendsSyncTimer);
+  _friendsSyncTimer = setTimeout(() => {
+    _friendsSyncTimer = null;
+    try { syncFriendsToServer(); } catch (_) {}
+  }, 800);
+}
+async function syncFriendsToServer() {
+  if (!authToken) return;
+  try {
+    const payload = (friends || []).slice(0, 200).map((f) => ({
+      code: f.code,
+      name: f.name,
+      trophies: f.trophies,
+      avatarId: f.avatarId,
+      avatarCustom: f.avatarCustom,
+      added: f.added
+    }));
+    await apiFetch('/api/me', { method: 'PATCH', body: { friends: payload } });
+  } catch (_) {}
+}
+function mergeFriendsFromServer(serverFriends) {
+  if (!Array.isArray(serverFriends) || !serverFriends.length) return;
+  const byCode = new Map();
+  for (const f of friends) {
+    if (f && f.code) byCode.set(normalizeFriendCode(f.code), f);
+  }
+  for (const sf of serverFriends) {
+    if (!sf || !sf.code) continue;
+    const code = normalizeFriendCode(sf.code);
+    if (!code) continue;
+    const existing = byCode.get(code);
+    if (existing) {
+      if (sf.name && (!existing.name || existing.name.startsWith('Игрок'))) existing.name = sf.name;
+      if (sf.avatarId) existing.avatarId = sf.avatarId;
+      if (sf.avatarCustom) existing.avatarCustom = sf.avatarCustom;
+      if (typeof sf.trophies === 'number') existing.trophies = sf.trophies;
+    } else {
+      const rec = {
+        code,
+        name: (sf.name || ('Игрок ' + code.slice(0, 3))).slice(0, 20),
+        added: sf.added || Date.now(),
+        trophies: typeof sf.trophies === 'number' ? sf.trophies : undefined,
+        avatarId: sf.avatarId,
+        avatarCustom: sf.avatarCustom
+      };
+      friends.push(rec);
+      byCode.set(code, rec);
+    }
+  }
+  try { localStorage.setItem('bp_friends', JSON.stringify(friends)); } catch (_) {}
+}
 
 const screens = {
   menu: document.getElementById('screenMenu'),
@@ -698,6 +771,8 @@ function ensureFriendPresence() {
       name: myNickname || 'Игрок',
       activity: (typeof detectMyActivity === 'function' ? detectMyActivity() : 'online'),
       trophies: typeof trophies === 'number' ? trophies : 0,
+      avatarId: typeof myAvatarId !== 'undefined' ? myAvatarId : 'init',
+      avatarCustom: (typeof myAvatarId !== 'undefined' && myAvatarId === 'custom' && myAvatarCustom) ? myAvatarCustom : '',
       cosmeticsHint: hint
     });
   } catch (_) {}
@@ -723,10 +798,16 @@ function addFriendRecord(code, name, extra) {
   // Becoming friends clears any mutual hanging requests both ways locally
   clearFriendRequestState(code);
   if (friends.some(f => f.code === code)) {
-    // update name if empty
+    // update name / avatar if we learned more
     const f = friends.find(x => x.code === code);
-    if (f && name && (!f.name || f.name.startsWith('Friend'))) f.name = name;
+    if (f) {
+      if (name && (!f.name || f.name.startsWith('Friend') || f.name.startsWith('Игрок'))) f.name = name;
+      if (extra && extra.avatarId) f.avatarId = String(extra.avatarId).slice(0, 32);
+      if (extra && typeof extra.avatarCustom === 'string') f.avatarCustom = extra.avatarCustom;
+      if (extra && typeof extra.trophies === 'number') f.trophies = extra.trophies | 0;
+    }
     saveFriends();
+    try { scheduleFriendsSync(); } catch (_) {}
     try { renderFriendRequests(); renderOutgoingPending(); updateFriendsSectionCounts(); } catch (_) {}
     return false;
   }
@@ -734,9 +815,12 @@ function addFriendRecord(code, name, extra) {
     code,
     name: (name || ('Игрок ' + code.slice(0, 3))).trim().slice(0, 20),
     added: Date.now(),
-    trophies: extra && typeof extra.trophies === 'number' ? extra.trophies : undefined
+    trophies: extra && typeof extra.trophies === 'number' ? extra.trophies : undefined,
+    avatarId: extra && extra.avatarId ? String(extra.avatarId).slice(0, 32) : undefined,
+    avatarCustom: extra && typeof extra.avatarCustom === 'string' ? extra.avatarCustom : undefined
   });
   saveFriends();
+  try { scheduleFriendsSync(); } catch (_) {}
   try { renderFriendRequests(); renderOutgoingPending(); updateFriendsSectionCounts(); } catch (_) {}
   return true;
 }
@@ -1341,7 +1425,7 @@ function renderFriends(highlightNew) {
     if (pres === 'online' && act) stText = activityLabel(act);
     const stCls = pres === 'online' ? 'on' : pres === 'offline' ? 'off' : '';
     return `<div class="friend-card${anim}" data-fi="${i}" data-code="${f.code}"${delay}>
-      <div class="f-av">${initials}<span class="f-online-dot ${dotCls}"></span></div>
+      <div class="f-av" data-av-fi="${i}">${initials}<span class="f-online-dot ${dotCls}"></span></div>
       <div class="f-info">
         <div class="f-name">${f.name || 'Друг'}</div>
         <div class="f-code">${f.code}${cups} · <span class="f-status-line ${stCls}" style="display:inline">${stText}</span></div>
@@ -1352,6 +1436,29 @@ function renderFriends(highlightNew) {
       </div>
     </div>`;
   }).join('');
+  // Paint real avatars into friend cards
+  try {
+    list.querySelectorAll('.f-av[data-av-fi]').forEach((avEl) => {
+      const fi = parseInt(avEl.getAttribute('data-av-fi'), 10);
+      const f = friends[fi];
+      if (!f) return;
+      const dot = avEl.querySelector('.f-online-dot');
+      try {
+        renderAvatarInto(avEl, {
+          avatarId: f.avatarId || 'init',
+          nick: f.name || f.code,
+          custom: (f.avatarId === 'custom' && f.avatarCustom) ? f.avatarCustom : null
+        });
+      } catch (_) {}
+      if (dot) {
+        try { avEl.appendChild(dot); } catch (_) {
+          const d = document.createElement('span');
+          d.className = 'f-online-dot ' + (getFriendPresence(f.code) === 'online' ? 'on' : getFriendPresence(f.code) === 'offline' ? 'off' : 'checking');
+          avEl.appendChild(d);
+        }
+      }
+    });
+  } catch (_) {}
   list.querySelectorAll('.f-challenge').forEach(btn => {
     btn.addEventListener('click', (e) => {
       e.preventDefault();
@@ -1364,9 +1471,12 @@ function renderFriends(highlightNew) {
       e.preventDefault();
       e.stopPropagation();
       const idx = parseInt(btn.dataset.fi, 10);
-      if (confirm('Удалить из друзей? Вы также пропадёте у него в списке.')) {
-        removeFriendAt(idx);
-      }
+      bpConfirm({
+        title: 'Удалить из друзей?',
+        text: 'Вы также пропадёте у него в списке.',
+        okLabel: 'Удалить',
+        danger: true
+      }).then(function (ok) { if (ok) removeFriendAt(idx); });
     });
   });
   updateFriendsSectionCounts();
@@ -1384,8 +1494,13 @@ function renderFriends(highlightNew) {
       e.preventDefault();
       e.stopPropagation();
       const idx = parseInt(rm.dataset.fi, 10);
-      if (!isNaN(idx) && confirm('Удалить из друзей? Вы также пропадёте у него в списке.')) {
-        removeFriendAt(idx);
+      if (!isNaN(idx)) {
+        bpConfirm({
+          title: 'Удалить из друзей?',
+          text: 'Вы также пропадёте у него в списке.',
+          okLabel: 'Удалить',
+          danger: true
+        }).then(function (ok) { if (ok) removeFriendAt(idx); });
       }
     } else if (ch) {
       e.preventDefault();
@@ -1626,14 +1741,33 @@ function renderNickSearchResults(results, q) {
     const card = document.createElement('div');
     card.className = 'friend-req-card';
     card.style.cssText = 'display:flex;align-items:center;justify-content:space-between;gap:8px;padding:10px;margin-bottom:6px;border-radius:12px;background:var(--surface2)';
-    card.innerHTML =
-      '<div style="min-width:0"><div style="font-weight:800">' + name.replace(/</g, '') +
+    const left = document.createElement('div');
+    left.style.cssText = 'display:flex;align-items:center;gap:10px;min-width:0;flex:1';
+    const av = document.createElement('div');
+    av.className = 'f-av';
+    av.style.cssText = 'width:40px;height:40px;border-radius:50%;flex-shrink:0;display:flex;align-items:center;justify-content:center;overflow:hidden';
+    try {
+      renderAvatarInto(av, {
+        avatarId: r.avatarId || 'init',
+        nick: name,
+        custom: (r.avatarId === 'custom' && r.avatarCustom) ? r.avatarCustom : null
+      });
+    } catch (_) {
+      av.textContent = name.slice(0, 2).toUpperCase();
+    }
+    const info = document.createElement('div');
+    info.style.minWidth = '0';
+    info.innerHTML =
+      '<div style="font-weight:800">' + name.replace(/</g, '') +
       (isOnline ? ' <span style="color:#3dce6a;font-size:0.7rem">●</span>' : ' <span style="opacity:0.45;font-size:0.7rem">○</span>') +
       '</div>' +
       '<div style="font-size:0.75rem;opacity:0.7">' + code +
       (r.trophies != null ? ' · 🏆 ' + (r.trophies | 0) : '') +
       ' · ' + statusLabel +
-      '</div></div>';
+      '</div>';
+    left.appendChild(av);
+    left.appendChild(info);
+    card.appendChild(left);
     const btn = document.createElement('button');
     btn.type = 'button';
     btn.className = 'primary';
@@ -1642,6 +1776,13 @@ function renderNickSearchResults(results, q) {
       closeNickSearchModal();
       const mainIn = document.getElementById('friendCodeInput');
       if (mainIn) mainIn.value = code;
+      try {
+        addFriendRecord(code, name, {
+          trophies: r.trophies,
+          avatarId: r.avatarId,
+          avatarCustom: r.avatarCustom
+        });
+      } catch (_) {}
       sendFriendRequestToCode(code, name, { skipCheck: true });
     });
     card.appendChild(btn);
@@ -2098,6 +2239,7 @@ function notifyLeavingMatch() {
           matchHistory.unshift(entry);
           if (matchHistory.length > 30) matchHistory = matchHistory.slice(0, 30);
           localStorage.setItem('bp_history', JSON.stringify(matchHistory));
+          try { if (typeof scheduleHistorySync === 'function') scheduleHistorySync(); } catch (_2) {}
         } catch (_) {}
       }
     } catch (_) {}
@@ -2393,13 +2535,29 @@ function applyServerAccount(account) {
   if (!account) return;
   authAccount = account;
   try {
+    // Prefer server nick always (registration / login must replace guest "Игрок"/"Player")
     if (account.nick) {
       myNickname = String(account.nick).slice(0, 24);
+      localStorage.setItem('bp_nickname', myNickname);
+    } else if (account.login) {
+      myNickname = String(account.login).slice(0, 24);
       localStorage.setItem('bp_nickname', myNickname);
     }
     if (typeof account.trophies === 'number') {
       trophies = Math.max(0, account.trophies | 0);
       localStorage.setItem('bp_trophies', String(trophies));
+    }
+    if (typeof account.diamonds === 'number') {
+      try {
+        diamonds = Math.max(0, account.diamonds | 0);
+        localStorage.setItem('bp_diamonds', String(diamonds));
+      } catch (_) {}
+    }
+    if (typeof account.best === 'number') {
+      try {
+        best = Math.max(0, account.best | 0);
+        localStorage.setItem('bp_best', String(best));
+      } catch (_) {}
     }
     if (account.friendCode) {
       myFriendCode = String(account.friendCode).toUpperCase();
@@ -2418,9 +2576,26 @@ function applyServerAccount(account) {
       myStatus = account.status;
       localStorage.setItem('bp_status', myStatus);
     }
+    if (Array.isArray(account.ownedSkins) && account.ownedSkins.length && typeof ownedSkins !== 'undefined') {
+      try {
+        const free = ['default', 'ocean', 'forest'];
+        ownedSkins = account.ownedSkins.map(String);
+        free.forEach((id) => { if (!ownedSkins.includes(id)) ownedSkins.push(id); });
+        localStorage.setItem('bp_skins_owned', JSON.stringify(ownedSkins));
+      } catch (_) {}
+    }
+    if (Array.isArray(account.ownedBoards) && account.ownedBoards.length && typeof ownedBoards !== 'undefined') {
+      try {
+        const freeB = ['field_default', 'field_slate', 'field_charcoal'];
+        ownedBoards = account.ownedBoards.map(String);
+        freeB.forEach((id) => { if (!ownedBoards.includes(id)) ownedBoards.push(id); });
+        localStorage.setItem('bp_boards_owned', JSON.stringify(ownedBoards));
+      } catch (_) {}
+    }
     if (account.skinId && typeof equippedSkinId !== 'undefined') {
       try {
         equippedSkinId = account.skinId;
+        localStorage.setItem('bp_skin_equipped', equippedSkinId);
         localStorage.setItem('bp_skin', equippedSkinId);
         if (typeof applyEquippedSkin === 'function') applyEquippedSkin();
       } catch (_) {}
@@ -2428,15 +2603,85 @@ function applyServerAccount(account) {
     if (account.boardId && typeof equippedBoardId !== 'undefined') {
       try {
         equippedBoardId = account.boardId;
+        localStorage.setItem('bp_board_equipped', equippedBoardId);
         localStorage.setItem('bp_board', equippedBoardId);
         if (typeof applyEquippedBoard === 'function') applyEquippedBoard();
       } catch (_) {}
+    }
+  } catch (_) {}
+  try {
+    if (Array.isArray(account.friends) && account.friends.length) {
+      mergeFriendsFromServer(account.friends);
+      try { renderFriends(false); } catch (_) {}
+    }
+  } catch (_) {}
+  try {
+    if (Array.isArray(account.history)) {
+      mergeHistoryFromServer(account.history);
+      try { if (typeof renderHistory === 'function') renderHistory(); } catch (_) {}
     }
   } catch (_) {}
   try { if (typeof refreshProfileUI === 'function') refreshProfileUI(); } catch (_) {}
   try { if (typeof updateMenuStats === 'function') updateMenuStats(); } catch (_) {}
   try { if (typeof updateVersusNameLabels === 'function') updateVersusNameLabels(); } catch (_) {}
   updateAccountUI();
+}
+
+/** Merge server match history with local (by id / date). Server is preferred on login. */
+function mergeHistoryFromServer(serverHistory, opts) {
+  opts = opts || {};
+  if (!Array.isArray(serverHistory)) return;
+  try {
+    if (!Array.isArray(matchHistory)) matchHistory = [];
+  } catch (_) {
+    return;
+  }
+  const byId = new Map();
+  const add = (h) => {
+    if (!h) return;
+    const id = h.id || (String(h.date || '') + '_' + String(h.my || '') + '_' + String(h.oppScore || h.opp || ''));
+    if (!id) return;
+    const prev = byId.get(id);
+    if (!prev) {
+      byId.set(id, h);
+      return;
+    }
+    // Prefer entry that still has moves (replay)
+    const prevMoves = Array.isArray(prev.moves) ? prev.moves.length : 0;
+    const nextMoves = Array.isArray(h.moves) ? h.moves.length : 0;
+    if (nextMoves > prevMoves) byId.set(id, h);
+  };
+  if (opts.preferServer) {
+    for (const h of matchHistory) add(h);
+    for (const h of serverHistory) add(h);
+  } else {
+    for (const h of serverHistory) add(h);
+    for (const h of matchHistory) add(h);
+  }
+  matchHistory = Array.from(byId.values())
+    .sort((a, b) => (b.date || 0) - (a.date || 0))
+    .slice(0, 30);
+  try { localStorage.setItem('bp_history', JSON.stringify(matchHistory)); } catch (e) {
+    try {
+      matchHistory = matchHistory.slice(0, 15).map((h, i) => (i < 8 ? h : Object.assign({}, h, { moves: [] })));
+      localStorage.setItem('bp_history', JSON.stringify(matchHistory));
+    } catch (_) {}
+  }
+}
+
+function scheduleHistorySync() {
+  if (!authToken) return;
+  if (window._historySyncTimer) clearTimeout(window._historySyncTimer);
+  window._historySyncTimer = setTimeout(() => {
+    window._historySyncTimer = null;
+    try {
+      syncProfileToServer({
+        history: (typeof matchHistory !== 'undefined' && Array.isArray(matchHistory))
+          ? matchHistory.slice(0, 30)
+          : []
+      });
+    } catch (_) {}
+  }, 1200);
 }
 
 function updateAccountUI() {
@@ -2459,6 +2704,142 @@ function updateAccountUI() {
       pill.style.color = '';
     }
   }
+  // Home profile badge
+  try {
+    const badge = document.querySelector('.home-profile-badge');
+    if (badge) {
+      if (isIn) {
+        badge.textContent = myNickname || (authAccount && authAccount.login) || 'Аккаунт';
+        badge.classList.remove('guest');
+        badge.classList.add('account');
+      } else {
+        badge.textContent = (typeof globalThis.t==='function'?globalThis.t('menu.guest','Гость'):'Гость');
+        badge.classList.add('guest');
+        badge.classList.remove('account');
+      }
+    }
+  } catch (_) {}
+  try {
+    const hn = document.getElementById('homeProfileName');
+    if (hn && isIn && myNickname) hn.textContent = myNickname;
+  } catch (_) {}
+}
+
+function showAuthLoading(text) {
+  let el = document.getElementById('authLoadingOverlay');
+  if (!el) {
+    el = document.createElement('div');
+    el.id = 'authLoadingOverlay';
+    el.setAttribute('aria-live', 'polite');
+    el.innerHTML =
+      '<div class="auth-load-card">' +
+      '<div class="auth-load-spin"></div>' +
+      '<div class="auth-load-title" id="authLoadTitle">Загрузка аккаунта…</div>' +
+      '<div class="auth-load-sub" id="authLoadSub">Синхронизация прогресса</div>' +
+      '</div>';
+    document.body.appendChild(el);
+    // Inject minimal styles once
+    if (!document.getElementById('authLoadStyles')) {
+      const st = document.createElement('style');
+      st.id = 'authLoadStyles';
+      st.textContent =
+        '#authLoadingOverlay{position:fixed;inset:0;z-index:99999;display:flex;align-items:center;justify-content:center;' +
+        'background:rgba(4,12,10,.72);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);opacity:0;transition:opacity .28s ease;pointer-events:none}' +
+        '#authLoadingOverlay.visible{opacity:1;pointer-events:auto}' +
+        '.auth-load-card{display:flex;flex-direction:column;align-items:center;gap:14px;padding:28px 32px;border-radius:20px;' +
+        'background:linear-gradient(160deg,rgba(20,40,36,.95),rgba(10,22,20,.95));border:1px solid rgba(0,212,170,.22);box-shadow:0 20px 60px rgba(0,0,0,.45);min-width:220px}' +
+        '.auth-load-spin{width:42px;height:42px;border-radius:50%;border:3px solid rgba(0,212,170,.18);border-top-color:#00d4aa;' +
+        'animation:authSpin .75s linear infinite}' +
+        '@keyframes authSpin{to{transform:rotate(360deg)}}' +
+        '.auth-load-title{font-weight:800;font-size:1.05rem;color:#e8fff8}' +
+        '.auth-load-sub{font-size:.8rem;opacity:.65;color:#b8e8d8}';
+      document.head.appendChild(st);
+    }
+  }
+  const title = document.getElementById('authLoadTitle');
+  const sub = document.getElementById('authLoadSub');
+  if (title) title.textContent = text || 'Загрузка аккаунта…';
+  if (sub) sub.textContent = 'Синхронизация прогресса';
+  el.classList.add('visible');
+  el.style.display = 'flex';
+}
+function hideAuthLoading() {
+  const el = document.getElementById('authLoadingOverlay');
+  if (!el) return;
+  el.classList.remove('visible');
+  setTimeout(() => { try { el.style.display = 'none'; } catch (_) {} }, 300);
+}
+
+async function finishAuthSuccess(account, mode) {
+  showAuthLoading(mode === 'register' ? 'Создаём аккаунт…' : 'Входим в аккаунт…');
+  try {
+    // Snapshot guest progress before account apply (registration migrates it up)
+    const guestSnap = {
+      trophies: typeof trophies === 'number' ? trophies : 0,
+      diamonds: typeof diamonds === 'number' ? diamonds : 0,
+      best: typeof best === 'number' ? best : 0,
+      ownedSkins: (typeof ownedSkins !== 'undefined' && Array.isArray(ownedSkins)) ? ownedSkins.slice() : null,
+      ownedBoards: (typeof ownedBoards !== 'undefined' && Array.isArray(ownedBoards)) ? ownedBoards.slice() : null,
+      skinId: typeof equippedSkinId !== 'undefined' ? equippedSkinId : null,
+      boardId: typeof equippedBoardId !== 'undefined' ? equippedBoardId : null,
+      friends: (typeof friends !== 'undefined' && Array.isArray(friends)) ? friends.slice() : null,
+      history: (typeof matchHistory !== 'undefined' && Array.isArray(matchHistory)) ? matchHistory.slice() : null
+    };
+    applyServerAccount(account);
+    if (mode === 'register') {
+      // Merge guest progress into fresh account (take max / union)
+      try {
+        if (guestSnap.trophies > (trophies | 0)) trophies = guestSnap.trophies;
+        if (guestSnap.diamonds > (diamonds | 0)) diamonds = guestSnap.diamonds;
+        if (guestSnap.best > (best | 0)) best = guestSnap.best;
+        if (guestSnap.ownedSkins && guestSnap.ownedSkins.length) {
+          const set = new Set([...(ownedSkins || []), ...guestSnap.ownedSkins]);
+          ownedSkins = Array.from(set);
+        }
+        if (guestSnap.ownedBoards && guestSnap.ownedBoards.length) {
+          const set = new Set([...(ownedBoards || []), ...guestSnap.ownedBoards]);
+          ownedBoards = Array.from(set);
+        }
+        if (guestSnap.skinId) equippedSkinId = guestSnap.skinId;
+        if (guestSnap.boardId) equippedBoardId = guestSnap.boardId;
+        if (guestSnap.friends && guestSnap.friends.length) {
+          try { mergeFriendsFromServer(guestSnap.friends); } catch (_) {}
+        }
+        if (guestSnap.history && guestSnap.history.length) {
+          try { mergeHistoryFromServer(guestSnap.history); } catch (_) {}
+        }
+        try { localStorage.setItem('bp_trophies', String(trophies)); } catch (_) {}
+        try { localStorage.setItem('bp_diamonds', String(diamonds)); } catch (_) {}
+        try { localStorage.setItem('bp_best', String(best)); } catch (_) {}
+        try { localStorage.setItem('bp_skins_owned', JSON.stringify(ownedSkins)); } catch (_) {}
+        try { localStorage.setItem('bp_boards_owned', JSON.stringify(ownedBoards)); } catch (_) {}
+      } catch (_) {}
+    }
+    // Persist full progress to account (incl. history)
+    try {
+      await syncProfileToServer({
+        friends: (friends || []).slice(0, 200),
+        history: (typeof matchHistory !== 'undefined' && Array.isArray(matchHistory)) ? matchHistory.slice(0, 30) : []
+      });
+    } catch (_) {}
+    try { if (typeof ensureFriendPresence === 'function') ensureFriendPresence(); } catch (_) {}
+    try {
+      if (typeof MatchClient !== 'undefined' && MatchClient.cosmeticsGet) MatchClient.cosmeticsGet();
+    } catch (_) {}
+    try { if (typeof refreshProfileUI === 'function') refreshProfileUI(); } catch (_) {}
+    try { if (typeof updateAccountUI === 'function') updateAccountUI(); } catch (_) {}
+    try { if (typeof updateMenuStats === 'function') updateMenuStats(); } catch (_) {}
+    try { if (typeof renderShop === 'function') renderShop(); } catch (_) {}
+    // Brief cinematic so user sees the transition
+    await new Promise((r) => setTimeout(r, 1000));
+  } finally {
+    hideAuthLoading();
+  }
+  try {
+    if (typeof showInfoToast === 'function') {
+      showInfoToast('Аккаунт', mode === 'register' ? 'Регистрация успешна' : 'Вход выполнен', 'ok');
+    }
+  } catch (_) {}
 }
 
 function openAuthModal(mode) {
@@ -2540,14 +2921,8 @@ async function submitAuthForm(e) {
     }
     authToken = data.token;
     try { localStorage.setItem('bp_auth_token', authToken); } catch (_) {}
-    applyServerAccount(data.account);
     closeAuthModal();
-    try {
-      if (typeof showInfoToast === 'function') {
-        showInfoToast('Аккаунт', authMode === 'register' ? 'Регистрация успешна' : 'Вход выполнен', 'ok');
-      }
-    } catch (_) {}
-    try { if (typeof ensureFriendPresence === 'function') ensureFriendPresence(); } catch (_) {}
+    await finishAuthSuccess(data.account, authMode);
   } catch (ex) {
     if (err) {
       err.textContent = 'Нет связи с сервером';
@@ -2567,9 +2942,210 @@ async function logoutAccount() {
   try { localStorage.removeItem('bp_auth_token'); } catch (_) {}
   updateAccountUI();
   try {
-    if (typeof showInfoToast === 'function') showInfoToast('Аккаунт', 'Вы вышли', 'info');
+    if (typeof showInfoToast === 'function') showInfoToast('Аккаунт', 'Вы вышли', 'ok');
   } catch (_) {}
 }
+
+/** Open in-app modal to permanently delete server account (no native prompt/confirm). */
+function openAccountDeleteModal() {
+  if (!authToken) {
+    try {
+      if (typeof showInfoToast === 'function') showInfoToast('Аккаунт', 'Сначала войдите', 'bad');
+    } catch (_) {}
+    return;
+  }
+  const modal = document.getElementById('accountDeleteModal');
+  const pw = document.getElementById('accountDeletePassword');
+  const err = document.getElementById('accountDeleteError');
+  if (!modal) {
+    // Fallback if markup missing
+    if (typeof bpConfirm === 'function') {
+      bpConfirm({
+        title: 'Удалить аккаунт?',
+        text: 'Потребуется пароль. Действие необратимо.',
+        okLabel: 'Продолжить',
+        danger: true
+      }).then(function (ok) { if (ok) openAccountDeleteModal(); });
+    }
+    return;
+  }
+  if (err) { err.hidden = true; err.textContent = ''; }
+  if (pw) { pw.value = ''; }
+  modal.hidden = false;
+  modal.style.display = '';
+  modal.classList.add('visible');
+  modal.setAttribute('aria-hidden', 'false');
+  try { setTimeout(function () { if (pw) pw.focus(); }, 60); } catch (_) {}
+}
+try { window.openAccountDeleteModal = openAccountDeleteModal; } catch (_) {}
+
+function closeAccountDeleteModal() {
+  const modal = document.getElementById('accountDeleteModal');
+  if (!modal) return;
+  modal.classList.remove('visible');
+  modal.hidden = true;
+  modal.style.display = 'none';
+  modal.setAttribute('aria-hidden', 'true');
+  const pw = document.getElementById('accountDeletePassword');
+  if (pw) pw.value = '';
+  const err = document.getElementById('accountDeleteError');
+  if (err) { err.hidden = true; err.textContent = ''; }
+}
+try { window.closeAccountDeleteModal = closeAccountDeleteModal; } catch (_) {}
+
+async function submitAccountDelete() {
+  const pwEl = document.getElementById('accountDeletePassword');
+  const err = document.getElementById('accountDeleteError');
+  const password = pwEl ? String(pwEl.value || '') : '';
+  if (!password.length) {
+    if (err) { err.hidden = false; err.textContent = 'Введите пароль аккаунта'; }
+    try { if (pwEl) pwEl.focus(); } catch (_) {}
+    return;
+  }
+  if (!authToken) {
+    closeAccountDeleteModal();
+    try {
+      if (typeof showInfoToast === 'function') showInfoToast('Аккаунт', 'Сначала войдите', 'bad');
+    } catch (_) {}
+    return;
+  }
+  const confirmBtn = document.getElementById('accountDeleteConfirm');
+  if (confirmBtn) confirmBtn.disabled = true;
+  try {
+    if (typeof showAuthLoading === 'function') showAuthLoading('Удаление аккаунта…');
+  } catch (_) {}
+  try {
+    const { ok, data, status } = await apiFetch('/api/auth/delete', {
+      method: 'POST',
+      body: { password: password }
+    });
+    if (!ok || !data || !data.ok) {
+      const msg = (data && (data.message || data.error))
+        || (status === 403 ? 'Неверный пароль' : 'Не удалось удалить аккаунт');
+      if (err) { err.hidden = false; err.textContent = msg; }
+      try {
+        if (typeof showInfoToast === 'function') showInfoToast('Аккаунт', msg, 'bad');
+      } catch (_) {}
+      return;
+    }
+    authToken = null;
+    authAccount = null;
+    try { localStorage.removeItem('bp_auth_token'); } catch (_) {}
+    closeAccountDeleteModal();
+    try { updateAccountUI(); } catch (_) {}
+    try {
+      if (typeof showInfoToast === 'function') showInfoToast('Аккаунт', 'Аккаунт удалён', 'ok');
+    } catch (_) {}
+    try {
+      if (typeof showScreen === 'function') showScreen('menu');
+      else if (typeof navigateScreen === 'function') navigateScreen('menu');
+      if (typeof updateMenuStats === 'function') updateMenuStats();
+      if (typeof refreshProfileUI === 'function') refreshProfileUI();
+    } catch (_) {}
+  } catch (e) {
+    if (err) { err.hidden = false; err.textContent = 'Нет связи с сервером'; }
+    try {
+      if (typeof showInfoToast === 'function') showInfoToast('Аккаунт', 'Нет связи с сервером', 'bad');
+    } catch (_) {}
+  } finally {
+    if (confirmBtn) confirmBtn.disabled = false;
+    try {
+      if (typeof hideAuthLoading === 'function') hideAuthLoading();
+    } catch (_) {}
+  }
+}
+try { window.submitAccountDelete = submitAccountDelete; } catch (_) {}
+
+/** Back-compat alias used by older onclick / delegation paths. */
+function deleteAccount() {
+  openAccountDeleteModal();
+}
+try { window.deleteAccount = deleteAccount; } catch (_) {}
+
+/** Generic in-app confirm (Promise). Replaces native confirm() for destructive actions. */
+function bpConfirm(opts) {
+  opts = opts || {};
+  return new Promise(function (resolve) {
+    const modal = document.getElementById('bpConfirmModal');
+    if (!modal) {
+      // last-resort fallback
+      resolve(window.confirm(opts.text || opts.title || 'Продолжить?'));
+      return;
+    }
+    const title = document.getElementById('bpConfirmTitle');
+    const text = document.getElementById('bpConfirmText');
+    const okBtn = document.getElementById('bpConfirmOk');
+    const cancelBtn = document.getElementById('bpConfirmCancel');
+    const backdrop = document.getElementById('bpConfirmBackdrop');
+    if (title) title.textContent = opts.title || 'Подтверждение';
+    if (text) text.textContent = opts.text || '';
+    if (okBtn) {
+      okBtn.textContent = opts.okLabel || 'Да';
+      okBtn.classList.toggle('danger-btn', !!opts.danger);
+    }
+    if (cancelBtn) cancelBtn.textContent = opts.cancelLabel || 'Отмена';
+
+    function cleanup(result) {
+      modal.classList.remove('visible');
+      modal.hidden = true;
+      modal.style.display = 'none';
+      modal.setAttribute('aria-hidden', 'true');
+      if (okBtn) okBtn.onclick = null;
+      if (cancelBtn) cancelBtn.onclick = null;
+      if (backdrop) backdrop.onclick = null;
+      document.removeEventListener('keydown', onKey);
+      resolve(!!result);
+    }
+    function onKey(e) {
+      if (e.key === 'Escape') cleanup(false);
+      if (e.key === 'Enter') cleanup(true);
+    }
+    if (okBtn) okBtn.onclick = function () { cleanup(true); };
+    if (cancelBtn) cancelBtn.onclick = function () { cleanup(false); };
+    if (backdrop) backdrop.onclick = function () { cleanup(false); };
+    document.addEventListener('keydown', onKey);
+    modal.hidden = false;
+    modal.style.display = '';
+    modal.classList.add('visible');
+    modal.setAttribute('aria-hidden', 'false');
+    try { setTimeout(function () { if (okBtn) okBtn.focus(); }, 40); } catch (_) {}
+  });
+}
+try { window.bpConfirm = bpConfirm; } catch (_) {}
+
+(function bindAccountDeleteModal() {
+  const closeBtn = document.getElementById('accountDeleteClose');
+  const cancelBtn = document.getElementById('accountDeleteCancel');
+  const backdrop = document.getElementById('accountDeleteBackdrop');
+  const confirmBtn = document.getElementById('accountDeleteConfirm');
+  const pw = document.getElementById('accountDeletePassword');
+  if (closeBtn && !closeBtn._bpBound) {
+    closeBtn._bpBound = true;
+    closeBtn.addEventListener('click', closeAccountDeleteModal);
+  }
+  if (cancelBtn && !cancelBtn._bpBound) {
+    cancelBtn._bpBound = true;
+    cancelBtn.addEventListener('click', closeAccountDeleteModal);
+  }
+  if (backdrop && !backdrop._bpBound) {
+    backdrop._bpBound = true;
+    backdrop.addEventListener('click', closeAccountDeleteModal);
+  }
+  if (confirmBtn && !confirmBtn._bpBound) {
+    confirmBtn._bpBound = true;
+    confirmBtn.addEventListener('click', function () { submitAccountDelete(); });
+  }
+  if (pw && !pw._bpBound) {
+    pw._bpBound = true;
+    pw.addEventListener('keydown', function (e) {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        submitAccountDelete();
+      }
+    });
+  }
+})();
+
 
 /** Push local profile fields to server (when logged in). */
 async function syncProfileToServer(extra) {
@@ -2580,8 +3156,13 @@ async function syncProfileToServer(extra) {
     avatarId: typeof myAvatarId !== 'undefined' ? myAvatarId : undefined,
     avatarCustom: (typeof myAvatarId !== 'undefined' && myAvatarId === 'custom' && myAvatarCustom) ? myAvatarCustom : '',
     trophies: typeof trophies === 'number' ? trophies : undefined,
+    diamonds: typeof diamonds === 'number' ? diamonds : undefined,
+    best: typeof best === 'number' ? best : undefined,
     skinId: typeof equippedSkinId !== 'undefined' ? equippedSkinId : undefined,
-    boardId: typeof equippedBoardId !== 'undefined' ? equippedBoardId : undefined
+    boardId: typeof equippedBoardId !== 'undefined' ? equippedBoardId : undefined,
+    ownedSkins: (typeof ownedSkins !== 'undefined' && Array.isArray(ownedSkins)) ? ownedSkins.slice(0, 64) : undefined,
+    ownedBoards: (typeof ownedBoards !== 'undefined' && Array.isArray(ownedBoards)) ? ownedBoards.slice(0, 64) : undefined,
+    history: (typeof matchHistory !== 'undefined' && Array.isArray(matchHistory)) ? matchHistory.slice(0, 30) : undefined
   }, extra || {});
   try {
     const { ok, data } = await apiFetch('/api/me', { method: 'PATCH', body });
@@ -2628,6 +3209,11 @@ function bindAccountUI() {
     logoutBtn._authBound = true;
     logoutBtn.addEventListener('click', () => logoutAccount());
   }
+  const delBtn = document.getElementById('btnAccountDelete');
+  if (delBtn && !delBtn._authBound) {
+    delBtn._authBound = true;
+    delBtn.addEventListener('click', () => deleteAccount());
+  }
   const closeBtn = document.getElementById('authModalClose');
   if (closeBtn && !closeBtn._authBound) {
     closeBtn._authBound = true;
@@ -2656,7 +3242,7 @@ function bindAccountUI() {
 if (!window._authDelegateBound) {
   window._authDelegateBound = true;
   document.addEventListener('click', (e) => {
-    const t = e.target && e.target.closest && e.target.closest('#btnProfileBind, #btnAccountLogout, #authModalClose, .auth-tab');
+    const t = e.target && e.target.closest && e.target.closest('#btnProfileBind, #btnAccountLogout, #btnAccountDelete, #authModalClose, .auth-tab');
     if (!t) return;
     if (t.id === 'btnProfileBind') {
       e.preventDefault();
@@ -2664,6 +3250,9 @@ if (!window._authDelegateBound) {
     } else if (t.id === 'btnAccountLogout') {
       e.preventDefault();
       logoutAccount();
+    } else if (t.id === 'btnAccountDelete') {
+      e.preventDefault();
+      deleteAccount();
     } else if (t.id === 'authModalClose') {
       closeAuthModal();
     } else if (t.classList && t.classList.contains('auth-tab')) {

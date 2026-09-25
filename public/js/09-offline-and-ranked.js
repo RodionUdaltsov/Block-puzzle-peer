@@ -371,7 +371,8 @@ function applyRoomState(data) {
     // Prefer structured me/opp, then flat place_ok / opp_place fields
     if (me && !protectMyBoard) {
       if (typeof me.score === 'number' && (me.score | 0) !== (score | 0)) { score = me.score | 0; scoresChanged = true; }
-      if (Array.isArray(me.grid)) {
+      // While dragging, do not replace our board — avoids layout thrash / pointercancel on phones
+      if (Array.isArray(me.grid) && !dragging) {
         const next = me.grid.map(row => (row || []).slice());
         if (gridSig(next) !== gridSig(grid)) { grid = next; myBoardChanged = true; }
       }
@@ -409,15 +410,15 @@ function applyRoomState(data) {
           }
         }
       }
-      // New deal always wins (hand was empty / refreshed)
-      if (Array.isArray(data.deal) && data.deal.length) {
+      // New deal always wins (hand was empty / refreshed) — but never mid-drag
+      if (Array.isArray(data.deal) && data.deal.length && !dragging) {
         pieces = adoptHand(data.deal);
         myHandChanged = true;
         try { BPState.animateDealIn = true; } catch (_) {}
       }
       // place_ok / opp_place aliases
       if (typeof data.meScore === 'number' && (data.meScore | 0) !== (score | 0)) { score = data.meScore | 0; scoresChanged = true; }
-      if (Array.isArray(data.meGrid)) {
+      if (Array.isArray(data.meGrid) && !dragging) {
         const next = data.meGrid.map(row => (row || []).slice());
         if (gridSig(next) !== gridSig(grid)) { grid = next; myBoardChanged = true; }
       }

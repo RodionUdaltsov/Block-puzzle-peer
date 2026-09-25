@@ -274,7 +274,7 @@ function startOnlineMatchmaking() {
     return;
   }
   // online ranked removed — MatchClient required
-  alert('Клиент матчей не загрузился. Обнови страницу.');
+  try { if (typeof showInfoToast === 'function') showInfoToast('Матч', 'Клиент матчей не загрузился. Обнови страницу.', 'bad'); } catch (_) {}
   return;
 }
 
@@ -1441,6 +1441,7 @@ function endVersus(opts) {
     matchHistory = matchHistory.slice(0, 15).map((h, i) => i < 10 ? h : { ...h, moves: [] });
     try { localStorage.setItem('bp_history', JSON.stringify(matchHistory)); } catch (_) {}
   }
+  try { if (typeof scheduleHistorySync === 'function') scheduleHistorySync(); } catch (_) {}
 
   // Quiet end: no toast — clear frozen versus and return to menu
   if (opts.quiet) {
@@ -3323,7 +3324,9 @@ document.getElementById('cardVersus')?.addEventListener('click', startVersusFlow
     }
   });
 });
-document.getElementById('btnBackFromComp')?.addEventListener('click', () => { showScreen('menu'); updateMenuStats(); });
+document.getElementById('btnBackFromComp')?.addEventListener('click', () => {
+  navigateScreen('menu', () => { try { updateMenuStats(); } catch (_) {} });
+});
 document.getElementById('cardOnline')?.addEventListener('click', goDurationFromOnline);
 document.getElementById('cardBots')?.addEventListener('click', goDifficulty);
 ['cardOnline', 'cardBots'].forEach((id) => {
@@ -3469,12 +3472,16 @@ function startRandomBotPick() {
   tick();
 }
 document.getElementById('btnRandomBot')?.addEventListener('click', startRandomBotPick);
-document.getElementById('btnBackDiff')?.addEventListener('click', () => showScreen('compType'));
-document.getElementById('btnBackMenu')?.addEventListener('click', () => {
-  if (vsModeType === 'bots') showScreen('difficulty');
-  else showScreen('compType');
+document.getElementById('btnBackDiff')?.addEventListener('click', () => {
+  navigateScreen('compType');
 });
-document.getElementById('btnClassicMenu')?.addEventListener('click', () => { showScreen('menu'); updateMenuStats(); });
+document.getElementById('btnBackMenu')?.addEventListener('click', () => {
+  if (vsModeType === 'bots') navigateScreen('difficulty');
+  else navigateScreen('compType');
+});
+document.getElementById('btnClassicMenu')?.addEventListener('click', () => {
+  navigateScreen('menu', () => { try { updateMenuStats(); } catch (_) {} });
+});
 document.querySelectorAll('#screenDuration .dur-card').forEach(btn => {
   btn.addEventListener('click', () => {
     document.querySelectorAll('#screenDuration .dur-card').forEach(b => b.classList.remove('selected'));
@@ -3498,35 +3505,37 @@ document.getElementById('btnCancelSearch')?.addEventListener('click', () => {
 })();
 
 document.getElementById('btnShop')?.addEventListener('click', () => {
-  renderShopGrid();
-  showScreen('shop');
+  navigateScreen('shop', () => { try { renderShopGrid(); } catch (_) {} });
 });
 document.getElementById('btnInventory')?.addEventListener('click', () => {
-  renderInvGrid();
-  showScreen('inventory');
+  navigateScreen('inventory', () => { try { renderInvGrid(); } catch (_) {} });
 });
 document.getElementById('btnShopBack')?.addEventListener('click', () => {
-  try { closeShopInvSections(); } catch (_) {}
-  showScreen('menu');
-  updateMenuStats();
+  navigateScreen('menu', () => {
+    try { closeShopInvSections(); } catch (_) {}
+    try { updateMenuStats(); } catch (_) {}
+  });
 });
 document.getElementById('btnInvBack')?.addEventListener('click', () => {
-  try { closeShopInvSections(); } catch (_) {}
-  showScreen('menu');
-  updateMenuStats();
+  navigateScreen('menu', () => {
+    try { closeShopInvSections(); } catch (_) {}
+    try { updateMenuStats(); } catch (_) {}
+  });
 });
 // Shop & Inventory are separate screens (no cross-tabs)
 const _shopToInv = document.getElementById('btnShopToInv');
 if (_shopToInv) _shopToInv.addEventListener('click', () => {
-  try { closeShopInvSections(); } catch (_) {}
-  renderInvGrid();
-  showScreen('inventory');
+  navigateScreen('inventory', () => {
+    try { closeShopInvSections(); } catch (_) {}
+    try { renderInvGrid(); } catch (_) {}
+  });
 });
 const _invToShop = document.getElementById('btnInvToShop');
 if (_invToShop) _invToShop.addEventListener('click', () => {
-  try { closeShopInvSections(); } catch (_) {}
-  renderShopGrid();
-  showScreen('shop');
+  navigateScreen('shop', () => {
+    try { closeShopInvSections(); } catch (_) {}
+    try { renderShopGrid(); } catch (_) {}
+  });
 });
 
 
@@ -3565,9 +3574,10 @@ document.getElementById('btnHomeProfile')?.addEventListener('click', () => {
   openProfileScreen();
 });
 document.getElementById('btnProfileBack')?.addEventListener('click', () => {
-  showScreen('menu');
-  updateMenuStats();
-  refreshProfileUI();
+  navigateScreen('menu', () => {
+    try { updateMenuStats(); } catch (_) {}
+    try { refreshProfileUI(); } catch (_) {}
+  });
 });
 document.getElementById('btnProfileSave')?.addEventListener('click', () => {
   const nickIn = document.getElementById('profileNickInput');
@@ -3640,99 +3650,13 @@ document.getElementById('profileNickInput')?.addEventListener('input', (e) => {
   }
 });
 
-document.getElementById('btnSettings')?.addEventListener('click', () => {
-  applySettings();
-  showScreen('settings');
-});
-
-function switchSettingsTab(id) {
-  const tabs = document.querySelectorAll('#settingsTabs .settings-tab');
-  const secs = document.querySelectorAll('#screenSettings .settings-section[data-stab]');
-  tabs.forEach(t => {
-    const on = t.dataset.stab === id;
-    t.classList.toggle('on', on);
-    t.setAttribute('aria-selected', on ? 'true' : 'false');
-  });
-  secs.forEach(s => s.classList.toggle('active-tab', s.dataset.stab === id));
-  const list = document.querySelector('#screenSettings .settings-list');
-  if (list) list.scrollTop = 0;
-  try { SFX.ui(); } catch (_) {}
-}
-document.getElementById('settingsTabs')?.addEventListener('click', (e) => {
-  const btn = e.target.closest('.settings-tab');
-  if (!btn || !btn.dataset.stab) return;
-  switchSettingsTab(btn.dataset.stab);
-});
-
-document.getElementById('btnSettingsBack')?.addEventListener('click', () => {
-  applySettings();
-  showScreen('menu');
-  updateMenuStats();
-});
-document.getElementById('btnSettingsReset')?.addEventListener('click', () => {
-  settings = { ...DEFAULT_SETTINGS };
-  saveSettings();
-  applySettings();
-});
-document.querySelectorAll('.set-chip').forEach(chip => {
-  chip.addEventListener('click', () => {
-    const key = chip.dataset.set;
-    const val = chip.dataset.val;
-    if (!key) return;
-    settings[key] = val;
-    saveSettings();
-    applySettings();
-    hapticTap(8);
-    SFX.ui();
-  });
-});
-function bindVolSlider(id, key, labelId) {
-  const el = document.getElementById(id);
-  if (!el) return;
-  const applyVol = () => {
-    settings[key] = String(el.value);
-    saveSettings();
-    const lab = document.getElementById(labelId);
-    if (lab) lab.textContent = el.value + '%';
-    if (key === 'musicVol' && musicMaster && musicCtx && settings.music === '1') {
-      const volMul = Math.max(0, Math.min(1, parseInt(el.value, 10) / 100));
-      const base = musicMode === 'battle' ? 0.22 : 0.16;
-      try {
-        musicMaster.gain.linearRampToValueAtTime(Math.max(0.0001, base * volMul), musicCtx.currentTime + 0.08);
-      } catch (_) {}
-    }
-  };
-  el.addEventListener('input', applyVol);
-  el.addEventListener('change', applyVol);
-}
-bindVolSlider('musicVolSlider', 'musicVol', 'musicVolLabel');
-bindVolSlider('voiceVolSlider', 'voiceVol', 'voiceVolLabel');
-// Soft UI clicks + unlock AudioContext on first gesture
-document.addEventListener('pointerdown', () => {
-  try { ensureFriendPresence(); } catch (_) {}
-  getSfxCtx();
-  getMusicCtx();
-  const active = document.querySelector('.screen.active');
-  if (active && settings.music === '1') {
-    const raw = (active.id || '').replace(/^screen/, '');
-    const map = {
-      Menu: 'menu', Classic: 'classic', Versus: 'versus', Settings: 'settings',
-      Match: 'match', Friends: 'friends', History: 'history', Achievements: 'achievements',
-      CompType: 'compType', Difficulty: 'difficulty', Duration: 'duration'
-    };
-    syncMusicToScreen(map[raw] || 'menu');
-  }
-}, { once: true, passive: true });
-document.body.addEventListener('click', (e) => {
-  const btn = e.target && e.target.closest && e.target.closest('button, .menu-card, .bot-card, .history-item');
-  if (btn) SFX.ui();
-}, true);
-applySettings();
+/* Settings UI bindings moved to public/js/14-settings-ui.js (bundle includes it after this file). */
 
 document.getElementById('btnAchievements')?.addEventListener('click', () => {
-  renderAchievements();
-  try { updateClaimAllButton(); } catch (_) {}
-  showScreen('achievements');
+  navigateScreen('achievements', () => {
+    try { renderAchievements(); } catch (_) {}
+    try { updateClaimAllButton(); } catch (_) {}
+  });
 });
 document.getElementById('btnClaimAllAch')?.addEventListener('click', (e) => {
   e.preventDefault();
@@ -3743,13 +3667,13 @@ document.getElementById('btnClaimAllAch')?.addEventListener('click', (e) => {
 });
 try { updateAchievementsButton(); } catch (_) {}
 document.getElementById('btnAchBack')?.addEventListener('click', () => {
-  showScreen('menu');
-  updateMenuStats();
+  navigateScreen('menu', () => { try { updateMenuStats(); } catch (_) {} });
 });
 document.getElementById('btnNew')?.addEventListener('click', () => { clearClassicSave(); startClassic(true); });
 document.getElementById('btnRestart')?.addEventListener('click', () => { clearClassicSave(); startClassic(true); });
 document.getElementById('btnOverMenu')?.addEventListener('click', () => {
-  gameOverEl.classList.remove('visible'); showScreen('menu'); updateMenuStats();
+  gameOverEl.classList.remove('visible');
+  navigateScreen('menu', () => { try { updateMenuStats(); } catch (_) {} });
 });
 document.getElementById('btnRelief')?.addEventListener('click', doRelief);
 document.getElementById('btnUseDiamond')?.addEventListener('click', doRelief);
@@ -4068,36 +3992,45 @@ document.getElementById('rmBtnDecline')?.addEventListener('click', () => {
   declineRematchInvite();
 });
 document.getElementById('btnHistory')?.addEventListener('click', () => {
-  renderHistory();
-  showScreen('history');
+  navigateScreen('history', () => { try { renderHistory(); } catch (_) {} });
 });
 document.getElementById('btnHistoryBack')?.addEventListener('click', () => {
-  showScreen('menu');
-  updateMenuStats();
+  navigateScreen('menu', () => { try { updateMenuStats(); } catch (_) {} });
 });
 document.getElementById('btnHistoryClear')?.addEventListener('click', () => {
-  if (confirm('Очистить всю историю матчей?')) {
+  const run = () => {
     matchHistory = [];
-    localStorage.setItem('bp_history', '[]');
-    renderHistory();
+    try { localStorage.setItem('bp_history', '[]'); } catch (_) {}
+    try { renderHistory(); } catch (_) {}
+    try { if (typeof scheduleHistorySync === 'function') scheduleHistorySync(); } catch (_) {}
+  };
+  if (typeof bpConfirm === 'function') {
+    bpConfirm({
+      title: 'Очистить историю?',
+      text: 'Вся история матчей на этом устройстве будет удалена.',
+      okLabel: 'Очистить',
+      danger: true
+    }).then(function (ok) { if (ok) run(); });
+  } else if (window.confirm('Очистить всю историю матчей?')) {
+    run();
   }
 });
 document.getElementById('btnFriends')?.addEventListener('click', () => {
   if (!requireOnline('Друзья')) return;
-  try { ensureFriendPresence(); } catch (_) {}
-  renderFriends();
-  renderFriendRequests();
-  renderOutgoingPending();
-  showScreen('friends');
   setFriendAddStatus('');
-  try { scheduleFriendsPresence(); } catch (_) {}
-
-  try {
-    if (typeof frIncoming !== 'undefined' && frIncoming && frIncoming[0] && typeof showFrToast === 'function') {
-      const toast = document.getElementById('frToast');
-      if (toast && !toast.classList.contains('visible')) showFrToast(frIncoming[0]);
-    }
-  } catch (_) {}
+  navigateScreen('friends', () => {
+    try { renderFriends(); } catch (_) {}
+    try { renderFriendRequests(); } catch (_) {}
+    try { renderOutgoingPending(); } catch (_) {}
+    try { ensureFriendPresence(); } catch (_) {}
+    try { scheduleFriendsPresence(); } catch (_) {}
+    try {
+      if (typeof frIncoming !== 'undefined' && frIncoming && frIncoming[0] && typeof showFrToast === 'function') {
+        const toast = document.getElementById('frToast');
+        if (toast && !toast.classList.contains('visible')) showFrToast(frIncoming[0]);
+      }
+    } catch (_) {}
+  });
 });
 (function bindLobbyInviteModal() {
   const closeBtn = document.getElementById('btnLobbyInviteClose');
@@ -4141,13 +4074,14 @@ document.getElementById('btnFriends')?.addEventListener('click', () => {
   });
 })();
 document.getElementById('btnFriendsBack')?.addEventListener('click', () => {
-  try { closeRoomLobby(); } catch (_) {}
-  if (mpRoomCode || (mpMode && !mmActive && mpGameSource !== 'ranked')) {
-    try { destroyMp(); } catch (_) {}
-    try { setMpStatus(''); } catch (_) {}
-  }
-  showScreen('menu');
-  updateMenuStats();
+  navigateScreen('menu', () => {
+    try { closeRoomLobby(); } catch (_) {}
+    if (mpRoomCode || (mpMode && !mmActive && mpGameSource !== 'ranked')) {
+      try { destroyMp(); } catch (_) {}
+      try { setMpStatus(''); } catch (_) {}
+    }
+    try { updateMenuStats(); } catch (_) {}
+  });
 });
 document.getElementById('btnAddFriend')?.addEventListener('click', () => {
   addFriendByCode(document.getElementById('friendCodeInput').value);

@@ -3,7 +3,7 @@
 Numbered scripts are concatenated by `scripts/bundle-client.js` into
 `public/dist/client.bundle.js` (IIFE, shared scope).
 
-**Production entry:** `index.html` loads only `dist/client.bundle.js`.  
+**Production entry:** `index.html` loads `dist/client.bundle.js` (all modules, one IIFE).  
 `public/game.js` and `public/js/main.js` are **legacy / dev-only** and are not used in production.
 
 | File | Role |
@@ -24,5 +24,19 @@ Numbered scripts are concatenated by `scripts/bundle-client.js` into
 | `11-private-rooms-ui.js` | Private lobbies UI |
 | `12-boot.js` | Boot loader / match intro |
 | `13-performance.js` | Adaptive mobile performance |
+| `14-settings-ui.js` | Settings tabs, volume, chips (extracted from private-rooms) |
 
 Liveness lives in `06-match-liveness.js` (do not reintroduce older peer-liveness module names).
+
+
+## Canonical APIs (window)
+
+| API | Use |
+|-----|-----|
+| `navigateScreen(name, work)` | Menu tabs / Back with loading overlay |
+| `showScreen` / `withScreenLoading` | Lower-level screen control |
+| `bpConfirm({ title, text, danger })` | Destructive confirms (Promise) |
+| `openAccountDeleteModal` | Account delete (password modal) |
+| `showInfoToast(label, text, kind)` | Toasts (`ok`/`bad`/`info`/`warn`/`error`) |
+
+Do not reintroduce native `alert` / `confirm` / `prompt` for product UX.

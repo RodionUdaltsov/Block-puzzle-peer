@@ -655,6 +655,27 @@
     }
     #profileAvatarFile { display: none; }
 
+    /* While booting: hide interactive screens so user never sees a half-ready menu */
+    body.bp-booting .screen,
+    body.bp-booting .skip-link {
+      visibility: hidden !important;
+      pointer-events: none !important;
+    }
+    body.bp-booting #bootLoader {
+      visibility: visible !important;
+      pointer-events: auto !important;
+      opacity: 1 !important;
+    }
+    /* Until menu is warm, skip expensive filter/brightness on hover (first-hover freeze) */
+    body:not(.bp-menu-warm) .home-nav-btn:hover,
+    body:not(.bp-menu-warm) .home-mode:hover {
+      filter: none !important;
+    }
+    body:not(.bp-menu-warm) .home-nav-btn:hover span:not(.ico),
+    body:not(.bp-menu-warm) .home-mode:hover .home-mode-body h3 {
+      filter: none !important;
+    }
+
     #bootLoader {
       position: fixed;
       inset: 0;
@@ -665,13 +686,12 @@
       justify-content: center;
       overflow: hidden;
       background: #0a0c10;
-      transition: opacity 0.6s ease, visibility 0.6s;
+      transition: opacity 0.55s ease, visibility 0.55s;
     }
     #bootLoader.hide {
       opacity: 0 !important;
       visibility: hidden !important;
       pointer-events: none !important;
-      display: none !important;
     }
     .boot-bg {
       position: absolute;
@@ -887,6 +907,90 @@
       display: inline-block;
       width: 1.2em;
       text-align: left;
+    }
+
+    /* Soft screen loading — override [hidden] so animation always shows */
+    #screenLoading.screen-loading {
+      position: fixed;
+      inset: 0;
+      z-index: 12000;
+      display: flex !important;
+      align-items: center;
+      justify-content: center;
+      pointer-events: none;
+      background: rgba(10, 12, 16, 0.48);
+      backdrop-filter: blur(4px);
+      -webkit-backdrop-filter: blur(4px);
+      opacity: 0;
+      visibility: hidden;
+      transition: opacity 0.14s ease, visibility 0.14s ease;
+    }
+    #screenLoading.screen-loading[hidden]:not(.show) {
+      display: none !important;
+    }
+    #screenLoading.screen-loading.show {
+      opacity: 1 !important;
+      visibility: visible !important;
+      pointer-events: auto !important;
+      display: flex !important;
+    }
+    #screenLoading .sl-card {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 12px;
+      padding: 18px 22px;
+      border-radius: 18px;
+      background: rgba(18, 22, 30, 0.92);
+      border: 1px solid rgba(0, 212, 170, 0.22);
+      box-shadow: 0 12px 40px rgba(0, 0, 0, 0.45);
+      min-width: 120px;
+    }
+    #screenLoading .sl-orbit {
+      position: relative;
+      width: 48px;
+      height: 48px;
+    }
+    #screenLoading .sl-ring {
+      position: absolute;
+      inset: 4px;
+      border-radius: 50%;
+      border: 2px solid rgba(0, 212, 170, 0.22);
+      border-top-color: #00d4aa;
+      animation: slSpin 0.85s linear infinite;
+    }
+    @keyframes slSpin {
+      to { transform: rotate(360deg); }
+    }
+    #screenLoading .sl-cube {
+      position: absolute;
+      width: 8px; height: 8px;
+      border-radius: 2px;
+      left: 50%; top: 50%;
+      margin: -4px 0 0 -4px;
+      animation: slCubeOrbit 1.8s linear infinite;
+      box-shadow: 0 0 6px currentColor;
+    }
+    #screenLoading .sl-cube.c1 { background: #00d4aa; color: #00d4aa; animation-delay: 0s; }
+    #screenLoading .sl-cube.c2 { background: #7c5cff; color: #7c5cff; animation-delay: -0.45s; }
+    #screenLoading .sl-cube.c3 { background: #ffd666; color: #ffd666; animation-delay: -0.9s; }
+    #screenLoading .sl-cube.c4 { background: #5ee7ff; color: #5ee7ff; animation-delay: -1.35s; }
+    @keyframes slCubeOrbit {
+      0%   { transform: rotate(0deg) translateX(18px) rotate(0deg) scale(1); }
+      50%  { transform: rotate(180deg) translateX(18px) rotate(-180deg) scale(0.85); }
+      100% { transform: rotate(360deg) translateX(18px) rotate(-360deg) scale(1); }
+    }
+    #screenLoading .sl-text {
+      font-size: 0.78rem;
+      font-weight: 700;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      color: rgba(232, 234, 237, 0.75);
+    }
+    @media (prefers-reduced-motion: reduce) {
+      #screenLoading .sl-ring,
+      #screenLoading .sl-cube { animation: none; }
+      #screenLoading .sl-ring { border-top-color: #00d4aa; opacity: 0.85; }
     }
 
     /* Offline UI */
@@ -2964,3 +3068,21 @@
   position: relative;
   z-index: 2;
 }
+
+/* Account delete / generic confirm */
+.danger-modal .auth-modal-card h2 { color: #ff7a8a; }
+.danger-modal-lead {
+  font-size: 0.86rem;
+  font-weight: 600;
+  color: var(--text-dim, #a8b0c0);
+  line-height: 1.45;
+  margin: 0 0 12px;
+}
+.danger-btn {
+  background: linear-gradient(180deg, #ff5a6e, #d63a50) !important;
+  border-color: rgba(255, 90, 110, 0.55) !important;
+  color: #fff !important;
+  font-weight: 800;
+}
+.danger-btn:active { filter: brightness(0.92); }
+#bpConfirmModal .auth-modal-card h2 { font-size: 1.15rem; }

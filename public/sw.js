@@ -4,7 +4,7 @@
  */
 'use strict';
 
-const CACHE = 'bp-shell-v3.9.52';
+const CACHE = 'bp-shell-v3.9.56';
 const PRECACHE = [
   '/',
   '/index.html',

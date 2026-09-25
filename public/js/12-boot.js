@@ -6,9 +6,15 @@
  */
 'use strict';
 
-// —— Boot loader: hide when ready ——
+// —— Boot loader: hide only after menu is fully ready (no early flash / hover freeze) ——
 (function initBootLoader() {
-  const hide = () => {
+  const markReady = () => {
+    try {
+      if (typeof window.__markMenuReady === 'function') {
+        window.__markMenuReady();
+        return;
+      }
+    } catch (_) {}
     try {
       if (typeof window.__hideBootLoader === 'function') {
         window.__hideBootLoader();
@@ -19,19 +25,36 @@
     if (!el || el.classList.contains('hide')) return;
     el.classList.add('hide');
     el.setAttribute('data-hidden', '1');
+    try { document.body.classList.remove('bp-booting'); document.body.classList.add('bp-menu-ready', 'bp-menu-warm'); } catch (_) {}
     setTimeout(() => { try { el.remove(); } catch (_) {} }, 600);
   };
   try {
     const t0 = performance.now();
+    // Minimum time so the animated boot screen is visible; then wait for idle + paint
+    const MIN_MS = 700;
     const finish = () => {
-      const left = Math.max(0, 900 - (performance.now() - t0));
-      setTimeout(hide, left);
+      const left = Math.max(0, MIN_MS - (performance.now() - t0));
+      const reveal = () => {
+        // Prefer idle callback so heavy first-paint work is done before menu is interactive
+        const go = () => markReady();
+        try {
+          if (typeof requestIdleCallback === 'function') {
+            requestIdleCallback(go, { timeout: 900 });
+          } else {
+            setTimeout(go, 40);
+          }
+        } catch (_) {
+          setTimeout(go, 40);
+        }
+      };
+      setTimeout(reveal, left);
     };
     if (document.readyState === 'complete') finish();
     else window.addEventListener('load', finish, { once: true });
-    setTimeout(hide, 2800);
+    // Absolute cap — never leave user stuck on loader
+    setTimeout(markReady, 4500);
   } catch (_) {
-    setTimeout(hide, 500);
+    setTimeout(markReady, 500);
   }
 })();
 
@@ -115,10 +138,8 @@ window.addEventListener('resize', () => { invalidateBoardMetrics(); updateBoardM
 try { updateMenuStats(); } catch (_) {}
 try { refreshProfileUI(); } catch (_) {}
 try { if (bestEl) bestEl.textContent = best; } catch (_) {}
-try {
-  if (typeof window.__unlockUI === 'function') window.__unlockUI();
-  else if (typeof window.__hideBootLoader === 'function') window.__hideBootLoader();
-} catch (_) {}
+// Do NOT unlock boot here — initBootLoader waits for idle + paint so the menu
+// is fully composited before the first hover/tap (avoids freeze on entry).
 try {
   // Clear stale rejoin session so menu is never locked behind rejoin overlay
   if (!BPState.roomMatchMode) {

@@ -19,9 +19,9 @@
   <link rel="apple-touch-icon" href="/icons/icon-192.svg" />
   <link rel="manifest" href="/site.webmanifest" />
   <!-- Multiplayer: WebSocket MatchClient -->
-  <link rel="stylesheet" href="styles.css?v3951b" />
+  <link rel="stylesheet" href="styles.css?v3963" />
 </head>
-<body>
+<body class="bp-booting">
 
   <a class="skip-link" href="#screenMenu" data-i18n="skip.menu">Перейти к меню</a>
 
@@ -57,6 +57,39 @@
     </div>
   </div>
 
+
+  <!-- Account delete confirm modal (no native prompt/confirm) -->
+  <div id="accountDeleteModal" class="auth-modal danger-modal" hidden aria-hidden="true" style="display:none">
+    <div class="auth-modal-backdrop" id="accountDeleteBackdrop"></div>
+    <div class="auth-modal-card" role="dialog" aria-labelledby="accountDeleteTitle" aria-modal="true">
+      <button type="button" class="auth-modal-close" id="accountDeleteClose" aria-label="Закрыть">×</button>
+      <h2 id="accountDeleteTitle">Удалить аккаунт</h2>
+      <p class="danger-modal-lead">Действие необратимо. Будут удалены логин, серверный прогресс, друзья и история на сервере. Локальные данные на этом устройстве останутся.</p>
+      <div class="profile-field">
+        <label for="accountDeletePassword">Пароль для подтверждения</label>
+        <input id="accountDeletePassword" type="password" maxlength="72" placeholder="пароль аккаунта" autocomplete="current-password" />
+      </div>
+      <div id="accountDeleteError" class="auth-error" hidden></div>
+      <div class="stuck-actions" style="margin-top:12px;gap:8px">
+        <button type="button" class="primary danger-btn" id="accountDeleteConfirm" style="width:100%;min-height:42px">Удалить навсегда</button>
+        <button type="button" class="ghost" id="accountDeleteCancel" style="width:100%;min-height:38px">Отмена</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Generic confirm modal (replaces native confirm) -->
+  <div id="bpConfirmModal" class="auth-modal" hidden aria-hidden="true" style="display:none">
+    <div class="auth-modal-backdrop" id="bpConfirmBackdrop"></div>
+    <div class="auth-modal-card" role="dialog" aria-labelledby="bpConfirmTitle" aria-modal="true">
+      <h2 id="bpConfirmTitle">Подтверждение</h2>
+      <p id="bpConfirmText" class="danger-modal-lead" style="margin-bottom:14px"></p>
+      <div class="stuck-actions" style="gap:8px">
+        <button type="button" class="primary" id="bpConfirmOk" style="width:100%;min-height:42px">Да</button>
+        <button type="button" class="ghost" id="bpConfirmCancel" style="width:100%;min-height:38px">Отмена</button>
+      </div>
+    </div>
+  </div>
+
   <div id="bootLoader" aria-busy="true" aria-label="Загрузка" data-i18n-aria="boot.loading">
     <div class="boot-bg" aria-hidden="true"></div>
     <div class="boot-orbs" aria-hidden="true"><i></i><i></i><i></i></div>
@@ -82,23 +115,51 @@
     </div>
   </div>
   <script>
-  /* boot-failsafe + unlock UI if game.js fails or overlays stick */
+  /* Boot gate: keep loader until client marks menu ready. Failsafe only after long timeout. */
   (function () {
-    function unlockUI() {
-      try { document.body.classList.remove('rejoin-loading', 'is-offline'); } catch (e) {}
-      // Only force-hide boot / stuck loading — NEVER permanently kill matchEndFreeze or bot pick
-      // (inline display:none overrides .visible and breaks end/random animations)
-      // Only boot + rejoin: NEVER force-hide matchIntro (match loading / «Старт!»)
+    var ready = false;
+    var unlocked = false;
+    function unlockUI(force) {
+      if (unlocked && !force) return;
+      unlocked = true;
+      ready = true;
+      try { document.body.classList.remove('rejoin-loading', 'is-offline', 'bp-booting'); } catch (e) {}
+      try { document.body.classList.add('bp-menu-ready'); } catch (e) {}
+      // Only force-hide boot / rejoin — never touch screenLoading (used for tab switches)
       ['bootLoader', 'rejoinLoading'].forEach(function (id) {
         var el = document.getElementById(id);
         if (!el) return;
         try {
-          el.classList.remove('visible', 'show', 'hide');
-          el.style.display = 'none';
-          el.style.pointerEvents = 'none';
+          el.classList.remove('visible', 'show');
+          el.classList.add('hide');
           el.setAttribute('aria-hidden', 'true');
+          el.setAttribute('data-hidden', '1');
+          setTimeout(function () {
+            try {
+              if (el.id === 'bootLoader') {
+                el.style.display = 'none';
+                el.style.pointerEvents = 'none';
+                el.remove();
+              } else if (!el.classList.contains('show') && !el.classList.contains('visible')) {
+                el.style.display = 'none';
+                el.style.pointerEvents = 'none';
+              }
+            } catch (e) {}
+          }, id === 'bootLoader' ? 650 : 220);
         } catch (e) {}
       });
+      // Reset tab loader so it can be shown later (do not kill it)
+      try {
+        var sl = document.getElementById('screenLoading');
+        if (sl) {
+          sl.classList.remove('show', 'hide');
+          sl.hidden = true;
+          sl.setAttribute('hidden', '');
+          sl.setAttribute('aria-hidden', 'true');
+          sl.style.display = '';
+          sl.style.pointerEvents = '';
+        }
+      } catch (e) {}
       // matchIntro: only clear if not actively showing a load
       try {
         var mi = document.getElementById('matchIntro');
@@ -108,7 +169,6 @@
           mi.setAttribute('aria-hidden', 'true');
         }
       } catch (e) {}
-      // Soft-clear stuck flags only if overlays are not actively shown
       try {
         var mef = document.getElementById('matchEndFreeze');
         if (mef && !mef.classList.contains('visible')) {
@@ -121,26 +181,43 @@
           bp.style.pointerEvents = '';
         }
       } catch (e) {}
-      var boot = document.getElementById('bootLoader');
-      if (boot) {
-        try {
-          boot.setAttribute('data-hidden', '1');
-          boot.classList.add('hide');
-          boot.style.display = 'none';
-          boot.style.pointerEvents = 'none';
-          setTimeout(function () { try { boot.remove(); } catch (e) {} }, 400);
-        } catch (e) {}
+      // Warm hover/transition styles after first paint so first hover does not jank
+      try {
+        requestAnimationFrame(function () {
+          requestAnimationFrame(function () {
+            try { document.body.classList.add('bp-menu-warm'); } catch (e) {}
+          });
+        });
+      } catch (e) {
+        try { document.body.classList.add('bp-menu-warm'); } catch (e2) {}
       }
     }
-    window.__hideBootLoader = unlockUI;
-    window.__unlockUI = unlockUI;
-    if (document.readyState === 'complete') setTimeout(unlockUI, 800);
-    else window.addEventListener('load', function () { setTimeout(unlockUI, 600); });
-    setTimeout(unlockUI, 2500);
-    // First tap always clears blockers
-    document.addEventListener('pointerdown', function once() {
-      unlockUI();
-      document.removeEventListener('pointerdown', once, true);
+    window.__hideBootLoader = function () { unlockUI(false); };
+    window.__unlockUI = function () { unlockUI(true); };
+    window.__markMenuReady = function () {
+      if (ready) return;
+      ready = true;
+      // Double rAF: menu DOM + CSS must paint under the loader before we reveal
+      try {
+        requestAnimationFrame(function () {
+          requestAnimationFrame(function () {
+            unlockUI(false);
+          });
+        });
+      } catch (e) {
+        unlockUI(false);
+      }
+    };
+    // Hard failsafe only — do NOT race with bundle parse on load / first tap
+    setTimeout(function () { if (!unlocked) unlockUI(true); }, 6000);
+    // First tap: only unlock if already past failsafe window (stuck loader)
+    document.addEventListener('pointerdown', function once(ev) {
+      if (!unlocked && (performance.now() > 4500)) {
+        unlockUI(true);
+      }
+      if (unlocked) {
+        document.removeEventListener('pointerdown', once, true);
+      }
     }, true);
   })();
   </script>
@@ -371,6 +448,7 @@
         <div style="font-size:0.82rem;font-weight:700;color:var(--accent)">✓ Аккаунт на сервере</div>
         <div class="hint" id="accountLoginLabel" style="margin-top:4px"></div>
         <button type="button" class="ghost" id="btnAccountLogout" style="width:100%;margin-top:10px;min-height:38px">Выйти</button>
+        <button type="button" class="ghost" id="btnAccountDelete" style="width:100%;margin-top:8px;min-height:38px;color:#ff6b7a;border-color:rgba(255,107,122,0.35)">Удалить аккаунт</button>
       </div>
     </div>
     </div>
@@ -1166,6 +1244,20 @@
       <button type="button" class="rj-surrender" id="btnMatchSurrender" data-i18n="rejoin.surrender">Сдаться</button>
     </div>
   </div>
+  <!-- Soft loading overlay for heavy menu tabs (friends / ach / shop / history) -->
+  <div id="screenLoading" class="screen-loading" hidden aria-hidden="true" aria-busy="true">
+    <div class="sl-card" role="status">
+      <div class="sl-orbit" aria-hidden="true">
+        <div class="sl-ring"></div>
+        <span class="sl-cube c1"></span>
+        <span class="sl-cube c2"></span>
+        <span class="sl-cube c3"></span>
+        <span class="sl-cube c4"></span>
+      </div>
+      <div class="sl-text" id="screenLoadingText" data-i18n="boot.loading">Загрузка…</div>
+    </div>
+  </div>
+
   <div id="rejoinLoading" aria-live="assertive" aria-busy="true">
     <div class="rl-card">
       <div class="rl-spin" aria-hidden="true"></div>
@@ -1174,8 +1266,8 @@
     </div>
   </div>
 
-  <!-- Client bundle (ESM pipeline → dist/client.bundle.js). Sources: public/js/* -->
-  <script src="dist/client.bundle.js?v3951b"></script>
+  <!-- Client bundle (all UI handlers in one IIFE — do not split 04/11 without stubs). -->
+  <script src="dist/client.bundle.js?v3963"></script>
   <script>
   /* menu-delegate: clicks work even if late game.js bindings failed */
   (function () {
