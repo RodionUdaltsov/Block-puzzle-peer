@@ -1,0 +1,29 @@
+# Dependencies (none required, but just in case)
+node_modules/
+
+# Runtime data / persistence
+data/
+*.log
+
+# OS / editor
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+.idea/
+.vscode/
+*.sublime-*
+
+# Build / temp
+*.tmp
+*.temp
+.cache/
+
+# Env
+.env
+.env.local
+.env.*.local
+
+# Coverage / test artifacts
+coverage/
+.nyc_output/

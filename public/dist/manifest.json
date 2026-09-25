@@ -1,8 +1,8 @@
 {
-  "version": "3.9.57",
-  "hash": "fd1cf66bd8cd",
+  "version": "3.9.64",
+  "hash": "aecca8bca059",
   "minified": true,
-  "generatedAt": "2026-09-25T01:15:57.457Z",
+  "generatedAt": "2026-09-25T03:35:53.387Z",
   "modules": [
     "public/shared/rules.js",
     "public/match-client.js",
@@ -34,115 +34,115 @@
     {
       "file": "public/match-client.js",
       "startLine": 268,
-      "endLine": 883,
-      "bytes": 22275
+      "endLine": 904,
+      "bytes": 23446
     },
     {
       "file": "public/js/00-state.js",
-      "startLine": 884,
-      "endLine": 1007,
+      "startLine": 905,
+      "endLine": 1028,
       "bytes": 3120
     },
     {
       "file": "public/js/00-perf.js",
-      "startLine": 1008,
-      "endLine": 1154,
+      "startLine": 1029,
+      "endLine": 1175,
       "bytes": 4232
     },
     {
       "file": "public/js/00-i18n.js",
-      "startLine": 1155,
-      "endLine": 2068,
+      "startLine": 1176,
+      "endLine": 2089,
       "bytes": 41313
     },
     {
       "file": "public/js/01-cosmetics.js",
-      "startLine": 2069,
-      "endLine": 3414,
-      "bytes": 55014
+      "startLine": 2090,
+      "endLine": 3435,
+      "bytes": 55229
     },
     {
       "file": "public/js/02-bots-achievements-settings.js",
-      "startLine": 3415,
-      "endLine": 4297,
+      "startLine": 3436,
+      "endLine": 4318,
       "bytes": 151766
     },
     {
       "file": "public/js/03-audio.js",
-      "startLine": 4298,
-      "endLine": 4778,
+      "startLine": 4319,
+      "endLine": 4799,
       "bytes": 17089
     },
     {
       "file": "public/js/04-profile-friends.js",
-      "startLine": 4779,
-      "endLine": 8063,
-      "bytes": 130621
+      "startLine": 4800,
+      "endLine": 8100,
+      "bytes": 131395
     },
     {
       "file": "public/js/05-soft-render.js",
-      "startLine": 8064,
-      "endLine": 9990,
-      "bytes": 71658
+      "startLine": 8101,
+      "endLine": 10072,
+      "bytes": 72971
     },
     {
       "file": "public/js/06-match-liveness.js",
-      "startLine": 9991,
-      "endLine": 12012,
-      "bytes": 73066
+      "startLine": 10073,
+      "endLine": 12123,
+      "bytes": 74198
     },
     {
       "file": "public/js/07-match-flow-ui.js",
-      "startLine": 12013,
-      "endLine": 13966,
+      "startLine": 12124,
+      "endLine": 14077,
       "bytes": 75883
     },
     {
       "file": "public/js/08-screens-gameplay.js",
-      "startLine": 13967,
-      "endLine": 16605,
-      "bytes": 106342
+      "startLine": 14078,
+      "endLine": 16721,
+      "bytes": 106611
     },
     {
       "file": "public/js/09-offline-and-ranked.js",
-      "startLine": 16606,
-      "endLine": 17185,
+      "startLine": 16722,
+      "endLine": 17301,
       "bytes": 22628
     },
     {
       "file": "public/js/10-match-handlers.js",
-      "startLine": 17186,
-      "endLine": 18923,
+      "startLine": 17302,
+      "endLine": 19039,
       "bytes": 73168
     },
     {
       "file": "public/js/11-private-rooms-ui.js",
-      "startLine": 18924,
-      "endLine": 23120,
-      "bytes": 167454
+      "startLine": 19040,
+      "endLine": 23349,
+      "bytes": 172351
     },
     {
       "file": "public/js/12-boot.js",
-      "startLine": 23121,
-      "endLine": 23272,
+      "startLine": 23350,
+      "endLine": 23501,
       "bytes": 5958
     },
     {
       "file": "public/js/13-performance.js",
-      "startLine": 23273,
-      "endLine": 23424,
-      "bytes": 5372
+      "startLine": 23502,
+      "endLine": 23662,
+      "bytes": 5631
     },
     {
       "file": "public/js/14-settings-ui.js",
-      "startLine": 23425,
-      "endLine": 23520,
+      "startLine": 23663,
+      "endLine": 23758,
       "bytes": 3616
     }
   ],
   "bytes": {
-    "classic": 1022354,
-    "esm": 1022397,
-    "classicRaw": 1039525
+    "classic": 1032368,
+    "esm": 1032411,
+    "classicRaw": 1049555
   }
 }

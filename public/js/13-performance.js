@@ -29,12 +29,21 @@
   // Lazy-load optional heavy board FX stylesheet when full FX is enabled
   if (document.documentElement.classList.contains('bp-full-board-fx')) {
     try {
-      var link = document.createElement('link');
-      link.rel = 'stylesheet';
-      link.href = '/css/styles-board-fx.css?v=' + (document.querySelector('link[href*="styles.css"]') || {}).href;
-      // Prefer versioned path next to styles
-      link.href = 'css/styles-board-fx.css';
-      document.head.appendChild(link);
+      if (!document.querySelector('link[data-bp-board-fx]')) {
+        var link = document.createElement('link');
+        link.rel = 'stylesheet';
+        link.setAttribute('data-bp-board-fx', '1');
+        var ver = '';
+        try {
+          var mainCss = document.querySelector('link[href*="styles.css"]');
+          if (mainCss && mainCss.href) {
+            var m = /[?&]v=([^&]+)/.exec(mainCss.href);
+            if (m) ver = '?v=' + m[1];
+          }
+        } catch (_) {}
+        link.href = 'css/styles-board-fx.css' + ver;
+        document.head.appendChild(link);
+      }
     } catch (_) {}
   }
 

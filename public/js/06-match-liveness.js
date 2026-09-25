@@ -1029,6 +1029,7 @@ function showRemotePhrase(text) {
 }
 
 async function createMpRoom() {
+  try { showLobbyLoading('Создаём комнату…'); } catch (_) {}
   if (typeof MatchClient === 'undefined') {
     setMpStatus('Сервер матчей недоступен. Обнови страницу.');
     return;
@@ -1117,6 +1118,7 @@ async function createMpRoom() {
 }
 
 function joinMpRoom(code, opts) {
+  try { showLobbyLoading('Вход в комнату…'); } catch (_) {}
   opts = opts || {};
   const fromChallenge = !!opts.fromChallenge;
   if (typeof MatchClient === 'undefined') {
@@ -1615,10 +1617,30 @@ function acceptChallenge() {
 }
 
 function declineChallenge() {
+  const req = chPending;
+  if (!req) {
+    try { hideChToast(true); } catch (_) {}
+    try { renderFriendRequests(); updateFriendsSectionCounts(); } catch (_) {}
+    return;
+  }
+  const to = normalizeFriendCode(req.code);
   try {
-    if (typeof socialSend === "function") socialSend(req && req.code, "challenge_decline", {});
-  } catch (_) {}
-  try { hideChToast(false); } catch (_) {}
+    if (to && typeof deliverSocialMessage === 'function') {
+      deliverSocialMessage(to, {
+        type: 'challenge_decline',
+        code: myFriendCode,
+        name: myNickname,
+        room: req.room || null,
+        reason: 'declined'
+      });
+    }
+  } catch (err) {
+    console.warn('challenge_decline send', err);
+  }
+  chPending = null;
+  try { hideChToast(true); } catch (_) {}
+  try { renderFriendRequests(); updateFriendsSectionCounts(); } catch (_) {}
+  try { setMpStatus && setMpStatus('Приглашение отклонено'); } catch (_) {}
 }
 
 (function bindLeaveMatchConfirm() {
@@ -1783,14 +1805,21 @@ function isLobbyInviteWaiting(friendCode, room) {
 function notifyChallengeCancelled(room, reason) {
   try {
     if (friendCode && typeof socialSend === "function")
-      socialSend(friendCode, "challenge_cancel", { room: roomCode || null });
+      if (typeof deliverSocialMessage === 'function') {
+        deliverSocialMessage(friendCode, {
+          type: 'challenge_cancel',
+          code: myFriendCode,
+          name: myNickname,
+          room: roomCode || null
+        });
+      }
   } catch (_) {}
 }
 
 async function challengeFriend(friend) {
   if (!friend || !friend.code) return;
   if (typeof MatchClient === 'undefined') {
-    alert('Сервер матчей недоступен');
+    try { if (typeof showInfoToast === 'function') showInfoToast('Матч', 'Сервер матчей недоступен', 'bad'); } catch (_) {}
     return;
   }
   ensureFriendPresence();
@@ -2009,7 +2038,7 @@ function submitJoinRoom() {
   const input = document.getElementById('joinRoomInput');
   const code = (input && input.value || '').trim();
   if (!code) {
-    alert('Введи код комнаты');
+    try { if (typeof showInfoToast === 'function') showInfoToast('Комната', 'Введи код комнаты', 'bad'); } catch (_) {}
     return;
   }
   const modal = document.getElementById('joinRoomModal');

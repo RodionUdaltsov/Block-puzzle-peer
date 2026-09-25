@@ -299,9 +299,11 @@
         }
         if (data.type === 'rejoin_fail') {
           console.warn('[MatchClient] rejoin_fail', data.reason);
-          // Keep creds if not_found might be race — only clear on ended
-          if (data.reason === 'ended') {
+          // Clear dead match creds so multi-browser / restart is not stuck
+          if (data.reason === 'ended' || data.reason === 'not_found' || data.reason === 'invalid') {
             this.matchId = null;
+            this.token = null;
+            this.seat = null;
             clearMatchCreds();
           }
         }
@@ -354,6 +356,13 @@
     joinQueue(opts) {
       opts = opts || {};
       const plat = this.detectClientPlatform ? this.detectClientPlatform() : { platform: 'web', os: 'unknown' };
+      // Clear stale match so ranked search is never blocked by auto-rejoin / server matchId
+      try { this.send({ type: 'leave_match' }); } catch (_) {}
+      try { this.send({ type: 'free_match' }); } catch (_) {}
+      this.matchId = null;
+      this.seat = null;
+      this._skipAutoRejoin = true;
+      try { clearMatchCreds(); } catch (_) {}
       this._wantQueue = {
         name: opts.name || 'Игрок',
         trophies: opts.trophies | 0,
@@ -369,7 +378,8 @@
         protocolVersion: (typeof BPRules !== 'undefined' && BPRules.PROTOCOL_VERSION) ? BPRules.PROTOCOL_VERSION : 1
       };
       this.connect();
-      return this.send(Object.assign({ type: 'join_queue' }, this._wantQueue));
+      // Prefer wait-for-open so first ranked click after page load is not lost
+      return this.sendWhenOpen(Object.assign({ type: 'join_queue' }, this._wantQueue), 8000);
     },
     expandQueue(level) {
       if (!this._wantQueue) return false;
@@ -509,9 +519,15 @@
         protocolVersion: 1
       });
     },
-    leavePrivate() { return this.send({ type: 'leave_private' }); },
+    leavePrivate(code) {
+      const payload = { type: 'leave_private', code: code ? String(code).toUpperCase() : null };
+      if (this.ws && this.ws.readyState === 1) return this.send(payload);
+      return this.sendWhenOpen(payload, 5000);
+    },
     privateReady(ready, code) {
-      return this.send({ type: 'private_ready', ready: !!ready, code: code || null });
+      const payload = { type: 'private_ready', ready: !!ready, code: code || null };
+      if (this.ws && this.ws.readyState === 1) return this.send(payload);
+      return this.sendWhenOpen(payload, 5000);
     },
     privateDuration(duration, code) {
       return this.send({ type: 'private_duration', duration: duration | 0, code: code || null });
@@ -554,11 +570,16 @@
     },
     /** Search online players by nickname or friend code (server presence). */
     presenceSearch(q) {
-      return this.send({ type: 'presence_search', q: String(q || '').slice(0, 24) });
+      const payload = { type: 'presence_search', q: String(q || '').slice(0, 24) };
+      // Wait for open so first search after page load is not lost
+      if (this.ws && this.ws.readyState === 1) return this.send(payload);
+      return this.sendWhenOpen(payload, 8000);
     },
     /** Check whether a 6-char friend code is known (online or recent presence). */
     friendCodeCheck(code) {
-      return this.send({ type: 'friend_code_check', code: String(code || '').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 6) });
+      const payload = { type: 'friend_code_check', code: String(code || '').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 6) };
+      if (this.ws && this.ws.readyState === 1) return this.send(payload);
+      return this.sendWhenOpen(payload, 8000);
     },
     setActivity(activity) {
       if (this._lastPresence) this._lastPresence.activity = activity || 'online';

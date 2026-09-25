@@ -18,3 +18,53 @@
 - `showInfoToast` accepts kind aliases: `info`→ok, `warn`/`error`→bad.
 - Restored `public/css/styles-match.css` in the CSS bundle pipeline.
 - Client bundle modules: 19 (includes settings UI).
+
+## 3.9.58 — alerts + MatchRoom extract
+
+- All client `alert()` removed → `showInfoToast` (diamonds, match client, room code).
+- `MatchRoom` class extracted to `lib/match-room.js` (factory with injected deps).
+- `server.js` ~1860 lines (was ~3176); tests/check updated for new layout.
+
+## 3.9.59 — medium priority
+
+- `lib/matchmaking.js`: queue buckets, findMatch/enqueue/dequeue, startRoom, private lobby (genPrivateCode, leave, snapshot, tryStart).
+- `server.js` further reduced (~1644 lines).
+- Screen navigation API exported on `window`: showScreen, navigateScreen, show/hideScreenLoading, withScreenLoading.
+- Soft cleanup of deprecated / legacy comments in soft-render + screen module headers.
+
+## 3.9.60 — quality close-out
+
+- `lib/ws-handlers.js`: full WebSocket connection + message router extracted from server.js.
+- `server.js` ~747 lines (HTTP static, upgrade, boot, lifecycle only).
+- Board FX stylesheet lazy-load fixed (version query + single inject).
+- README Architecture table updated for new `lib/*` layout.
+- Hardening tests cover match-room, matchmaking, ws-handlers + authoritative place.
+- Cache-bust query `?v3960` on styles + client bundle.
+
+**Intentionally deferred (needs larger redesign):** true client code-split into independent chunks — modules still share one IIFE scope by design.
+
+## 3.9.61 — stage: HTTP API extract
+
+- `lib/http-api.js`: `/api/auth/*`, `/api/me`, `/health`, static SPA fallback.
+- `server.js` ~583 lines.
+
+## 3.9.62 — stages continued
+
+- Stage HTTP: `lib/http-api.js` (+ `/metrics` Prometheus text).
+- Stage E2E: `test/api-private.e2e.test.js` (register/login/delete + private lobby → match_found).
+- Stage docs: `docs/PROTOCOL.md` WS + HTTP reference.
+- `server.js` ~583 lines.
+
+## 3.9.63 — client code-split
+
+- **Core** `client.bundle.js` ~730KB (menu, match, settings, cosmetics, bots).
+- **Deferred** `client.deferred.js` ~294KB (`04-profile-friends`, `11-private-rooms-ui`).
+- Both scripts use `defer`; deferred marks `global.__BP_DEFERRED_READY`.
+- Initial parse/compile cost reduced vs single ~1.0MB bundle.
+
+## 3.9.64 — hotfix: buttons
+
+- Reverted 3.9.63 code-split of `04-profile-friends` + `11-private-rooms-ui` into deferred.
+- Those modules own primary menu click handlers (shop, friends, classic cards, etc.).
+- Loading them only in `client.deferred.js` left buttons unbound when deferred lagged/failed.
+- Single `client.bundle.js` again; `DEFERRED_MODULES` kept empty until handlers are duplicated or stubbed in core.

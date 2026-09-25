@@ -19,7 +19,7 @@
   <link rel="apple-touch-icon" href="/icons/icon-192.svg" />
   <link rel="manifest" href="/site.webmanifest" />
   <!-- Multiplayer: WebSocket MatchClient -->
-  <link rel="stylesheet" href="styles.css?v3959" />
+  <link rel="stylesheet" href="styles.css?v3968" />
 </head>
 <body class="bp-booting">
 
@@ -809,6 +809,14 @@
     </div>
   </div>
 
+  <!-- Soft loading veil for lobby join/leave (avoids frozen UI feel) -->
+  <div id="lobbyLoadingOverlay" class="lobby-loading-overlay" aria-hidden="true">
+    <div class="lobby-loading-card">
+      <div class="lobby-loading-spinner"></div>
+      <div class="lobby-loading-text" id="lobbyLoadingText">Загрузка…</div>
+    </div>
+  </div>
+
   <div class="overlay" id="lobbyInviteModal">
     <div class="modal lobby-modal">
       <h2 data-i18n="friends.invite">Пригласить друга</h2>
@@ -1266,8 +1274,8 @@
     </div>
   </div>
 
-  <!-- Client bundle (ESM pipeline → dist/client.bundle.js). Sources: public/js/* -->
-  <script src="dist/client.bundle.js?v3959"></script>
+  <!-- Client bundle (all UI handlers in one IIFE — do not split 04/11 without stubs). -->
+  <script src="dist/client.bundle.js?v3968"></script>
   <script>
   /* menu-delegate: clicks work even if late game.js bindings failed */
   (function () {
@@ -1345,6 +1353,22 @@
         e.preventDefault();
         go(function () {
           if (typeof showScreen === 'function') showScreen('achievements');
+        });
+      } else if ((el = t.closest('#btnAddFriend'))) {
+        e.preventDefault();
+        go(function () {
+          var inp = document.getElementById('friendCodeInput');
+          if (typeof addFriendByCode === 'function') addFriendByCode(inp ? inp.value : '');
+        });
+      } else if ((el = t.closest('#btnFindByNick'))) {
+        e.preventDefault();
+        go(function () {
+          if (typeof openNickSearchModal === 'function') openNickSearchModal('');
+        });
+      } else if ((el = t.closest('#btnNickSearchGo'))) {
+        e.preventDefault();
+        go(function () {
+          if (typeof runNickSearchFromModal === 'function') runNickSearchFromModal();
         });
       }
     }, true);
