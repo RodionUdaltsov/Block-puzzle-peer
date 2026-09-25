@@ -19,9 +19,35 @@
   <link rel="apple-touch-icon" href="/icons/icon-192.svg" />
   <link rel="manifest" href="/site.webmanifest" />
   <!-- Multiplayer: WebSocket MatchClient -->
-  <link rel="stylesheet" href="styles.css?v3963" />
+  <link rel="stylesheet" href="styles.css?v3964" />
 </head>
 <body class="bp-booting">
+
+  <script>
+  /* bp-safari-failsafe: never leave a blank page if the 1MB bundle is slow/blocked */
+  (function () {
+    function unlock() {
+      try {
+        document.body.classList.remove('bp-booting', 'rejoin-loading');
+        document.body.classList.add('bp-menu-ready');
+      } catch (e) {}
+      try {
+        var el = document.getElementById('bootLoader');
+        if (el) {
+          el.classList.add('hide');
+          el.setAttribute('data-hidden', '1');
+          el.style.display = 'none';
+        }
+      } catch (e) {}
+    }
+    // Absolute caps — mobile Safari often stalls on large scripts
+    setTimeout(unlock, 6000);
+    setTimeout(unlock, 12000);
+    window.addEventListener('error', function () { setTimeout(unlock, 500); }, true);
+    window.addEventListener('unhandledrejection', function () { setTimeout(unlock, 500); });
+  })();
+  </script>
+
 
   <a class="skip-link" href="#screenMenu" data-i18n="skip.menu">Перейти к меню</a>
 
@@ -1267,7 +1293,7 @@
   </div>
 
   <!-- Client bundle (all UI handlers in one IIFE — do not split 04/11 without stubs). -->
-  <script src="dist/client.bundle.js?v3963"></script>
+  <script src="dist/client.bundle.js?v3964"></script>
   <script>
   /* menu-delegate: clicks work even if late game.js bindings failed */
   (function () {
