@@ -16,40 +16,10 @@ function bindPrivateLobbyHandlers() {
 
   MatchClient.on('private_lobby', (data) => {
     try {
-      const codeIn = String((data && data.code) || '').toUpperCase();
-      // Ignore snapshots for rooms we intentionally left (leave can race with host Ready)
-      try {
-        if (codeIn && typeof _ignoredPrivateCodes !== 'undefined' && _ignoredPrivateCodes[codeIn]) {
-          const leftAt = _ignoredPrivateCodes[codeIn];
-          if (Date.now() - leftAt < 120000) {
-            try { MatchClient.leavePrivate(codeIn); } catch (_) {}
-            return;
-          }
-          delete _ignoredPrivateCodes[codeIn];
-        }
-      } catch (_) {}
-      // Lightweight ping-only update: only RTT, skip full UI rebuild
-      if (data && data.pingOnly) {
-        try {
-          if (data.role === 'host') {
-            if (typeof data.hostRtt === 'number') window._lobbyMeRtt = data.hostRtt;
-            if (typeof data.guestRtt === 'number') window._lobbyOppRtt = data.guestRtt;
-          } else {
-            if (typeof data.guestRtt === 'number') window._lobbyMeRtt = data.guestRtt;
-            if (typeof data.hostRtt === 'number') window._lobbyOppRtt = data.hostRtt;
-          }
-          if (typeof updateLobbyPingUI === 'function') updateLobbyPingUI();
-        } catch (_) {}
-        return;
-      }
       mpMode = true;
       mpGameSource = 'lobby';
       vsModeType = 'online';
       mpRoomCode = data.code || mpRoomCode;
-      // Joining a room clears leave-ignore for that code
-      try {
-        if (codeIn && typeof _ignoredPrivateCodes !== 'undefined') delete _ignoredPrivateCodes[codeIn];
-      } catch (_) {}
       mpRole = data.role || mpRole;
       mpLobbyDuration = data.duration || mpLobbyDuration || 120;
       if (data.role === 'host') {
@@ -62,11 +32,8 @@ function bindPrivateLobbyHandlers() {
       if (data.opp) {
         mpOppConnected = true;
         try {
-          const oppKey = String(data.opp.friendCode || data.opp.name || '') + '|' + String(data.opp.skinId || '') + '|' + String(data.opp.avatarId || '');
-          const changed = oppKey !== window._lobbyOppKey;
-          window._lobbyOppKey = oppKey;
           if (typeof applyOppProfileFromServer === 'function') {
-            applyOppProfileFromServer(data.opp, { alwaysPaint: changed });
+            applyOppProfileFromServer(data.opp, { alwaysPaint: true });
           } else {
             mpOppName = data.opp.name || 'Соперник';
             oppName = mpOppName;
@@ -102,15 +69,8 @@ function bindPrivateLobbyHandlers() {
       setMpStatus(mpOppConnected
         ? ('Комната ' + mpRoomCode + ' · соперник в лобби')
         : ('Комната ' + mpRoomCode + ' · ждут игрока'));
-      try {
-        const el = document.getElementById('roomLobby');
-        if (!el || !el.classList.contains('visible')) openRoomLobby();
-      } catch (_) {}
+      try { openRoomLobby(); } catch (_) {}
       try { updateLobbyUI && updateLobbyUI(); } catch (_) {}
-      try {
-        const ov = document.getElementById('lobbyLoadingOverlay');
-        if (ov) ov.classList.remove('visible');
-      } catch (_) {}
       // Reflect ready button
       try {
         const readyBtn = document.getElementById('btnLobbyReady');
@@ -149,41 +109,15 @@ function bindPrivateLobbyHandlers() {
 
   MatchClient.on('private_closed', (data) => {
     try {
-      const code = String((data && data.code) || mpRoomCode || '').toUpperCase();
-      if (code && typeof _ignoredPrivateCodes !== 'undefined') {
-        _ignoredPrivateCodes[code] = Date.now();
-      }
       setMpStatus('Хост закрыл комнату');
+      try { closeRoomLobby(); } catch (_) {}
       mpOppConnected = false;
       mpMode = false;
-      mpRole = null;
-      mpRoomCode = null;
-      mpReady = false;
-      mpOppReady = false;
-      mpGameSource = null;
-      try { closeRoomLobby(); } catch (_) {}
-      try { hideLobbyLoading(); } catch (_) {}
     } catch (_) {}
   });
 
   MatchClient.on('private_left', () => {
-    try {
-      if (mpRoomCode && typeof _ignoredPrivateCodes !== 'undefined') {
-        _ignoredPrivateCodes[String(mpRoomCode).toUpperCase()] = Date.now();
-      }
-    } catch (_) {}
-    try {
-      mpMode = false;
-      mpRole = null;
-      mpRoomCode = null;
-      mpReady = false;
-      mpOppReady = false;
-      mpOppConnected = false;
-      mpGameSource = null;
-    } catch (_) {}
     try { closeRoomLobby(); } catch (_) {}
-    try { hideLobbyLoading(); } catch (_) {}
-    try { setMpStatus(''); } catch (_) {}
   });
 
   MatchClient.on('presence_state', (data) => {
@@ -278,10 +212,6 @@ function startOnlineMatchmaking() {
   // Prefer authoritative room server when MatchClient is available
   if (typeof MatchClient !== 'undefined') {
     try { bindMatchClientHandlers(); } catch (_) {}
-    // Free any leftover match so join_queue is not blocked server-side
-    try { MatchClient.leaveMatch && MatchClient.leaveMatch(); } catch (_) {}
-    try { MatchClient.freeMatch && MatchClient.freeMatch(); } catch (_) {}
-    try { MatchClient._skipAutoRejoin = true; } catch (_) {}
     const searchGen = ++mmSearchGen;
     const selectedDuration = (vsDuration === 60 || vsDuration === 120 || vsDuration === 180) ? vsDuration : 120;
     vsDuration = selectedDuration;
@@ -344,7 +274,7 @@ function startOnlineMatchmaking() {
     return;
   }
   // online ranked removed — MatchClient required
-  try { if (typeof showInfoToast === 'function') showInfoToast('Матч', 'Клиент матчей не загрузился. Обнови страницу.', 'bad'); } catch (_) {}
+  alert('Клиент матчей не загрузился. Обнови страницу.');
   return;
 }
 
@@ -4089,7 +4019,6 @@ document.getElementById('btnFriends')?.addEventListener('click', () => {
   if (!requireOnline('Друзья')) return;
   setFriendAddStatus('');
   navigateScreen('friends', () => {
-    try { if (typeof window.__bindFriendsPanelUI === 'function') window.__bindFriendsPanelUI(); } catch (_) {}
     try { renderFriends(); } catch (_) {}
     try { renderFriendRequests(); } catch (_) {}
     try { renderOutgoingPending(); } catch (_) {}
@@ -4154,84 +4083,51 @@ document.getElementById('btnFriendsBack')?.addEventListener('click', () => {
     try { updateMenuStats(); } catch (_) {}
   });
 });
-(function bindFriendsPanelUI() {
-  function onAddClick(e) {
-    try { if (e) { e.preventDefault(); e.stopPropagation(); } } catch (_) {}
-    try {
-      const input = document.getElementById('friendCodeInput');
-      addFriendByCode(input ? input.value : '');
-    } catch (err) { console.warn('addFriend', err); }
+document.getElementById('btnAddFriend')?.addEventListener('click', () => {
+  addFriendByCode(document.getElementById('friendCodeInput').value);
+});
+document.getElementById('friendCodeInput')?.addEventListener('input', (e) => {
+  const el = e.target;
+  // Code field only: A–Z0–9, max 6
+  const clean = String(el.value || '').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 6);
+  if (el.value !== clean) {
+    const pos = el.selectionStart;
+    el.value = clean;
+    try { el.setSelectionRange(Math.min(pos, clean.length), Math.min(pos, clean.length)); } catch (_) {}
   }
-  function onCodeInput(e) {
-    const el = e.target;
-    const clean = String(el.value || '').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 6);
-    if (el.value !== clean) {
-      const pos = el.selectionStart;
-      el.value = clean;
-      try { el.setSelectionRange(Math.min(pos, clean.length), Math.min(pos, clean.length)); } catch (_) {}
-    }
+  if (document.getElementById('friendAddStatus')) {
     const st = document.getElementById('friendAddStatus');
-    if (st && !frSearchBusy && st.classList.contains('err')) {
-      try { setFriendAddStatus(''); } catch (_) {}
-    }
+    if (st && !frSearchBusy && st.classList.contains('err')) setFriendAddStatus('');
   }
-  function onCodeKey(e) {
-    if (e.key === 'Enter') {
-      e.preventDefault();
-      onAddClick(e);
-    }
+});
+
+document.getElementById('friendCodeInput')?.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') {
+    e.preventDefault();
+    addFriendByCode(document.getElementById('friendCodeInput').value);
   }
-  const btn = document.getElementById('btnAddFriend');
-  const input = document.getElementById('friendCodeInput');
-  if (btn && !btn._bpFriendBound) {
-    btn._bpFriendBound = true;
-    btn.addEventListener('click', onAddClick);
+});
+
+document.getElementById('btnFindByNick')?.addEventListener('click', () => {
+  try { openNickSearchModal(''); } catch (_) {}
+});
+document.getElementById('btnNickSearchClose')?.addEventListener('click', () => {
+  try { closeNickSearchModal(); } catch (_) {}
+});
+document.getElementById('btnNickSearchGo')?.addEventListener('click', () => {
+  try { runNickSearchFromModal(); } catch (_) {}
+});
+document.getElementById('nickSearchInput')?.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') {
+    e.preventDefault();
+    try { runNickSearchFromModal(); } catch (_) {}
   }
-  if (input && !input._bpFriendBound) {
-    input._bpFriendBound = true;
-    input.addEventListener('input', onCodeInput);
-    input.addEventListener('keydown', onCodeKey);
+});
+document.getElementById('nickSearchModal')?.addEventListener('click', (e) => {
+  if (e.target && e.target.id === 'nickSearchModal') {
+    try { closeNickSearchModal(); } catch (_) {}
   }
-  const btnNick = document.getElementById('btnFindByNick');
-  if (btnNick && !btnNick._bpFriendBound) {
-    btnNick._bpFriendBound = true;
-    btnNick.addEventListener('click', (e) => {
-      try { e.preventDefault(); e.stopPropagation(); } catch (_) {}
-      try { openNickSearchModal(''); } catch (err) { console.warn('nickSearch', err); }
-    });
-  }
-  const btnNickClose = document.getElementById('btnNickSearchClose');
-  if (btnNickClose && !btnNickClose._bpFriendBound) {
-    btnNickClose._bpFriendBound = true;
-    btnNickClose.addEventListener('click', () => { try { closeNickSearchModal(); } catch (_) {} });
-  }
-  const btnNickGo = document.getElementById('btnNickSearchGo');
-  if (btnNickGo && !btnNickGo._bpFriendBound) {
-    btnNickGo._bpFriendBound = true;
-    btnNickGo.addEventListener('click', () => { try { runNickSearchFromModal(); } catch (_) {} });
-  }
-  const nickInput = document.getElementById('nickSearchInput');
-  if (nickInput && !nickInput._bpFriendBound) {
-    nickInput._bpFriendBound = true;
-    nickInput.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter') {
-        e.preventDefault();
-        try { runNickSearchFromModal(); } catch (_) {}
-      }
-    });
-  }
-  const nickModal = document.getElementById('nickSearchModal');
-  if (nickModal && !nickModal._bpFriendBound) {
-    nickModal._bpFriendBound = true;
-    nickModal.addEventListener('click', (e) => {
-      if (e.target && e.target.id === 'nickSearchModal') {
-        try { closeNickSearchModal(); } catch (_) {}
-      }
-    });
-  }
-  // Expose rebind for screen navigation
-  window.__bindFriendsPanelUI = bindFriendsPanelUI;
-})();
+});
 
 document.getElementById('btnCopyCode')?.addEventListener('click', () => {
   copyText(myFriendCode);
@@ -4273,18 +4169,9 @@ document.getElementById('btnLobbyReady')?.addEventListener('click', toggleLobbyR
 document.getElementById('btnLobbyInvite')?.addEventListener('click', inviteFromLobby);
 document.getElementById('btnLobbyLeave')?.addEventListener('click', () => {
   const room = mpRoomCode;
-  try { showLobbyLoading('Выход из лобби…'); } catch (_) {}
   try { if (room) notifyChallengeCancelled(room, 'closed'); } catch (_) {}
-  try {
-    if (room && typeof _ignoredPrivateCodes !== 'undefined') {
-      _ignoredPrivateCodes[String(room).toUpperCase()] = Date.now();
-    }
-  } catch (_) {}
   destroyMp();
   setMpStatus('');
-  // Ensure UI closes even if server is slow
-  try { closeRoomLobby(); } catch (_) {}
-  setTimeout(() => { try { hideLobbyLoading(); } catch (_) {} }, 280);
 });
 document.querySelectorAll('.lobby-dur').forEach(btn => {
   btn.addEventListener('click', () => {
