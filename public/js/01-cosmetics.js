@@ -535,6 +535,53 @@ function applyEquippedBoard() {
     // no-op; usually inside wrap
   }
 }
+/** Guest shop warning: purchases only persist on this device until registration. */
+function isGuestShopper() {
+  try {
+    return !(typeof authToken !== 'undefined' && authToken && typeof authAccount !== 'undefined' && authAccount);
+  } catch (_) {
+    return true;
+  }
+}
+/**
+ * If guest — show one-shot (per session) warning before paid purchase.
+ * Returns Promise<boolean> — true if user may proceed.
+ */
+function confirmGuestShopPurchase() {
+  if (!isGuestShopper()) return Promise.resolve(true);
+  let already = false;
+  try { already = sessionStorage.getItem('bp_guest_shop_warned') === '1'; } catch (_) {}
+  if (already) return Promise.resolve(true);
+  const text =
+    'Вы играете как гость.\n\n' +
+    '• Если у вас уже есть аккаунт — сначала войдите: иначе покупки не попадут в аккаунт и пропадут при входе.\n' +
+    '• Если аккаунта нет — покупки и прогресс сохранятся при регистрации на этом устройстве.\n\n' +
+    'Гостевые данные на сервере живут около 48 часов.';
+  const run = function () {
+    if (typeof bpConfirm === 'function') {
+      return bpConfirm({
+        title: 'Покупка гостем',
+        text: text,
+        okLabel: 'Купить всё равно',
+        cancelLabel: 'Отмена',
+        danger: false
+      }).then(function (ok) {
+        if (ok) {
+          try { sessionStorage.setItem('bp_guest_shop_warned', '1'); } catch (_) {}
+        }
+        return !!ok;
+      });
+    }
+    const ok = window.confirm(text + '\n\nПродолжить покупку?');
+    if (ok) {
+      try { sessionStorage.setItem('bp_guest_shop_warned', '1'); } catch (_) {}
+    }
+    return Promise.resolve(!!ok);
+  };
+  return run();
+}
+try { window.confirmGuestShopPurchase = confirmGuestShopPurchase; window.isGuestShopper = isGuestShopper; } catch (_) {}
+
 function buyBoard(id) {
   const board = getBoardById(id);
   if (!board || board.price <= 0) return false;
@@ -853,14 +900,20 @@ function renderShopGrid() {
     btn.addEventListener('click', (e) => {
       e.stopPropagation();
       const id = btn.getAttribute('data-buy');
-      if (buySkin(id)) {
-        try { SFX.ui(); } catch (_) {}
-        equipSkin(id);
-        renderShopGrid();
-        renderInvGrid();
-      } else {
-        alert('Не хватает алмазов');
-      }
+      confirmGuestShopPurchase().then(function (ok) {
+        if (!ok) return;
+        if (buySkin(id)) {
+          try { SFX.ui(); } catch (_) {}
+          equipSkin(id);
+          renderShopGrid();
+          renderInvGrid();
+        } else {
+          try {
+            if (typeof showInfoToast === 'function') showInfoToast('Магазин', 'Не хватает алмазов', 'bad');
+            else alert('Не хватает алмазов');
+          } catch (_) { alert('Не хватает алмазов'); }
+        }
+      });
     });
   });
   grid.querySelectorAll('[data-equip]').forEach(btn => {
@@ -876,14 +929,20 @@ function renderShopGrid() {
     btn.addEventListener('click', (e) => {
       e.stopPropagation();
       const id = btn.getAttribute('data-buy-board');
-      if (buyBoard(id)) {
-        try { SFX.ui(); } catch (_) {}
-        equipBoard(id);
-        renderShopGrid();
-        renderInvGrid();
-      } else {
-        alert('Не хватает алмазов');
-      }
+      confirmGuestShopPurchase().then(function (ok) {
+        if (!ok) return;
+        if (buyBoard(id)) {
+          try { SFX.ui(); } catch (_) {}
+          equipBoard(id);
+          renderShopGrid();
+          renderInvGrid();
+        } else {
+          try {
+            if (typeof showInfoToast === 'function') showInfoToast('Магазин', 'Не хватает алмазов', 'bad');
+            else alert('Не хватает алмазов');
+          } catch (_) { alert('Не хватает алмазов'); }
+        }
+      });
     });
   });
   grid.querySelectorAll('[data-equip-board]').forEach(btn => {
@@ -1041,12 +1100,20 @@ function openSkinPreview(skinId) {
     btn.disabled = !can;
     btn.className = can ? 'primary' : 'ghost';
     btn.onclick = () => {
-      if (buySkin(skin.id)) {
-        equipSkin(skin.id);
-        closeSkinPreview();
-        renderShopGrid();
-        renderInvGrid();
-      } else alert('Не хватает алмазов');
+      confirmGuestShopPurchase().then(function (ok) {
+        if (!ok) return;
+        if (buySkin(skin.id)) {
+          equipSkin(skin.id);
+          closeSkinPreview();
+          renderShopGrid();
+          renderInvGrid();
+        } else {
+          try {
+            if (typeof showInfoToast === 'function') showInfoToast('Магазин', 'Не хватает алмазов', 'bad');
+            else alert('Не хватает алмазов');
+          } catch (_) { alert('Не хватает алмазов'); }
+        }
+      });
     };
   }
   ov.classList.add('visible');

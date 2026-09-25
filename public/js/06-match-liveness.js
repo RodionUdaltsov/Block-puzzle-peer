@@ -1432,7 +1432,6 @@ function showChToast(req) {
   const roomKey = String(req.room || '').toUpperCase();
   const inviterKey = normalizeFriendCode(req.code || '');
   const toastKey = roomKey + '|' + inviterKey;
-  const samePending = chPending && String(chPending.room || '').toUpperCase() === roomKey;
   chPending = req;
   const av = document.getElementById('chToastAv');
   const name = document.getElementById('chToastName');
@@ -1447,11 +1446,17 @@ function showChToast(req) {
     meta.textContent = parts.join(' · ');
   }
   try { renderFriendRequests(); updateFriendsSectionCounts(); } catch (_) {}
-  // Suppress double flash: same invite within 10s, or toast already visible for same room
-  const recentlyShown = (toastKey === lastChToastKey && (Date.now() - lastChToastAt) < 10000);
-  if ((samePending && toast.classList.contains('visible')) || recentlyShown) {
+  // If toast is already on screen for this invite — only refresh content, no re-animation
+  if (toast.classList.contains('visible') && toastKey === lastChToastKey) {
+    clearChHideTimer();
+    chCountTimer = startToastCountdown('chToastCountdown', 5, null);
+    chHideTimer = setTimeout(() => {
+      chHideTimer = null;
+      hideChToast(true);
+    }, 5000);
     return;
   }
+  // Always surface the toast when it is not visible (repeat invite / after auto-hide / after cancel)
   lastChToastKey = toastKey;
   lastChToastAt = Date.now();
   toast.style.transform = '';
@@ -1480,13 +1485,15 @@ function handleIncomingChallenge(data, conn) {
     } catch (_) {}
     return;
   }
-  // Same room already pending — refresh conn only, no second toast/flash
+  // Same room already pending — refresh fields; still surface toast if it was hidden
   if (chPending && String(chPending.room || '').toUpperCase() === room) {
     chPending.conn = conn || chPending.conn;
     if (data.name) chPending.name = (data.name || chPending.name).toString().slice(0, 20);
     if (data.code) chPending.code = data.code;
     if (typeof data.trophies === 'number') chPending.trophies = data.trophies;
     try { renderFriendRequests(); updateFriendsSectionCounts(); } catch (_) {}
+    // Toast may have auto-hidden after 5s while invite is still pending — show again
+    try { showChToast(chPending); } catch (_) {}
     return;
   }
   showChToast({
@@ -1615,10 +1622,22 @@ function acceptChallenge() {
 }
 
 function declineChallenge() {
+  const req = chPending;
   try {
-    if (typeof socialSend === "function") socialSend(req && req.code, "challenge_decline", {});
+    if (req && req.code) {
+      const body = { room: req.room || null, code: myFriendCode || null, name: myNickname || null };
+      if (typeof socialSend === 'function') {
+        socialSend(req.code, 'challenge_decline', body);
+      } else if (typeof MatchClient !== 'undefined' && MatchClient.socialSend) {
+        MatchClient.socialSend(req.code, 'challenge_decline', body);
+      } else if (typeof deliverSocialMessage === 'function') {
+        deliverSocialMessage(req.code, Object.assign({ type: 'challenge_decline' }, body));
+      }
+    }
   } catch (_) {}
+  chPending = null;
   try { hideChToast(false); } catch (_) {}
+  try { renderFriendRequests(); updateFriendsSectionCounts(); } catch (_) {}
 }
 
 (function bindLeaveMatchConfirm() {
@@ -1782,8 +1801,29 @@ function isLobbyInviteWaiting(friendCode, room) {
 /** Host: tell pending invitees that lobby is gone / full */
 function notifyChallengeCancelled(room, reason) {
   try {
-    if (friendCode && typeof socialSend === "function")
-      socialSend(friendCode, "challenge_cancel", { room: roomCode || null });
+    const roomCode = room ? String(room).toUpperCase() : null;
+    const targets = [];
+    if (roomCode) {
+      Object.keys(lobbyInviteWait || {}).forEach((fc) => {
+        if (String(lobbyInviteWait[fc]).toUpperCase() === roomCode) targets.push(fc);
+      });
+    } else {
+      Object.keys(lobbyInviteWait || {}).forEach((fc) => targets.push(fc));
+    }
+    // Also clear local wait state for this room
+    try { clearLobbyInviteWait(null, roomCode); } catch (_) {}
+    const body = { room: roomCode, reason: reason || 'closed', code: myFriendCode || null, name: myNickname || null };
+    targets.forEach((fc) => {
+      try {
+        if (typeof socialSend === 'function') {
+          socialSend(fc, 'challenge_cancel', body);
+        } else if (typeof MatchClient !== 'undefined' && MatchClient.socialSend) {
+          MatchClient.socialSend(fc, 'challenge_cancel', body);
+        } else if (typeof deliverSocialMessage === 'function') {
+          deliverSocialMessage(fc, Object.assign({ type: 'challenge_cancel' }, body));
+        }
+      } catch (_) {}
+    });
   } catch (_) {}
 }
 

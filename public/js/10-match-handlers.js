@@ -323,17 +323,23 @@ function bindMatchClientHandlers() {
       // snapshot was taken before our concurrent place was processed.
       // Never pre-load oppGrid here — applyOppRemotePlace paints then clears.
       // Deals arrive via opp_deal.
+      // Also skip while local player is holding a piece — concurrent tray/board
+      // writes on phones fire pointercancel and snap the held piece back.
       const myPlacePending = !!BPState.pendingServerPlace;
+      const localHolding = !!(typeof isDragging !== 'undefined' && isDragging);
       const roomPatch = {
         oppScore: data.score,
         vsTimeLeft: data.vsTimeLeft,
         clockEndTs: data.clockEndTs,
         _fromOppPlace: true
       };
-      if (!myPlacePending) {
+      if (!myPlacePending && !localHolding) {
         if (typeof data.meScore === 'number') roomPatch.meScore = data.meScore;
         if (Array.isArray(data.meGrid)) roomPatch.meGrid = data.meGrid;
         if (Array.isArray(data.mePieces)) roomPatch.mePieces = data.mePieces;
+      } else if (!myPlacePending && localHolding) {
+        // Scores only — never touch board/hand mid-gesture
+        if (typeof data.meScore === 'number') roomPatch.meScore = data.meScore;
       }
       applyRoomState(roomPatch);
       try { window._lastRoomApplyAt = Date.now(); } catch (_) {}
@@ -1341,19 +1347,40 @@ function beginRoomRankedMatch(data, opts) {
       }
     } catch (_) {}
 
-    // Fallback: only for NEW matches waiting on match_go — never on rejoin
+    // Fallback: only for NEW matches waiting on match_go — never on rejoin.
+    // Must NOT start play early: server goLive() broadcasts match_go only when BOTH
+    // players have marked ready (fully loaded). Local fallback is a last-resort
+    // safety net after a long wait so a stuck peer does not freeze forever.
+    // Clock still comes from server when match_go arrives; do not invent local start.
     if (waitForGo && !(opts && (opts.rejoin || opts.quietLoad))) {
       try {
         if (BPState.matchGoFallbackTimer) clearTimeout(BPState.matchGoFallbackTimer);
       } catch (_) {}
       BPState.matchGoFallbackTimer = setTimeout(() => {
         if (BPState.matchAwaitingGo && !BPState.matchIntroSeqDone && !BPState.matchIntroSeqRunning) {
-          console.warn('match_go fallback — unlocking locally');
-          BPState.matchAwaitingGo = false;
-          BPState.matchClockEndTs = Date.now() + (vsDuration || 120) * 1000;
-          runMatchIntroSequence({ reason: 'fallback' });
+          console.warn('match_go fallback — still waiting for peer/server clock');
+          // Re-signal ready in case the first packets were lost; do NOT unlock play
+          // or start intro locally — that would desync clocks between players.
+          try {
+            if (typeof MatchClient !== 'undefined' && MatchClient.matchReady) {
+              MatchClient.matchReady();
+            }
+          } catch (_) {}
+          // Second soft retry a few seconds later; still no local start
+          try {
+            if (BPState.matchGoFallbackTimer2) clearTimeout(BPState.matchGoFallbackTimer2);
+          } catch (_) {}
+          BPState.matchGoFallbackTimer2 = setTimeout(() => {
+            if (BPState.matchAwaitingGo && !BPState.matchIntroSeqDone && !BPState.matchIntroSeqRunning) {
+              try {
+                if (typeof MatchClient !== 'undefined' && MatchClient.matchReady) {
+                  MatchClient.matchReady();
+                }
+              } catch (_) {}
+            }
+          }, 5000);
         }
-      }, 3000);
+      }, 8000);
     } else if (!(opts && (opts.rejoin || opts.quietLoad))) {
       // Legacy path only
       runMatchIntroSequence({ reason: 'legacy' });

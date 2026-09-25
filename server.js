@@ -36,9 +36,23 @@ const {
 const MAX_WS_MSG = Math.max(4096, Number(process.env.BP_MAX_WS_MSG) || 65536);
 const PORT = Number(process.env.PORT) || 9000;
 const PROFILE_TTL = 365 * 24 * 3600;
+/** Guest (unregistered) cosmetics profiles expire quickly so they do not clutter the store. */
+const GUEST_PROFILE_TTL = 48 * 3600; // 48 hours
+const GUEST_PROFILE_MAX_AGE_MS = 3 * 24 * 3600 * 1000; // purge guests older than 3 days
 
 /** In-memory cache friendCode → cosmetics profile (backed by store). */
 const profileCache = new Map();
+
+async function isRegisteredFriendCode(friendCode) {
+  const code = String(friendCode || '').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 16);
+  if (!code || !store || typeof store.loadAccountByCode !== 'function') return false;
+  try {
+    const acc = await store.loadAccountByCode(code);
+    return !!acc;
+  } catch (_) {
+    return false;
+  }
+}
 
 async function loadCosmeticsProfile(friendCode) {
   const code = String(friendCode || '').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 16);
@@ -57,9 +71,15 @@ async function saveCosmeticsProfile(friendCode, profile) {
   const code = String(friendCode || '').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 16);
   if (!code) return;
   const p = Cosmetics.normalizeProfile(profile);
+  if (!p.updatedAt) p.updatedAt = Date.now();
   profileCache.set(code, p);
   try {
-    if (store) await store.saveProfile(code, p, PROFILE_TTL);
+    if (store) {
+      // Registered accounts keep long-lived cosmetics; pure guests get short TTL
+      const registered = await isRegisteredFriendCode(code);
+      const ttl = registered ? PROFILE_TTL : GUEST_PROFILE_TTL;
+      await store.saveProfile(code, p, ttl);
+    }
   } catch (_) {}
 }
 
@@ -1992,6 +2012,12 @@ const server = http.createServer((req, res) => {
           if (url === '/api/auth/delete' && req.method === 'POST') {
             const token = bearerToken(req);
             const body = await readJsonBody(req, 4096);
+            // Resolve friend code before delete so we can drop in-memory cosmetics cache
+            let delCode = null;
+            try {
+              const acc = await accountsApi.resolveSession(token);
+              if (acc && acc.friendCode) delCode = String(acc.friendCode).toUpperCase();
+            } catch (_) {}
             const result = await accountsApi.deleteAccount(token, {
               password: body && body.password
             });
@@ -2000,6 +2026,10 @@ const server = http.createServer((req, res) => {
                 : result.error === 'bad_password' ? 403 : 400;
               return sendJson(res, code, result);
             }
+            try {
+              if (delCode && profileCache.has(delCode)) profileCache.delete(delCode);
+              if (delCode && presence.has(delCode)) presence.delete(delCode);
+            } catch (_) {}
             return sendJson(res, 200, result);
           }
           if (url === '/api/me' && req.method === 'GET') {
@@ -3133,12 +3163,31 @@ async function boot() {
     } catch (e) {
       log('warn', 'store meta restore error', { err: e && e.message });
     }
+
+    // Purge stale guest cosmetics profiles (no registered account) so guests don't fill the DB
+    try {
+      if (typeof store.purgeGuestProfiles === 'function') {
+        const purged = await store.purgeGuestProfiles(GUEST_PROFILE_MAX_AGE_MS);
+        if (purged) log('info', 'purged guest profiles', { count: purged });
+      }
+    } catch (e) {
+      log('warn', 'guest profile purge error', { err: e && e.message });
+    }
   }
 
-  // Periodic meta flush (queues + presence)
+  // Periodic meta flush (queues + presence) + occasional guest profile sweep
   setInterval(() => {
     try { persistMetaNow(); } catch (_) {}
   }, 15000);
+  setInterval(() => {
+    try {
+      if (store && typeof store.purgeGuestProfiles === 'function') {
+        store.purgeGuestProfiles(GUEST_PROFILE_MAX_AGE_MS).then((n) => {
+          if (n) log('info', 'purged guest profiles', { count: n });
+        }).catch(() => {});
+      }
+    } catch (_) {}
+  }, 6 * 3600 * 1000); // every 6 hours
 
   server.listen(PORT, '0.0.0.0', () => {
     log('info', 'server listening', {

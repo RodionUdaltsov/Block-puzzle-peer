@@ -141,20 +141,24 @@ function sanitizeNick(raw) {
   return s;
 }
 function saveProfile(data) {
-  const nick = sanitizeNick(data.nick);
-  if (nick.length < 2) return { ok: false, err: 'Ник слишком короткий (мин. 2)' };
+  const loggedIn = !!(typeof authToken !== 'undefined' && authToken && typeof authAccount !== 'undefined' && authAccount);
   const prevNick = myNickname;
   const prevAv = myAvatarId;
   const prevStatus = myStatus;
-  myNickname = nick;
+  // Name & status only editable after registration
+  if (loggedIn) {
+    const nick = sanitizeNick(data.nick);
+    if (nick.length < 2) return { ok: false, err: 'Ник слишком короткий (мин. 2)' };
+    myNickname = nick;
+    myStatus = String(data.status || '').slice(0, 48);
+  }
   myAvatarId = data.avatarId || myAvatarId;
-  myStatus = String(data.status || '').slice(0, 48);
   if (data.custom != null) myAvatarCustom = data.custom;
   try {
-    if (myNickname && myNickname !== prevNick && !/^Player/i.test(myNickname)) setAchStat('profileNick', 1);
+    if (loggedIn && myNickname && myNickname !== prevNick && !/^Player/i.test(myNickname)) setAchStat('profileNick', 1);
     if (myAvatarId && myAvatarId !== prevAv) setAchStat('profileAvatar', 1);
     if (myAvatarId === 'custom' && myAvatarCustom) setAchStat('profileCustom', 1);
-    if (myStatus && myStatus !== prevStatus) setAchStat('profileStatus', 1);
+    if (loggedIn && myStatus && myStatus !== prevStatus) setAchStat('profileStatus', 1);
     checkNewAchievements();
   } catch (_) {}
   try {
@@ -177,7 +181,7 @@ function refreshProfileUI() {
   renderAvatarInto(document.getElementById('homeProfileAv'), { avatarId: myAvatarId, nick: myNickname });
   const hn = document.getElementById('homeProfileName');
   if (hn) hn.textContent = myNickname || (typeof globalThis.t==='function'?globalThis.t('js.guest','Гость'):'Гость');
-  // Home badge: «Гость» → nick / «Аккаунт» when logged in
+  // Home badge: «Гость» → nick when logged in
   try {
     const badge = document.querySelector('.home-profile-badge');
     if (badge) {
@@ -195,8 +199,31 @@ function refreshProfileUI() {
   renderAvatarInto(document.getElementById('profileAvBig'), { avatarId: myAvatarId, nick: myNickname, big: true });
   const heroN = document.getElementById('profileHeroName');
   if (heroN) heroN.textContent = myNickname || (typeof globalThis.t==='function'?globalThis.t('js.guest','Гость'):'Гость');
+  // Guest pill: «Гость» → after registration show status (if any), else nothing
+  const pill = document.getElementById('profileGuestPill');
+  if (pill) {
+    if (authToken && authAccount) {
+      const st = (myStatus || '').trim();
+      if (st) {
+        pill.textContent = st;
+        pill.style.color = 'var(--accent, #00d4aa)';
+        pill.hidden = false;
+      } else {
+        pill.textContent = '';
+        pill.hidden = true;
+      }
+    } else {
+      pill.textContent = (typeof globalThis.t==='function'?globalThis.t('profile.guestPill','👤 Гость'):'👤 Гость');
+      pill.style.color = '';
+      pill.hidden = false;
+    }
+  }
   const prev = document.getElementById('profileStatusPreview');
-  if (prev) prev.textContent = myStatus || '';
+  // Status already shown in pill after login; keep preview only for guests or as secondary
+  if (prev) {
+    if (authToken && authAccount) prev.textContent = '';
+    else prev.textContent = myStatus || '';
+  }
   const codeEl = document.getElementById('profileFriendCode');
   if (codeEl) codeEl.textContent = myFriendCode;
   const stT = document.getElementById('profStatTrophies');
@@ -213,6 +240,7 @@ function refreshProfileUI() {
     if (avMe) renderAvatarInto(avMe, { avatarId: myAvatarId, nick: myNickname, size: 'duel' });
   } catch (_) {}
   try { if (typeof updateMenuStats === 'function') updateMenuStats(); } catch (_) {}
+  try { setProfileNameStatusLocked(!(authToken && authAccount)); } catch (_) {}
 }
 function renderProfileAvatarGrid() {
   const grid = document.getElementById('profileAvatarGrid');
@@ -278,12 +306,52 @@ function renderProfileAvatarGrid() {
     });
   });
 }
+function isAccountLoggedIn() {
+  return !!(authToken && authAccount);
+}
+
+function setProfileNameStatusLocked(locked) {
+  const nickIn = document.getElementById('profileNickInput');
+  const stIn = document.getElementById('profileStatusInput');
+  const card = nickIn && nickIn.closest && nickIn.closest('.profile-card');
+  if (nickIn) {
+    nickIn.disabled = !!locked;
+    nickIn.readOnly = !!locked;
+    if (locked) nickIn.setAttribute('aria-disabled', 'true');
+    else nickIn.removeAttribute('aria-disabled');
+  }
+  if (stIn) {
+    stIn.disabled = !!locked;
+    stIn.readOnly = !!locked;
+    if (locked) stIn.setAttribute('aria-disabled', 'true');
+    else stIn.removeAttribute('aria-disabled');
+  }
+  try {
+    let hint = document.getElementById('profileNameStatusLockHint');
+    if (locked) {
+      if (!hint && card) {
+        hint = document.createElement('div');
+        hint.id = 'profileNameStatusLockHint';
+        hint.className = 'hint profile-lock-hint';
+        hint.textContent = (typeof globalThis.t === 'function'
+          ? globalThis.t('profile.nameStatusLocked', 'Имя и статус доступны после регистрации')
+          : 'Имя и статус доступны после регистрации');
+        card.appendChild(hint);
+      }
+      if (hint) hint.hidden = false;
+    } else if (hint) {
+      hint.hidden = true;
+    }
+  } catch (_) {}
+}
+
 function openProfileScreen() {
   profileDraft = { nick: myNickname, avatarId: myAvatarId, status: myStatus, custom: myAvatarCustom };
   const nickIn = document.getElementById('profileNickInput');
   const stIn = document.getElementById('profileStatusInput');
   if (nickIn) nickIn.value = myNickname;
   if (stIn) stIn.value = myStatus;
+  setProfileNameStatusLocked(!isAccountLoggedIn());
   renderProfileAvatarGrid();
   refreshProfileUI();
   renderAvatarInto(document.getElementById('profileAvBig'), {
@@ -2621,6 +2689,20 @@ function applyServerAccount(account) {
       try { if (typeof renderHistory === 'function') renderHistory(); } catch (_) {}
     }
   } catch (_) {}
+  try {
+    if (account.achievements && typeof account.achievements === 'object') {
+      if (typeof achProgress === 'undefined') {
+        // will be defined in 03-audio; assign via global
+      }
+      try {
+        achProgress = Object.assign({}, account.achievements);
+        localStorage.setItem('bp_ach', JSON.stringify(achProgress));
+        if (typeof checkNewAchievements === 'function') checkNewAchievements();
+        if (typeof updateAchievementsButton === 'function') updateAchievementsButton();
+        if (typeof renderAchievements === 'function') renderAchievements();
+      } catch (_) {}
+    }
+  } catch (_) {}
   try { if (typeof refreshProfileUI === 'function') refreshProfileUI(); } catch (_) {}
   try { if (typeof updateMenuStats === 'function') updateMenuStats(); } catch (_) {}
   try { if (typeof updateVersusNameLabels === 'function') updateVersusNameLabels(); } catch (_) {}
@@ -2695,13 +2777,22 @@ function updateAccountUI() {
   if (label && authAccount) {
     label.textContent = '@' + (authAccount.login || '') + ' · код ' + (authAccount.friendCode || myFriendCode || '—');
   }
+  // After registration: status takes the place of «Гость» pill. Empty → nothing.
   if (pill) {
     if (isIn) {
-      pill.textContent = '✓ Аккаунт';
-      pill.style.color = 'var(--accent, #00d4aa)';
+      const st = (myStatus || '').trim();
+      if (st) {
+        pill.textContent = st;
+        pill.style.color = 'var(--accent, #00d4aa)';
+        pill.hidden = false;
+      } else {
+        pill.textContent = '';
+        pill.hidden = true;
+      }
     } else {
-      pill.textContent = '👤 Гость';
+      pill.textContent = (typeof globalThis.t==='function'?globalThis.t('profile.guestPill','👤 Гость'):'👤 Гость');
       pill.style.color = '';
+      pill.hidden = false;
     }
   }
   // Home profile badge
@@ -2723,6 +2814,7 @@ function updateAccountUI() {
     const hn = document.getElementById('homeProfileName');
     if (hn && isIn && myNickname) hn.textContent = myNickname;
   } catch (_) {}
+  try { setProfileNameStatusLocked(!isIn); } catch (_) {}
 }
 
 function showAuthLoading(text) {
@@ -2770,24 +2862,71 @@ function hideAuthLoading() {
   setTimeout(() => { try { el.style.display = 'none'; } catch (_) {} }, 300);
 }
 
+function snapshotGuestProgress() {
+  let ach = {};
+  try { ach = (typeof achProgress === 'object' && achProgress) ? Object.assign({}, achProgress) : {}; } catch (_) {}
+  return {
+    trophies: typeof trophies === 'number' ? trophies : 0,
+    diamonds: typeof diamonds === 'number' ? diamonds : 0,
+    best: typeof best === 'number' ? best : 0,
+    ownedSkins: (typeof ownedSkins !== 'undefined' && Array.isArray(ownedSkins)) ? ownedSkins.slice() : null,
+    ownedBoards: (typeof ownedBoards !== 'undefined' && Array.isArray(ownedBoards)) ? ownedBoards.slice() : null,
+    skinId: typeof equippedSkinId !== 'undefined' ? equippedSkinId : null,
+    boardId: typeof equippedBoardId !== 'undefined' ? equippedBoardId : null,
+    friends: (typeof friends !== 'undefined' && Array.isArray(friends)) ? friends.slice() : null,
+    history: (typeof matchHistory !== 'undefined' && Array.isArray(matchHistory)) ? matchHistory.slice() : null,
+    achievements: ach,
+    nick: typeof myNickname === 'string' ? myNickname : null,
+    status: typeof myStatus === 'string' ? myStatus : null,
+    avatarId: typeof myAvatarId === 'string' ? myAvatarId : null,
+    avatarCustom: typeof myAvatarCustom === 'string' ? myAvatarCustom : null
+  };
+}
+
+/** On login: wipe entire guest progress — account is the only source of truth. */
+function discardGuestProgressFully() {
+  try {
+    trophies = 0;
+    diamonds = 0;
+    best = 0;
+    friends = [];
+    matchHistory = [];
+    try { achProgress = {}; localStorage.setItem('bp_ach', '{}'); } catch (_) {}
+    try { localStorage.setItem('bp_friends', '[]'); } catch (_) {}
+    try { localStorage.setItem('bp_history', '[]'); } catch (_) {}
+    try { localStorage.setItem('bp_trophies', '0'); } catch (_) {}
+    try { localStorage.setItem('bp_diamonds', '0'); } catch (_) {}
+    try { localStorage.setItem('bp_best', '0'); } catch (_) {}
+    try { localStorage.removeItem('bp_status'); myStatus = ''; } catch (_) {}
+    // Reset skins/boards to free defaults (account will overwrite via applyServerAccount)
+    try {
+      ownedSkins = ['default', 'ocean', 'forest'];
+      ownedBoards = ['field_default', 'field_slate', 'field_charcoal'];
+      equippedSkinId = 'default';
+      equippedBoardId = 'field_default';
+      localStorage.setItem('bp_skins_owned', JSON.stringify(ownedSkins));
+      localStorage.setItem('bp_boards_owned', JSON.stringify(ownedBoards));
+      localStorage.setItem('bp_skin_equipped', 'default');
+      localStorage.setItem('bp_board_equipped', 'field_default');
+      localStorage.setItem('bp_skin', 'default');
+      localStorage.setItem('bp_board', 'field_default');
+    } catch (_) {}
+    try { localStorage.removeItem('bp_avatar_custom'); myAvatarCustom = ''; } catch (_) {}
+    try { myAvatarId = 'init'; localStorage.setItem('bp_avatar', 'init'); } catch (_) {}
+  } catch (_) {}
+}
+
 async function finishAuthSuccess(account, mode) {
   showAuthLoading(mode === 'register' ? 'Создаём аккаунт…' : 'Входим в аккаунт…');
   try {
-    // Snapshot guest progress before account apply (registration migrates it up)
-    const guestSnap = {
-      trophies: typeof trophies === 'number' ? trophies : 0,
-      diamonds: typeof diamonds === 'number' ? diamonds : 0,
-      best: typeof best === 'number' ? best : 0,
-      ownedSkins: (typeof ownedSkins !== 'undefined' && Array.isArray(ownedSkins)) ? ownedSkins.slice() : null,
-      ownedBoards: (typeof ownedBoards !== 'undefined' && Array.isArray(ownedBoards)) ? ownedBoards.slice() : null,
-      skinId: typeof equippedSkinId !== 'undefined' ? equippedSkinId : null,
-      boardId: typeof equippedBoardId !== 'undefined' ? equippedBoardId : null,
-      friends: (typeof friends !== 'undefined' && Array.isArray(friends)) ? friends.slice() : null,
-      history: (typeof matchHistory !== 'undefined' && Array.isArray(matchHistory)) ? matchHistory.slice() : null
-    };
+    const guestSnap = snapshotGuestProgress();
+    if (mode === 'login') {
+      // Full wipe of guest — nothing carries over on login
+      discardGuestProgressFully();
+    }
     applyServerAccount(account);
     if (mode === 'register') {
-      // Merge guest progress into fresh account (take max / union)
+      // Migrate full guest progress onto the new account (incl. skins, purchases, ach)
       try {
         if (guestSnap.trophies > (trophies | 0)) trophies = guestSnap.trophies;
         if (guestSnap.diamonds > (diamonds | 0)) diamonds = guestSnap.diamonds;
@@ -2802,11 +2941,36 @@ async function finishAuthSuccess(account, mode) {
         }
         if (guestSnap.skinId) equippedSkinId = guestSnap.skinId;
         if (guestSnap.boardId) equippedBoardId = guestSnap.boardId;
+        if (guestSnap.avatarId && (!account.avatarId || account.avatarId === 'init')) {
+          myAvatarId = guestSnap.avatarId;
+          try { localStorage.setItem('bp_avatar', myAvatarId); } catch (_) {}
+        }
+        if (guestSnap.avatarCustom && !account.avatarCustom) {
+          myAvatarCustom = guestSnap.avatarCustom;
+          try { localStorage.setItem('bp_avatar_custom', myAvatarCustom); } catch (_) {}
+        }
+        if (guestSnap.status && !account.status) {
+          myStatus = guestSnap.status;
+          try { localStorage.setItem('bp_status', myStatus); } catch (_) {}
+        }
         if (guestSnap.friends && guestSnap.friends.length) {
           try { mergeFriendsFromServer(guestSnap.friends); } catch (_) {}
         }
         if (guestSnap.history && guestSnap.history.length) {
           try { mergeHistoryFromServer(guestSnap.history); } catch (_) {}
+        }
+        if (guestSnap.achievements && typeof guestSnap.achievements === 'object') {
+          try {
+            const merged = Object.assign({}, guestSnap.achievements, achProgress || {});
+            for (const k of Object.keys(guestSnap.achievements)) {
+              const g = guestSnap.achievements[k];
+              const a = (achProgress && achProgress[k]) || 0;
+              if (typeof g === 'number' && typeof a === 'number') merged[k] = Math.max(g, a);
+              else if (g) merged[k] = g;
+            }
+            achProgress = merged;
+            localStorage.setItem('bp_ach', JSON.stringify(achProgress));
+          } catch (_) {}
         }
         try { localStorage.setItem('bp_trophies', String(trophies)); } catch (_) {}
         try { localStorage.setItem('bp_diamonds', String(diamonds)); } catch (_) {}
@@ -2815,11 +2979,25 @@ async function finishAuthSuccess(account, mode) {
         try { localStorage.setItem('bp_boards_owned', JSON.stringify(ownedBoards)); } catch (_) {}
       } catch (_) {}
     }
-    // Persist full progress to account (incl. history)
+    try { localStorage.setItem('bp_guest_ok', '1'); } catch (_) {}
+    try { hideEntryGate(); } catch (_) {}
+    // Persist full progress to account
     try {
       await syncProfileToServer({
         friends: (friends || []).slice(0, 200),
-        history: (typeof matchHistory !== 'undefined' && Array.isArray(matchHistory)) ? matchHistory.slice(0, 30) : []
+        history: (typeof matchHistory !== 'undefined' && Array.isArray(matchHistory)) ? matchHistory.slice(0, 30) : [],
+        achievements: (typeof achProgress === 'object' && achProgress) ? achProgress : {},
+        trophies: trophies | 0,
+        diamonds: diamonds | 0,
+        best: best | 0,
+        ownedSkins: ownedSkins || [],
+        ownedBoards: ownedBoards || [],
+        skinId: typeof equippedSkinId !== 'undefined' ? equippedSkinId : undefined,
+        boardId: typeof equippedBoardId !== 'undefined' ? equippedBoardId : undefined,
+        nick: myNickname,
+        status: myStatus,
+        avatarId: myAvatarId,
+        avatarCustom: myAvatarCustom
       });
     } catch (_) {}
     try { if (typeof ensureFriendPresence === 'function') ensureFriendPresence(); } catch (_) {}
@@ -2830,26 +3008,41 @@ async function finishAuthSuccess(account, mode) {
     try { if (typeof updateAccountUI === 'function') updateAccountUI(); } catch (_) {}
     try { if (typeof updateMenuStats === 'function') updateMenuStats(); } catch (_) {}
     try { if (typeof renderShop === 'function') renderShop(); } catch (_) {}
-    // Brief cinematic so user sees the transition
-    await new Promise((r) => setTimeout(r, 1000));
+    try { if (typeof updateAchievementsButton === 'function') updateAchievementsButton(); } catch (_) {}
+    await new Promise((r) => setTimeout(r, 800));
   } finally {
     hideAuthLoading();
   }
   try {
     if (typeof showInfoToast === 'function') {
-      showInfoToast('Аккаунт', mode === 'register' ? 'Регистрация успешна' : 'Вход выполнен', 'ok');
+      showInfoToast('Аккаунт', mode === 'register' ? 'Регистрация успешна — прогресс перенесён' : 'Вход выполнен', 'ok');
     }
   } catch (_) {}
 }
 
 function openAuthModal(mode) {
   authMode = mode === 'register' ? 'register' : 'login';
+  // Prefer the full-screen entry gate so a second auth window never stacks behind it
+  const gate = document.getElementById('entryGate');
+  const gateOpen = !!(gate && (!gate.hidden || gate.classList.contains('visible') ||
+    (document.body && document.body.classList.contains('entry-gate-open'))));
+  if (gateOpen || !(authToken && authAccount)) {
+    try { closeAuthModal(); } catch (_) {}
+    if (!gateOpen) {
+      try { showEntryGate(); } catch (_) {}
+    }
+    try { entryGateSetMode(authMode); } catch (_) {}
+    try {
+      setTimeout(() => document.getElementById('entryAuthLogin')?.focus(), 40);
+    } catch (_) {}
+    return;
+  }
   const modal = document.getElementById('authModal');
   const nickField = document.getElementById('authNickField');
   const title = document.getElementById('authModalTitle');
   const submit = document.getElementById('authSubmit');
   const err = document.getElementById('authError');
-  document.querySelectorAll('.auth-tab').forEach((tab) => {
+  document.querySelectorAll('#authModal .auth-tab').forEach((tab) => {
     tab.classList.toggle('on', tab.getAttribute('data-auth-tab') === authMode);
   });
   if (nickField) nickField.hidden = authMode !== 'register';
@@ -2935,15 +3128,38 @@ async function submitAuthForm(e) {
 
 async function logoutAccount() {
   try {
+    if (typeof showAuthLoading === 'function') showAuthLoading('Выходим из аккаунта…');
+  } catch (_) {}
+  try {
     if (authToken) await apiFetch('/api/auth/logout', { method: 'POST' });
   } catch (_) {}
   authToken = null;
   authAccount = null;
   try { localStorage.removeItem('bp_auth_token'); } catch (_) {}
-  updateAccountUI();
+  try { localStorage.removeItem('bp_guest_ok'); } catch (_) {}
+  try { sessionStorage.removeItem('bp_guest_shop_warned'); } catch (_) {}
+  // Full wipe — next session starts clean (guest or new account)
+  try { discardGuestProgressFully(); } catch (_) {}
   try {
-    if (typeof showInfoToast === 'function') showInfoToast('Аккаунт', 'Вы вышли', 'ok');
+    myNickname = 'Гость';
+    localStorage.setItem('bp_nickname', 'Гость');
   } catch (_) {}
+  try {
+    if (typeof applyEquippedSkin === 'function') applyEquippedSkin();
+    if (typeof applyEquippedBoard === 'function') applyEquippedBoard();
+  } catch (_) {}
+  try { updateAccountUI(); } catch (_) {}
+  try { if (typeof refreshProfileUI === 'function') refreshProfileUI(); } catch (_) {}
+  try { if (typeof updateMenuStats === 'function') updateMenuStats(); } catch (_) {}
+  try { if (typeof renderFriends === 'function') renderFriends(false); } catch (_) {}
+  try { if (typeof renderShop === 'function') renderShop(); } catch (_) {}
+  try {
+    if (typeof showScreen === 'function') showScreen('menu');
+    else if (typeof navigateScreen === 'function') navigateScreen('menu');
+  } catch (_) {}
+  await new Promise((r) => setTimeout(r, 600));
+  try { if (typeof hideAuthLoading === 'function') hideAuthLoading(); } catch (_) {}
+  try { showEntryGate(); } catch (_) {}
 }
 
 /** Open in-app modal to permanently delete server account (no native prompt/confirm). */
@@ -3020,8 +3236,14 @@ async function submitAccountDelete() {
       body: { password: password }
     });
     if (!ok || !data || !data.ok) {
-      const msg = (data && (data.message || data.error))
+      let msg = (data && (data.message || data.error))
         || (status === 403 ? 'Неверный пароль' : 'Не удалось удалить аккаунт');
+      if (msg === 'password_required' || (data && data.error === 'password_required')) {
+        msg = 'Введите пароль для удаления аккаунта';
+      }
+      if (msg === 'bad_password' || (data && data.error === 'bad_password')) {
+        msg = 'Неверный пароль';
+      }
       if (err) { err.hidden = false; err.textContent = msg; }
       try {
         if (typeof showInfoToast === 'function') showInfoToast('Аккаунт', msg, 'bad');
@@ -3031,6 +3253,13 @@ async function submitAccountDelete() {
     authToken = null;
     authAccount = null;
     try { localStorage.removeItem('bp_auth_token'); } catch (_) {}
+    try { localStorage.removeItem('bp_guest_ok'); } catch (_) {}
+    try { sessionStorage.removeItem('bp_guest_shop_warned'); } catch (_) {}
+    try { discardGuestProgressFully(); } catch (_) {}
+    try {
+      myNickname = 'Гость';
+      localStorage.setItem('bp_nickname', 'Гость');
+    } catch (_) {}
     closeAccountDeleteModal();
     try { updateAccountUI(); } catch (_) {}
     try {
@@ -3041,7 +3270,10 @@ async function submitAccountDelete() {
       else if (typeof navigateScreen === 'function') navigateScreen('menu');
       if (typeof updateMenuStats === 'function') updateMenuStats();
       if (typeof refreshProfileUI === 'function') refreshProfileUI();
+      if (typeof applyEquippedSkin === 'function') applyEquippedSkin();
+      if (typeof applyEquippedBoard === 'function') applyEquippedBoard();
     } catch (_) {}
+    try { showEntryGate(); } catch (_) {}
   } catch (e) {
     if (err) { err.hidden = false; err.textContent = 'Нет связи с сервером'; }
     try {
@@ -3147,7 +3379,7 @@ try { window.bpConfirm = bpConfirm; } catch (_) {}
 })();
 
 
-/** Push local profile fields to server (when logged in). */
+/** Push local profile fields to server (when logged in). Full progress bind. */
 async function syncProfileToServer(extra) {
   if (!authToken) return null;
   const body = Object.assign({
@@ -3162,7 +3394,9 @@ async function syncProfileToServer(extra) {
     boardId: typeof equippedBoardId !== 'undefined' ? equippedBoardId : undefined,
     ownedSkins: (typeof ownedSkins !== 'undefined' && Array.isArray(ownedSkins)) ? ownedSkins.slice(0, 64) : undefined,
     ownedBoards: (typeof ownedBoards !== 'undefined' && Array.isArray(ownedBoards)) ? ownedBoards.slice(0, 64) : undefined,
-    history: (typeof matchHistory !== 'undefined' && Array.isArray(matchHistory)) ? matchHistory.slice(0, 30) : undefined
+    friends: (typeof friends !== 'undefined' && Array.isArray(friends)) ? friends.slice(0, 200) : undefined,
+    history: (typeof matchHistory !== 'undefined' && Array.isArray(matchHistory)) ? matchHistory.slice(0, 30) : undefined,
+    achievements: (typeof achProgress === 'object' && achProgress) ? achProgress : undefined
   }, extra || {});
   try {
     const { ok, data } = await apiFetch('/api/me', { method: 'PATCH', body });
@@ -3177,22 +3411,208 @@ async function syncProfileToServer(extra) {
 async function restoreSessionFromToken() {
   if (!authToken) {
     updateAccountUI();
-    return;
+    return false;
   }
   try {
     const { ok, data } = await apiFetch('/api/me');
     if (ok && data && data.account) {
       applyServerAccount(data.account);
-    } else {
-      authToken = null;
-      authAccount = null;
-      try { localStorage.removeItem('bp_auth_token'); } catch (_) {}
-      updateAccountUI();
+      try { localStorage.setItem('bp_guest_ok', '1'); } catch (_) {}
+      return true;
     }
+    authToken = null;
+    authAccount = null;
+    try { localStorage.removeItem('bp_auth_token'); } catch (_) {}
+    updateAccountUI();
+    return false;
   } catch (_) {
     updateAccountUI();
+    return false;
   }
 }
+
+function entryGateSetMode(mode) {
+  authMode = mode === 'register' ? 'register' : 'login';
+  const title = document.getElementById('entryGateTitle');
+  const lead = document.querySelector('#entryGate .entry-gate-lead');
+  const nickField = document.getElementById('entryAuthNickField');
+  const submit = document.getElementById('entryAuthSubmit');
+  const err = document.getElementById('entryAuthError');
+  const guestBlock = document.getElementById('entryGateGuestBlock');
+  const warn = document.getElementById('entryGateGuestWarn');
+  if (err) { err.hidden = true; err.textContent = ''; }
+  if (warn) warn.hidden = true;
+  document.querySelectorAll('[data-entry-auth-tab]').forEach((tab) => {
+    const on = tab.getAttribute('data-entry-auth-tab') === authMode;
+    tab.classList.toggle('on', on);
+  });
+  if (title) title.textContent = 'Добро пожаловать';
+  if (lead) {
+    lead.textContent = authMode === 'register'
+      ? 'Создай аккаунт — прогресс сохранится навсегда'
+      : 'Войди в аккаунт или продолжай гостем';
+  }
+  if (submit) submit.textContent = authMode === 'register' ? 'Создать аккаунт' : 'Войти';
+  if (nickField) nickField.hidden = authMode !== 'register';
+  // Guest only on Login tab
+  if (guestBlock) guestBlock.hidden = authMode !== 'login';
+  const pw = document.getElementById('entryAuthPassword');
+  if (pw) pw.setAttribute('autocomplete', authMode === 'register' ? 'new-password' : 'current-password');
+}
+function entryGateShowAuth(mode) {
+  entryGateSetMode(mode);
+}
+function entryGateShowChoice() {
+  entryGateSetMode('login');
+}
+function showEntryGate() {
+  const el = document.getElementById('entryGate');
+  if (!el) return;
+  // Never stack the old auth modal behind the welcome screen
+  try { closeAuthModal(); } catch (_) {}
+  entryGateSetMode('login');
+  el.hidden = false;
+  el.style.display = 'flex';
+  el.setAttribute('aria-hidden', 'false');
+  try { void el.offsetWidth; } catch (_) {}
+  el.classList.add('visible');
+  try { document.body.classList.add('entry-gate-open'); } catch (_) {}
+  try { document.documentElement.classList.add('entry-gate-pending'); } catch (_) {}
+}
+function hideEntryGate() {
+  const el = document.getElementById('entryGate');
+  if (!el) return;
+  el.classList.remove('visible');
+  const finish = () => {
+    el.hidden = true;
+    el.style.display = 'none';
+    el.setAttribute('aria-hidden', 'true');
+    try { document.body.classList.remove('entry-gate-open'); } catch (_) {}
+    try { document.documentElement.classList.remove('entry-gate-pending'); } catch (_) {}
+    entryGateSetMode('login');
+  };
+  setTimeout(finish, 420);
+}
+function acceptGuestMode() {
+  try { discardGuestProgressFully(); } catch (_) {}
+  try {
+    myNickname = localStorage.getItem('bp_nickname') || '';
+    if (!myNickname || myNickname === 'Гость') {
+      try {
+        if (typeof myFriendCode === 'string' && myFriendCode) {
+          myNickname = 'Player' + myFriendCode.slice(0, 3);
+        } else {
+          myNickname = 'Гость';
+        }
+      } catch (_) { myNickname = 'Гость'; }
+    }
+    localStorage.setItem('bp_nickname', myNickname);
+  } catch (_) {}
+  try { localStorage.setItem('bp_guest_ok', '1'); } catch (_) {}
+  hideEntryGate();
+  try { updateAccountUI(); } catch (_) {}
+  try { if (typeof refreshProfileUI === 'function') refreshProfileUI(); } catch (_) {}
+  try { if (typeof applyEquippedSkin === 'function') applyEquippedSkin(); } catch (_) {}
+  try { if (typeof applyEquippedBoard === 'function') applyEquippedBoard(); } catch (_) {}
+  try { if (typeof updateMenuStats === 'function') updateMenuStats(); } catch (_) {}
+}
+async function maybeShowEntryGate() {
+  if (authToken) {
+    const ok = await restoreSessionFromToken();
+    if (ok) {
+      hideEntryGate();
+      return;
+    }
+  }
+  let guestOk = false;
+  try { guestOk = localStorage.getItem('bp_guest_ok') === '1'; } catch (_) {}
+  if (guestOk) {
+    hideEntryGate();
+    try { updateAccountUI(); } catch (_) {}
+    return;
+  }
+  showEntryGate();
+}
+async function submitEntryAuthForm(e) {
+  if (e) e.preventDefault();
+  const loginEl = document.getElementById('entryAuthLogin');
+  const passEl = document.getElementById('entryAuthPassword');
+  const nickEl = document.getElementById('entryAuthNick');
+  const err = document.getElementById('entryAuthError');
+  const submit = document.getElementById('entryAuthSubmit');
+  const login = loginEl ? String(loginEl.value || '').trim() : '';
+  const password = passEl ? String(passEl.value || '') : '';
+  const nick = nickEl ? String(nickEl.value || '').trim() : '';
+  if (err) { err.hidden = true; err.textContent = ''; }
+  if (submit) submit.disabled = true;
+  try {
+    const path = authMode === 'register' ? '/api/auth/register' : '/api/auth/login';
+    const body = { login, password };
+    if (authMode === 'register' && nick) body.nick = nick;
+    const { ok, data, status, networkError } = await apiFetch(path, { method: 'POST', body });
+    if (!ok || !data || !data.ok) {
+      let msg = (data && (data.message || data.error)) || null;
+      if (!msg) {
+        if (networkError || status === 0) msg = 'Нет связи с сервером';
+        else if (status === 503) msg = 'Сервис аккаунтов недоступен';
+        else msg = 'Ошибка (код ' + status + ')';
+      }
+      if (msg === 'accounts_unavailable') msg = 'Сервис аккаунтов недоступен';
+      if (err) { err.textContent = msg; err.hidden = false; }
+      return;
+    }
+    authToken = data.token;
+    try { localStorage.setItem('bp_auth_token', authToken); } catch (_) {}
+    await finishAuthSuccess(data.account, authMode);
+  } catch (ex) {
+    if (err) { err.textContent = 'Нет связи с сервером'; err.hidden = false; }
+  } finally {
+    if (submit) submit.disabled = false;
+  }
+}
+function bindEntryGate() {
+  const guestBtn = document.getElementById('entryGateGuest');
+  const confirmBtn = document.getElementById('entryGateGuestConfirm');
+  const cancelBtn = document.getElementById('entryGateGuestCancel');
+  const form = document.getElementById('entryAuthForm');
+  if (guestBtn && !guestBtn._egBound) {
+    guestBtn._egBound = true;
+    guestBtn.addEventListener('click', () => {
+      const warn = document.getElementById('entryGateGuestWarn');
+      if (warn) warn.hidden = false;
+    });
+  }
+  if (confirmBtn && !confirmBtn._egBound) {
+    confirmBtn._egBound = true;
+    confirmBtn.addEventListener('click', () => acceptGuestMode());
+  }
+  if (cancelBtn && !cancelBtn._egBound) {
+    cancelBtn._egBound = true;
+    cancelBtn.addEventListener('click', () => {
+      const warn = document.getElementById('entryGateGuestWarn');
+      if (warn) warn.hidden = true;
+    });
+  }
+  if (form && !form._egBound) {
+    form._egBound = true;
+    form.addEventListener('submit', submitEntryAuthForm);
+  }
+  document.querySelectorAll('[data-entry-auth-tab]').forEach((tab) => {
+    if (tab._egBound) return;
+    tab._egBound = true;
+    tab.addEventListener('click', () => {
+      entryGateSetMode(tab.getAttribute('data-entry-auth-tab') === 'register' ? 'register' : 'login');
+    });
+  });
+}
+
+try {
+  window.showEntryGate = showEntryGate;
+  window.hideEntryGate = hideEntryGate;
+  window.acceptGuestMode = acceptGuestMode;
+  window.entryGateShowAuth = entryGateShowAuth;
+  window.entryGateShowChoice = entryGateShowChoice;
+} catch (_) {}
 
 function bindAccountUI() {
   const bindBtn = document.getElementById('btnProfileBind');
@@ -3263,14 +3683,20 @@ if (!window._authDelegateBound) {
 
 function scheduleAuthBind() {
   try { bindAccountUI(); } catch (e) { console.warn('bindAccountUI', e); }
-  try { restoreSessionFromToken(); } catch (e) { console.warn('restoreSession', e); }
+  try { bindEntryGate(); } catch (e) { console.warn('bindEntryGate', e); }
+  try {
+    maybeShowEntryGate().catch(function (e) { console.warn('entryGate', e); });
+  } catch (e) { console.warn('entryGate', e); }
 }
 if (document.readyState === 'loading') {
   document.addEventListener('DOMContentLoaded', scheduleAuthBind);
 } else {
   scheduleAuthBind();
 }
-window.addEventListener('load', () => { try { bindAccountUI(); } catch (_) {} });
+window.addEventListener('load', () => {
+  try { bindAccountUI(); } catch (_) {}
+  try { bindEntryGate(); } catch (_) {}
+});
 
 /** Hook: after profile save, sync to cloud */
 (function patchProfileSaveSync() {

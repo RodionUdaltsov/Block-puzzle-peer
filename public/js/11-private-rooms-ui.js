@@ -113,6 +113,18 @@ function bindPrivateLobbyHandlers() {
       try { closeRoomLobby(); } catch (_) {}
       mpOppConnected = false;
       mpMode = false;
+      // Guest was invited but lobby closed — drop toast + pending invite card
+      try {
+        const closed = data && data.code ? String(data.code).toUpperCase() : null;
+        if (typeof chPending !== 'undefined' && chPending) {
+          const pendRoom = chPending.room ? String(chPending.room).toUpperCase() : null;
+          if (!closed || !pendRoom || pendRoom === closed) {
+            chPending = null;
+            if (typeof hideChToast === 'function') hideChToast(false);
+          }
+        }
+        try { renderFriendRequests && renderFriendRequests(); updateFriendsSectionCounts && updateFriendsSectionCounts(); } catch (_) {}
+      } catch (_) {}
     } catch (_) {}
   });
 
@@ -169,8 +181,17 @@ function bindPrivateLobbyHandlers() {
           break;
         case 'challenge_cancel':
           try {
-            if (typeof hideChToast === 'function') hideChToast(false);
-            chPending = null;
+            const cancelRoom = msg.room ? String(msg.room).toUpperCase() : null;
+            if (typeof chPending !== 'undefined' && chPending) {
+              const pendRoom = chPending.room ? String(chPending.room).toUpperCase() : null;
+              if (!cancelRoom || !pendRoom || pendRoom === cancelRoom) {
+                chPending = null;
+                if (typeof hideChToast === 'function') hideChToast(false);
+              }
+            } else {
+              if (typeof hideChToast === 'function') hideChToast(false);
+            }
+            try { renderFriendRequests && renderFriendRequests(); updateFriendsSectionCounts && updateFriendsSectionCounts(); } catch (_) {}
           } catch (_) {}
           break;
         case 'challenge_decline':

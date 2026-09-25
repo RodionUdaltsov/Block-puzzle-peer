@@ -97,6 +97,7 @@ function softRenderPieces(areaEl) {
   // that drops pointer capture on phones and snaps the ghost back to tray.
   try {
     if (typeof isDragging !== 'undefined' && isDragging) return;
+    if (typeof activeDragSlot !== 'undefined' && activeDragSlot) return;
   } catch (_) {}
   try {
     if (!pieces || !pieces.length) {

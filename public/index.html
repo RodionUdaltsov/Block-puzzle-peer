@@ -26,8 +26,79 @@
   <a class="skip-link" href="#screenMenu" data-i18n="skip.menu">Перейти к меню</a>
 
   <!-- Boot loader -->
+
+  <!-- Entry gate: tabs Login | Register; guest under Login -->
+  <div id="entryGate" class="entry-gate" hidden aria-hidden="true" style="display:none">
+    <div class="entry-gate-bg" aria-hidden="true"></div>
+    <div class="entry-gate-card" role="dialog" aria-labelledby="entryGateTitle" aria-modal="true">
+      <div class="entry-gate-logo">Block Puzzle</div>
+      <h2 id="entryGateTitle">Добро пожаловать</h2>
+      <p class="entry-gate-lead">Войди в аккаунт или продолжай гостем</p>
+      <div class="auth-tabs entry-gate-tabs">
+        <button type="button" class="auth-tab on" data-entry-auth-tab="login" id="entryAuthTabLogin">Войти</button>
+        <button type="button" class="auth-tab" data-entry-auth-tab="register" id="entryAuthTabRegister">Регистрация</button>
+      </div>
+      <form id="entryAuthForm" autocomplete="on">
+        <div class="profile-field">
+          <label for="entryAuthLogin">Логин</label>
+          <input id="entryAuthLogin" name="username" maxlength="24" placeholder="player_1" autocomplete="username" spellcheck="false" required />
+          <div class="hint">3–24 символа: a-z, 0-9, _</div>
+        </div>
+        <div class="profile-field" id="entryAuthNickField" hidden>
+          <label for="entryAuthNick">Ник в игре</label>
+          <input id="entryAuthNick" maxlength="9" placeholder="Необязательно" autocomplete="nickname" />
+        </div>
+        <div class="profile-field">
+          <label for="entryAuthPassword">Пароль</label>
+          <input id="entryAuthPassword" name="password" type="password" maxlength="72" placeholder="минимум 6 символов" autocomplete="current-password" required />
+        </div>
+        <div id="entryAuthError" class="auth-error" hidden></div>
+        <button type="submit" class="primary" id="entryAuthSubmit" style="width:100%;min-height:42px;margin-top:8px">Войти</button>
+      </form>
+      <div id="entryGateGuestBlock" class="entry-gate-guest-block">
+        <div class="entry-gate-or"><span>или</span></div>
+        <button type="button" class="ghost entry-gate-btn" id="entryGateGuest">
+          <span class="entry-gate-btn-ico">👤</span>
+          <span class="entry-gate-btn-text">
+            <strong>Играть гостем</strong>
+            <small>Данные на сервере живут до 48 часов</small>
+          </span>
+        </button>
+        <div id="entryGateGuestWarn" class="entry-gate-warn" hidden>
+          <p><strong>Внимание:</strong> гостевой прогресс на сервере удаляется примерно через <strong>48 часов</strong> бездействия. Трофеи, друзья и история не переносятся между устройствами. Зарегистрируйся, чтобы ничего не потерять.</p>
+          <div class="entry-gate-warn-actions">
+            <button type="button" class="primary" id="entryGateGuestConfirm">Понятно, играть гостем</button>
+            <button type="button" class="ghost" id="entryGateGuestCancel">Отмена</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
   
-  <!-- Auth modal (register / login) -->
+    <script>
+  /* Early entry gate: hide game UI until account/guest is chosen */
+  (function () {
+    try {
+      var tok = localStorage.getItem('bp_auth_token');
+      var guest = localStorage.getItem('bp_guest_ok') === '1';
+      if (!tok && !guest) {
+        document.documentElement.classList.add('entry-gate-pending');
+        document.addEventListener('DOMContentLoaded', function () {
+          try { document.body.classList.add('entry-gate-open'); } catch (e) {}
+          var el = document.getElementById('entryGate');
+          if (el) {
+            el.hidden = false;
+            el.style.display = 'flex';
+            el.classList.add('visible');
+            el.setAttribute('aria-hidden', 'false');
+          }
+        });
+      }
+    } catch (e) {}
+  })();
+  </script>
+
+<!-- Auth modal (register / login) -->
   <div id="authModal" class="auth-modal" hidden aria-hidden="true" style="display:none">
     <div class="auth-modal-backdrop" id="authModalBackdrop"></div>
     <div class="auth-modal-card" role="dialog" aria-labelledby="authModalTitle">

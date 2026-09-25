@@ -1340,8 +1340,23 @@ function eventClientXY(e) {
   return { x: 0, y: 0 };
 }
 let activeDragPointerId = null;
+/** Slot currently under an active drag — never strip lifting / rebuild while held. */
+let activeDragSlot = null;
 function clearAllLifting(areaEl) {
   try {
+    // While the player is holding a piece, never strip the active slot —
+    // concurrent opp_place / softRender can call this and snap the piece back.
+    if (typeof isDragging !== 'undefined' && isDragging && activeDragSlot) {
+      const root = areaEl || document;
+      root.querySelectorAll('.piece-slot.lifting').forEach(s => {
+        if (s === activeDragSlot) return;
+        if (!s.classList.contains('used')) {
+          s.classList.remove('lifting');
+          s.classList.add('show');
+        }
+      });
+      return;
+    }
     const root = areaEl || document;
     root.querySelectorAll('.piece-slot.lifting').forEach(s => {
       if (!s.classList.contains('used')) {
@@ -1356,6 +1371,7 @@ function cancelActivePieceDrag() {
   try {
     isDragging = false;
     activeDragPointerId = null;
+    activeDragSlot = null;
     dragPiece = null;
     _dragShapeMaxR = _dragShapeMaxC = 0;
     selectedIdx = -1;
@@ -1459,6 +1475,7 @@ function startDrag(e, idx, areaEl) {
   pointerX = xy0.x; pointerY = xy0.y;
   updateBoardMetrics();
   const slot = e.currentTarget;
+  activeDragSlot = slot;
   // Ensure no other slot is stuck in lifting from a previous multi-touch
   clearAllLifting(areaEl);
   slot.classList.add('lifting');
@@ -1481,8 +1498,17 @@ function startDrag(e, idx, areaEl) {
       if (isDragging) dragFrame();
     });
   });
+  // Capture on document/body instead of the slot: opp_place / softRender
+  // mutate tray DOM on phones and slot-level capture fires pointercancel → snap back.
   try {
-    if (e.pointerId != null && slot.setPointerCapture) slot.setPointerCapture(e.pointerId);
+    if (e.pointerId != null) {
+      const capTarget = document.body || document.documentElement;
+      if (capTarget && capTarget.setPointerCapture) {
+        capTarget.setPointerCapture(e.pointerId);
+      } else if (slot.setPointerCapture) {
+        slot.setPointerCapture(e.pointerId);
+      }
+    }
   } catch(_){}
   const onMove = ev => {
     if (!isDragging) return;
@@ -1517,13 +1543,35 @@ function startDrag(e, idx, areaEl) {
   const unbind = () => {
     document.removeEventListener('pointermove', onMove);
     document.removeEventListener('pointerup', onUp);
-    document.removeEventListener('pointercancel', onUp);
+    document.removeEventListener('pointercancel', onCancel);
     document.removeEventListener('touchmove', onMove);
     document.removeEventListener('touchend', onUp);
-    document.removeEventListener('touchcancel', onUp);
+    document.removeEventListener('touchcancel', onCancel);
     document.removeEventListener('mousemove', onMove);
     document.removeEventListener('mouseup', onUp);
     try { document.body.classList.remove('is-dragging'); } catch (_) {}
+    activeDragSlot = null;
+  };
+  // Remote DOM updates (opp_place tray/board) often fire pointercancel on phones.
+  // Do NOT end the drag — keep holding until real pointerup / touchend.
+  const onCancel = ev => {
+    if (!isDragging) return;
+    if (ev && ev.pointerId != null && activeDragPointerId != null &&
+        activeDragPointerId !== 'mouse' && ev.pointerId !== activeDragPointerId) {
+      return;
+    }
+    try {
+      if (ev && ev.pointerId != null) {
+        const capTarget = document.body || document.documentElement;
+        if (capTarget && capTarget.releasePointerCapture) {
+          try { capTarget.releasePointerCapture(ev.pointerId); } catch (_) {}
+        }
+        if (slot && slot.releasePointerCapture) {
+          try { slot.releasePointerCapture(ev.pointerId); } catch (_) {}
+        }
+      }
+    } catch (_) {}
+    // Keep isDragging / ghost / lifting — listeners stay; next move/up continues
   };
   const onUp = ev => {
     if (!isDragging) return;
@@ -1536,9 +1584,16 @@ function startDrag(e, idx, areaEl) {
     if (BPState.rejoinLoading || BPState.rejoinInputLock || placingLock) {
       isDragging = false;
       activeDragPointerId = null;
+      activeDragSlot = null;
       if (rafId) { cancelAnimationFrame(rafId); rafId = 0; }
       try {
-        if (e.pointerId != null && slot.releasePointerCapture) slot.releasePointerCapture(e.pointerId);
+        if (e.pointerId != null) {
+          const capTarget = document.body || document.documentElement;
+          if (capTarget && capTarget.releasePointerCapture) {
+            try { capTarget.releasePointerCapture(e.pointerId); } catch (_) {}
+          }
+          if (slot.releasePointerCapture) slot.releasePointerCapture(e.pointerId);
+        }
       } catch (_) {}
       try { ghost.classList.remove('visible'); hideGhost(); } catch (_) {}
       try { slot.classList.remove('lifting'); slot.classList.add('show'); } catch (_) {}
@@ -1551,9 +1606,16 @@ function startDrag(e, idx, areaEl) {
     }
     isDragging = false;
     activeDragPointerId = null;
+    activeDragSlot = null;
     if (rafId) { cancelAnimationFrame(rafId); rafId=0; }
     try {
-      if (e.pointerId != null && slot.releasePointerCapture) slot.releasePointerCapture(e.pointerId);
+      if (e.pointerId != null) {
+        const capTarget = document.body || document.documentElement;
+        if (capTarget && capTarget.releasePointerCapture) {
+          try { capTarget.releasePointerCapture(e.pointerId); } catch (_) {}
+        }
+        if (slot.releasePointerCapture) slot.releasePointerCapture(e.pointerId);
+      }
     } catch(_){}
     const xy = eventClientXY(ev);
     pointerX = xy.x; pointerY = xy.y;
@@ -1634,11 +1696,13 @@ function startDrag(e, idx, areaEl) {
   if (window.PointerEvent) {
     document.addEventListener('pointermove', onMove, { passive: !touchLike });
     document.addEventListener('pointerup', onUp);
-    document.addEventListener('pointercancel', onUp);
+    // pointercancel must NOT end the drag — concurrent opp_place DOM updates
+    // fire cancel on phones and would snap the held piece back to the tray.
+    document.addEventListener('pointercancel', onCancel);
   } else {
     document.addEventListener('touchmove', onMove, { passive: false });
     document.addEventListener('touchend', onUp);
-    document.addEventListener('touchcancel', onUp);
+    document.addEventListener('touchcancel', onCancel);
     document.addEventListener('mousemove', onMove, { passive: true });
     document.addEventListener('mouseup', onUp);
   }

@@ -311,7 +311,17 @@ let replayClockMs = 0;
 // Persistent achievement progress
 let achProgress = {};
 try { achProgress = JSON.parse(localStorage.getItem('bp_ach') || '{}'); } catch (_) { achProgress = {}; }
-function saveAch() { localStorage.setItem('bp_ach', JSON.stringify(achProgress)); }
+function saveAch() {
+  try { localStorage.setItem('bp_ach', JSON.stringify(achProgress)); } catch (_) {}
+  try {
+    if (typeof authToken !== 'undefined' && authToken && typeof syncProfileToServer === 'function') {
+      if (window._achSyncTimer) clearTimeout(window._achSyncTimer);
+      window._achSyncTimer = setTimeout(function () {
+        try { syncProfileToServer({ achievements: achProgress }); } catch (_) {}
+      }, 1200);
+    }
+  } catch (_) {}
+}
 function getAchStat(key) { return achProgress[key] || 0; }
 function setAchStat(key, val) { achProgress[key] = val; saveAch(); checkNewAchievements(); }
 function bumpAchStat(key, by = 1) {
