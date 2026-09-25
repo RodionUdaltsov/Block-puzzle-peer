@@ -21,11 +21,6 @@ const ROOT = path.join(__dirname, '..');
 const OUT_DIR = path.join(ROOT, 'public', 'dist');
 const MINIFY = !process.argv.includes('--no-minify');
 
-/**
- * CORE modules — single IIFE shared scope (required: circular call graph).
- * Optional DEFERRED_MODULES: only non-critical UI that is also bound via
- * index.html menu-delegate fallbacks. Keep empty unless handlers are duplicated.
- */
 const MODULES = [
   'public/shared/rules.js',
   'public/match-client.js',
@@ -48,10 +43,7 @@ const MODULES = [
   'public/js/14-settings-ui.js'
 ];
 
-/**
- * Safe deferred candidates must NOT own the only click handlers for primary UI.
- * Left empty after 3.9.63 regression (buttons dead when 04/11 were deferred alone).
- */
+/** Reserved for future true code-split (modules must not rely on shared IIFE scope). */
 const DEFERRED_MODULES = [];
 
 function readVersion() {
@@ -239,8 +231,7 @@ function build() {
         dBanner +
         '(function (global) {\n"use strict";\n' +
         dBody +
-        '\ntry { global.__BP_DEFERRED_READY = true; global.dispatchEvent(new Event("bp-deferred-ready")); } catch (_) {}\n' +
-        '})(typeof globalThis !== "undefined" ? globalThis : (typeof window !== "undefined" ? window : this));\n';
+        '\n})(typeof globalThis !== "undefined" ? globalThis : (typeof window !== "undefined" ? window : this));\n';
       fs.writeFileSync(path.join(OUT_DIR, 'client.deferred.js'), dClassic);
       deferredBytes = Buffer.byteLength(dClassic);
       manifest.deferred = {
@@ -271,8 +262,7 @@ function watch() {
   console.log('[bundle] watch mode');
   build();
   let t = null;
-  const watchList = MODULES.concat(DEFERRED_MODULES);
-  for (const rel of watchList) {
+  for (const rel of MODULES) {
     try {
       fs.watch(path.join(ROOT, rel), () => {
         if (t) clearTimeout(t);
@@ -289,4 +279,4 @@ if (require.main === module) {
   else build();
 }
 
-module.exports = { build, MODULES, DEFERRED_MODULES, OUT_DIR, lightMinify };
+module.exports = { build, MODULES, OUT_DIR, lightMinify };

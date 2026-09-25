@@ -1,8 +1,8 @@
 /**
  * Block Puzzle — 06-screens-gameplay.js
  * Screens, classic/versus flow, clear lines, render pieces, core play
- * Lines ~11843-13911.
- * Shared IIFE scope via client.bundle.js.
+ * Lines ~11843-13911 from legacy game.js monolith (refactored).
+ * Shares global scope with other public/js/*.js modules (no bundler).
  */
 'use strict';
 
@@ -285,11 +285,6 @@ function navigateScreen(name, work, label) {
   }, label);
 }
 try { window.navigateScreen = navigateScreen; } catch (_) {}
-try { window.showScreen = showScreen; } catch (_) {}
-try { window.showScreenLoading = showScreenLoading; } catch (_) {}
-try { window.hideScreenLoading = hideScreenLoading; } catch (_) {}
-try { window.withScreenLoading = withScreenLoading; } catch (_) {}
-/** Canonical navigation: prefer navigateScreen(name, work) for menu tabs / Back. */
 
 /** Silver = each duration win (1/2/3 min). Gold = bot fully cleared (3/3). */
 function totalSilverStars() {

@@ -6,10 +6,6 @@ const cp = require('child_process');
 const root = path.resolve(__dirname, '..');
 const jsFiles = [
   'server.js',
-  'lib/match-room.js',
-  'lib/matchmaking.js',
-  'lib/ws-handlers.js',
-  'lib/http-api.js',
   'shared/rules.js',
   'public/shared/rules.js',
   'public/match-client.js',
@@ -28,12 +24,8 @@ const b = fs.readFileSync(path.join(root, 'public/shared/rules.js'));
 if (!a.equals(b)) throw new Error('shared/rules.js and public/shared/rules.js differ');
 
 const server = fs.readFileSync(path.join(root, 'server.js'), 'utf8');
-const matchRoom = fs.readFileSync(path.join(root, 'lib/match-room.js'), 'utf8');
-for (const [name, src] of [['server.js', server], ['lib/match-room.js', matchRoom]]) {
-  if (/data\.shape/.test(src)) throw new Error(name + ' still trusts client-supplied shape data');
-  if (/data\.color/.test(src)) throw new Error(name + ' still trusts client-supplied color data');
-}
-if (!server.includes("lib/match-room")) throw new Error('server.js must load lib/match-room');
+if (/data\.shape/.test(server)) throw new Error('server.js still trusts client-supplied shape data');
+if (/data\.color/.test(server)) throw new Error('server.js still trusts client-supplied color data');
 if (!server.includes("shared/skins")) {
   throw new Error('server.js must load shared/skins for palettes');
 }

@@ -1,8 +1,8 @@
 /**
  * Block Puzzle — 01-cosmetics.js
  * Skins, boards, shop/inventory UI helpers
- * Lines ~1-1159.
- * Shared IIFE scope via client.bundle.js.
+ * Lines ~1-1159 from legacy game.js monolith (refactored).
+ * Shares global scope with other public/js/*.js modules (no bundler).
  */
 'use strict';
 
@@ -859,7 +859,7 @@ function renderShopGrid() {
         renderShopGrid();
         renderInvGrid();
       } else {
-        try { if (typeof showInfoToast === 'function') showInfoToast('Магазин', 'Не хватает алмазов', 'bad'); } catch (_) {}
+        alert('Не хватает алмазов');
       }
     });
   });
@@ -882,7 +882,7 @@ function renderShopGrid() {
         renderShopGrid();
         renderInvGrid();
       } else {
-        try { if (typeof showInfoToast === 'function') showInfoToast('Магазин', 'Не хватает алмазов', 'bad'); } catch (_) {}
+        alert('Не хватает алмазов');
       }
     });
   });
@@ -1046,7 +1046,7 @@ function openSkinPreview(skinId) {
         closeSkinPreview();
         renderShopGrid();
         renderInvGrid();
-      } else try { if (typeof showInfoToast === 'function') showInfoToast('Магазин', 'Не хватает алмазов', 'bad'); } catch (_) {}
+      } else alert('Не хватает алмазов');
     };
   }
   ov.classList.add('visible');
