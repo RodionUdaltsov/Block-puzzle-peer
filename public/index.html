@@ -1280,18 +1280,22 @@
   <div class="score-duel-overlay" id="scoreDuelOverlay" aria-hidden="true">
     <div class="score-duel-row">
       <div class="score-duel-side me" id="duelSideMe">
-        <div class="score-duel-av me-av" id="duelAvMe">
-          <span class="score-duel-crown">👑</span>
-          <span id="duelAvMeInner" data-i18n="vs.you">Ты</span>
+        <div class="score-duel-av-wrap">
+          <span class="score-duel-crown" aria-hidden="true">👑</span>
+          <div class="score-duel-av me-av" id="duelAvMe">
+            <span id="duelAvMeInner" data-i18n="vs.you">Ты</span>
+          </div>
         </div>
         <div class="score-duel-name" id="duelNameMe" data-i18n="vs.you">Ты</div>
         <div class="score-duel-score" id="duelScoreMe">0</div>
       </div>
       <div class="score-duel-vs">VS</div>
       <div class="score-duel-side opp" id="duelSideOpp">
-        <div class="score-duel-av" id="duelAvOpp">
-          <span class="score-duel-crown">👑</span>
-          <span id="duelAvOppInner">?</span>
+        <div class="score-duel-av-wrap">
+          <span class="score-duel-crown" aria-hidden="true">👑</span>
+          <div class="score-duel-av" id="duelAvOpp">
+            <span id="duelAvOppInner">?</span>
+          </div>
         </div>
         <div class="score-duel-name" id="duelNameOpp" data-i18n="vs.opp">Соперник</div>
         <div class="score-duel-score" id="duelScoreOpp">0</div>

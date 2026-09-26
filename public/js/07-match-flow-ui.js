@@ -1525,34 +1525,38 @@ function showScoreDuel(my, opp, won, draw, oppLabel, bot) {
     document.getElementById('duelScoreMe').textContent = '0';
     document.getElementById('duelScoreOpp').textContent = '0';
 
-    const avMeInner = document.getElementById('duelAvMeInner');
-    const avOppInner = document.getElementById('duelAvOppInner');
-    if (avMeInner) {
+    // Paint into outer .score-duel-av (crown is a sibling outside, not clipped)
+    const avMe = document.getElementById('duelAvMe');
+    const avOpp = document.getElementById('duelAvOpp');
+    if (avMe) {
       try {
-        renderAvatarInto(avMeInner, { avatarId: myAvatarId, nick: myNickname, size: 'duel' });
+        renderAvatarInto(avMe, {
+          avatarId: myAvatarId,
+          nick: myNickname,
+          custom: (myAvatarId === 'custom' && typeof myAvatarCustom === 'string') ? myAvatarCustom : null,
+          size: 'duel',
+          eager: true
+        });
       } catch (_) {
-        const initials = ((typeof myNickname === 'string' && myNickname) ? myNickname : (typeof globalThis.t==='function'?globalThis.t('js.you','Ты'):'Ты')).slice(0, 2).toUpperCase();
-        avMeInner.textContent = initials;
+        const initials = ((typeof myNickname === 'string' && myNickname) ? myNickname : 'Ты').slice(0, 2).toUpperCase();
+        avMe.textContent = initials;
       }
-      avMeInner.style.display = '';
     }
-    if (avOppInner) {
+    if (avOpp) {
       if (bot) {
-        avOppInner.innerHTML = botAvatarSVG(bot, 64);
-        avOppInner.style.display = 'block';
+        avOpp.innerHTML = botAvatarSVG(bot, 64);
       } else {
         try {
-          renderAvatarInto(avOppInner, {
+          renderAvatarInto(avOpp, {
             avatarId: window.mpOppAvatarId || 'init',
             nick: oppLabel || mpOppName || 'Соперник',
             custom: (window.mpOppAvatarId === 'custom' && window.mpOppAvatarCustom) ? window.mpOppAvatarCustom : null,
-            size: 'duel'
+            size: 'duel',
+            eager: true
           });
         } catch (_) {
-          const ini = (oppLabel || 'С').slice(0, 2).toUpperCase();
-          avOppInner.textContent = ini;
+          avOpp.textContent = (oppLabel || 'С').slice(0, 2).toUpperCase();
         }
-        avOppInner.style.display = '';
       }
     }
 

@@ -94,6 +94,8 @@ function renderAvatarInto(el, opts) {
     img.decoding = 'async';
     img.loading = opts.eager ? 'eager' : 'lazy';
     img.draggable = false;
+    // Keep photo strictly inside the frame (friends list used to stretch)
+    img.style.cssText = 'width:100%;height:100%;max-width:100%;max-height:100%;object-fit:cover;object-position:center;display:block;border-radius:inherit;';
     const done = () => {
       try { el.classList.remove('av-loading'); } catch (_) {}
     };
@@ -110,6 +112,11 @@ function renderAvatarInto(el, opts) {
     };
     img.src = customUrl;
     el.appendChild(img);
+    // Ensure host is a fixed frame
+    try {
+      el.style.overflow = 'hidden';
+      if (!el.style.flexShrink) el.style.flexShrink = '0';
+    } catch (_) {}
     // If already cached, onload may have fired synchronously
     if (img.complete && img.naturalWidth) done();
     return;
@@ -272,8 +279,8 @@ function refreshProfileUI() {
   try { if (stS) stS.textContent = totalSilverStars() + '/' + maxSilverStars(); } catch (_) {}
   // Sync duel avatar if present
   try {
-    const avMe = document.getElementById('duelAvMeInner');
-    if (avMe) renderAvatarInto(avMe, { avatarId: myAvatarId, nick: myNickname, size: 'duel' });
+    const avMe = document.getElementById('duelAvMe') || document.getElementById('duelAvMeInner');
+    if (avMe) renderAvatarInto(avMe, { avatarId: myAvatarId, nick: myNickname, custom: myAvatarCustom, size: 'duel', eager: true });
   } catch (_) {}
   try { if (typeof updateMenuStats === 'function') updateMenuStats(); } catch (_) {}
   try { setProfileNameStatusLocked(!(authToken && authAccount)); } catch (_) {}
