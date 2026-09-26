@@ -57,11 +57,14 @@ async function isRegisteredFriendCode(friendCode) {
 async function loadCosmeticsProfile(friendCode) {
   const code = String(friendCode || '').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 16);
   if (!code) return Cosmetics.defaultProfile();
-  if (profileCache.has(code)) return Cosmetics.normalizeProfile(profileCache.get(code));
+  if (profileCache.has(code)) {
+    return Cosmetics.normalizeProfile(profileCache.get(code));
+  }
   let raw = null;
   try {
     if (store) raw = await store.loadProfile(code);
   } catch (_) { raw = null; }
+  // Starter 9999 only when NO stored profile exists yet
   const p = Cosmetics.normalizeProfile(raw || Cosmetics.defaultProfile());
   profileCache.set(code, p);
   return p;
@@ -2363,7 +2366,7 @@ const server = http.createServer((req, res) => {
                 ? String(ipGp.friendCode).toUpperCase().replace(/[^A-Z0-9]/g, '')
                 : '';
               if (bodyGp && (ipGp || ipCode) && !bodyCode) {
-                // Strip currency defaults from wiped client so they cannot clobber IP progress
+                // Wiped client (no friendCode): strip starter defaults so they cannot clobber IP progress
                 bodyGp = Object.assign({}, bodyGp);
                 delete bodyGp.diamonds;
                 delete bodyGp.trophies;
@@ -2371,6 +2374,7 @@ const server = http.createServer((req, res) => {
                 if (!Array.isArray(bodyGp.ownedSkins) || bodyGp.ownedSkins.length <= 1) delete bodyGp.ownedSkins;
                 if (!Array.isArray(bodyGp.ownedBoards) || bodyGp.ownedBoards.length <= 1) delete bodyGp.ownedBoards;
               }
+              // Active guest registering from profile: body HAS friendCode — keep body currencies 1:1
               let storedGp = null;
               const prefCode = String(
                 (body && body.preferredFriendCode) ||
@@ -2388,8 +2392,30 @@ const server = http.createServer((req, res) => {
                   storedGp = mergeGuestProgressLayers(storedGp, alt);
                 } catch (_) {}
               }
-              // Server layers first (store + IP), client body last and only for non-default fields
+              // Server layers first (store + IP), client body last
               guestProgress = mergeGuestProgressLayers(storedGp, ipGp, bodyGp);
+              // Active guest (body has friendCode): trust body currencies 1:1 — profile registration path
+              if (bodyGp && bodyCode && typeof bodyGp.diamonds === 'number' && isFinite(bodyGp.diamonds)) {
+                if (!guestProgress) guestProgress = {};
+                guestProgress.diamonds = Math.max(0, bodyGp.diamonds | 0);
+                if (typeof bodyGp.trophies === 'number') guestProgress.trophies = Math.max(0, bodyGp.trophies | 0);
+                if (typeof bodyGp.best === 'number') guestProgress.best = Math.max(0, bodyGp.best | 0);
+                if (Array.isArray(bodyGp.ownedSkins) && bodyGp.ownedSkins.length) {
+                  guestProgress.ownedSkins = bodyGp.ownedSkins.slice();
+                }
+                if (Array.isArray(bodyGp.ownedBoards) && bodyGp.ownedBoards.length) {
+                  guestProgress.ownedBoards = bodyGp.ownedBoards.slice();
+                }
+                if (bodyGp.skinId) guestProgress.skinId = bodyGp.skinId;
+                if (bodyGp.boardId) guestProgress.boardId = bodyGp.boardId;
+                if (bodyGp.friendCode) guestProgress.friendCode = bodyCode;
+                if (Array.isArray(bodyGp.friends)) guestProgress.friends = bodyGp.friends.slice(0, 200);
+                if (Array.isArray(bodyGp.history)) guestProgress.history = bodyGp.history.slice(0, 30);
+                if (bodyGp.achievements) guestProgress.achievements = bodyGp.achievements;
+                if (typeof bodyGp.avatarId === 'string') guestProgress.avatarId = bodyGp.avatarId;
+                if (typeof bodyGp.avatarCustom === 'string') guestProgress.avatarCustom = bodyGp.avatarCustom;
+                if (typeof bodyGp.status === 'string') guestProgress.status = bodyGp.status;
+              }
               // Ensure friendCode is set for resolveFriendCode
               if (guestProgress && !guestProgress.friendCode && prefCode) {
                 guestProgress.friendCode = prefCode;
@@ -2406,8 +2432,10 @@ const server = http.createServer((req, res) => {
                   const profile = await loadCosmeticsProfile(c);
                   if (profile && typeof profile.diamonds === 'number') {
                     if (!guestProgress) guestProgress = {};
-                    const prev = typeof guestProgress.diamonds === 'number' ? guestProgress.diamonds : 0;
-                    guestProgress.diamonds = Math.max(0, prev, profile.diamonds | 0);
+                    // Cosmetics profile = live guest shop balance → take it as primary, then max with any IP snapshot
+                    const prev = typeof guestProgress.diamonds === 'number' ? guestProgress.diamonds : null;
+                    const pd = profile.diamonds | 0;
+                    guestProgress.diamonds = (prev == null) ? pd : Math.max(0, prev, pd);
                     if (Array.isArray(profile.ownedSkins) && profile.ownedSkins.length) {
                       const set = new Set((guestProgress.ownedSkins || []).map(String));
                       profile.ownedSkins.forEach((id) => { if (id) set.add(String(id)); });
@@ -2426,6 +2454,30 @@ const server = http.createServer((req, res) => {
               guestProgress = (body && body.guestProgress && typeof body.guestProgress === 'object')
                 ? body.guestProgress : null;
             }
+            // Final 1:1 for active guest registering from profile (body has friendCode + live balance)
+            try {
+              const b = body && body.guestProgress;
+              const bCode = b && b.friendCode
+                ? String(b.friendCode).toUpperCase().replace(/[^A-Z0-9]/g, '')
+                : '';
+              if (b && bCode && typeof b.diamonds === 'number' && isFinite(b.diamonds)) {
+                if (!guestProgress) guestProgress = {};
+                guestProgress.friendCode = bCode;
+                guestProgress.diamonds = Math.max(0, b.diamonds | 0);
+                if (typeof b.trophies === 'number') guestProgress.trophies = Math.max(0, b.trophies | 0);
+                if (typeof b.best === 'number') guestProgress.best = Math.max(0, b.best | 0);
+                if (Array.isArray(b.ownedSkins)) guestProgress.ownedSkins = b.ownedSkins.slice(0, 64);
+                if (Array.isArray(b.ownedBoards)) guestProgress.ownedBoards = b.ownedBoards.slice(0, 64);
+                if (b.skinId) guestProgress.skinId = b.skinId;
+                if (b.boardId) guestProgress.boardId = b.boardId;
+                if (Array.isArray(b.friends)) guestProgress.friends = b.friends.slice(0, 200);
+                if (Array.isArray(b.history)) guestProgress.history = b.history.slice(0, 30);
+                if (b.achievements) guestProgress.achievements = b.achievements;
+                if (typeof b.avatarId === 'string') guestProgress.avatarId = b.avatarId;
+                if (typeof b.avatarCustom === 'string') guestProgress.avatarCustom = b.avatarCustom;
+                if (typeof b.status === 'string') guestProgress.status = b.status;
+              }
+            } catch (_) {}
             const preferredFriendCode = (body && body.preferredFriendCode)
               || (guestProgress && guestProgress.friendCode)
               || '';
@@ -2467,20 +2519,14 @@ const server = http.createServer((req, res) => {
               const code = acc && acc.friendCode ? String(acc.friendCode).toUpperCase() : '';
               if (code) {
                 let profile = await loadCosmeticsProfile(code);
+                // 1:1 transfer: account already holds the migrated guest balance.
+                // Cosmetics profile must match account exactly (not max with stale defaults).
                 if (typeof acc.diamonds === 'number') {
-                  profile.diamonds = Math.max(0, acc.diamonds | 0, profile.diamonds | 0);
+                  profile.diamonds = Math.max(0, acc.diamonds | 0);
                 }
-                if (guestProgress && typeof guestProgress.diamonds === 'number') {
-                  profile.diamonds = Math.max(0, profile.diamonds | 0, guestProgress.diamonds | 0);
-                  // Keep account in sync if cosmetics had more
-                  if ((profile.diamonds | 0) > (acc.diamonds | 0)) {
-                    try {
-                      acc.diamonds = profile.diamonds | 0;
-                      if (store && typeof store.saveAccount === 'function') {
-                        store.saveAccount(acc).catch(() => {});
-                      }
-                    } catch (_) {}
-                  }
+                if (guestProgress && typeof guestProgress.diamonds === 'number'
+                    && (typeof acc.diamonds !== 'number' || !isFinite(acc.diamonds))) {
+                  profile.diamonds = Math.max(0, guestProgress.diamonds | 0);
                 }
                 // Mirror final balance onto HTTP response account
                 try {
@@ -3705,7 +3751,7 @@ wss.on('connection', (ws) => {
           if (store && typeof store.loadAccountByCode === 'function') {
             const acc = await store.loadAccountByCode(code);
             if (acc && typeof acc.diamonds === 'number') {
-              // Account is source of truth for registered players
+              // Registered account balance is exact source of truth
               profile.diamonds = Math.max(0, acc.diamonds | 0);
               if (Array.isArray(acc.ownedSkins) && acc.ownedSkins.length) {
                 const set = new Set((profile.ownedSkins || []).map(String));

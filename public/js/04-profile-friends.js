@@ -2997,6 +2997,7 @@ function applyServerAccount(account) {
     }
     if (typeof account.diamonds === 'number') {
       try {
+        // Server account is authority (1:1 after guest→register)
         diamonds = Math.max(0, account.diamonds | 0);
         localStorage.setItem('bp_diamonds', String(diamonds));
       } catch (_) {}
@@ -3540,29 +3541,36 @@ async function finishAuthSuccess(account, mode) {
       // Never Math.max with fresh-client starter 9999 after browser wipe.
       try {
         {
-          const aT = (account && typeof account.trophies === 'number') ? (account.trophies | 0) : 0;
-          const gT = (guestSnap && typeof guestSnap.trophies === 'number') ? (guestSnap.trophies | 0) : 0;
-          trophies = Math.max(0, aT, gT);
+          // Server account is the converted guest — copy 1:1, do not Math.max with local defaults
+          if (account && typeof account.trophies === 'number') {
+            trophies = Math.max(0, account.trophies | 0);
+          } else if (guestSnap && typeof guestSnap.trophies === 'number') {
+            trophies = Math.max(0, guestSnap.trophies | 0);
+          }
 
-          const aD = (account && typeof account.diamonds === 'number') ? (account.diamonds | 0) : 0;
-          const gD = (guestSnap && typeof guestSnap.diamonds === 'number') ? (guestSnap.diamonds | 0) : 0;
-          let liveD = 0;
-          // Live local only counts if this was an active guest session (not wiped defaults)
+          if (account && typeof account.diamonds === 'number') {
+            diamonds = Math.max(0, account.diamonds | 0);
+          } else if (guestSnap && typeof guestSnap.diamonds === 'number') {
+            diamonds = Math.max(0, guestSnap.diamonds | 0);
+          }
+          // If active guest had higher live balance not yet synced, raise server once via PATCH below
           if (hadLocalGuest) {
             try {
-              if (typeof diamonds === 'number') liveD = diamonds | 0;
+              let liveD = typeof diamonds === 'number' ? (diamonds | 0) : 0;
               const lsD = parseInt(localStorage.getItem('bp_diamonds') || '0', 10);
               if (isFinite(lsD)) liveD = Math.max(liveD, lsD | 0);
+              // Only raise if live is from real session and server is lower (sync lag)
+              if (liveD > (diamonds | 0) && liveD !== 9999) {
+                diamonds = liveD;
+              }
             } catch (_) {}
           }
-          // Account from server already includes migrated guest — prefer it
-          diamonds = Math.max(0, aD, gD, liveD);
-          // If account reported diamonds, never fall back below it due to missing layers
-          if (typeof aD === 'number' && aD > 0) diamonds = Math.max(diamonds, aD);
 
-          const aB = (account && typeof account.best === 'number') ? (account.best | 0) : 0;
-          const gB = (guestSnap && typeof guestSnap.best === 'number') ? (guestSnap.best | 0) : 0;
-          best = Math.max(0, aB, gB);
+          if (account && typeof account.best === 'number') {
+            best = Math.max(0, account.best | 0);
+          } else if (guestSnap && typeof guestSnap.best === 'number') {
+            best = Math.max(0, guestSnap.best | 0);
+          }
         }
 
         // Cosmetics inventory — account (converted guest) first, then guest snap gaps
@@ -4114,6 +4122,63 @@ function closeAuthModal() {
 }
 try { window.closeAuthModal = closeAuthModal; } catch (_) {}
 
+
+/** Build guestProgress + preferredFriendCode for /api/auth/register (1:1 migrate). */
+async function prepareRegisterGuestPayload() {
+  // 1) Force-save current guest state to server (IP + DB)
+  try { await refreshGuestAllowedFromServer(); } catch (_) {}
+  try { await syncGuestProgressToServer({ force: true, full: true }); } catch (_) {}
+  // 2) Snapshot live client state (active guest session)
+  let hasLocalGuest = false;
+  try { hasLocalGuest = localStorage.getItem('bp_guest_ok') === '1'; } catch (_) {}
+  let gp = null;
+  try { gp = collectGuestProgressForRegister(); } catch (_) { gp = null; }
+  // 3) Active guest: always prefer live snapshot over empty IP
+  if (hasLocalGuest) {
+    const live = snapshotGuestProgress() || {};
+    try {
+      if (typeof myFriendCode === 'string' && myFriendCode) live.friendCode = myFriendCode;
+      else {
+        const ls = localStorage.getItem('bp_my_code');
+        if (ls) live.friendCode = String(ls).toUpperCase();
+      }
+    } catch (_) {}
+    try {
+      live.diamonds = Math.max(0, (typeof diamonds === 'number' ? diamonds : 0) | 0);
+    } catch (_) {}
+    if (gp) {
+      gp = Object.assign({}, gp, live);
+      // Currencies: take max so we never drop live balance
+      gp.diamonds = Math.max(
+        typeof gp.diamonds === 'number' ? gp.diamonds : 0,
+        typeof live.diamonds === 'number' ? live.diamonds : 0
+      );
+      gp.trophies = Math.max(
+        typeof gp.trophies === 'number' ? gp.trophies : 0,
+        typeof live.trophies === 'number' ? live.trophies : 0
+      );
+      gp.best = Math.max(
+        typeof gp.best === 'number' ? gp.best : 0,
+        typeof live.best === 'number' ? live.best : 0
+      );
+    } else {
+      gp = live;
+    }
+    _ipGuestProgress = gp;
+  } else if (!gp && _ipGuestProgress) {
+    gp = _ipGuestProgress;
+  }
+  const fc = (gp && gp.friendCode)
+    || (_ipGuestProgress && _ipGuestProgress.friendCode)
+    || (typeof myFriendCode === 'string' ? myFriendCode : '')
+    || (function () { try { return localStorage.getItem('bp_my_code') || ''; } catch (_) { return ''; } })();
+  const preferredFriendCode = fc
+    ? String(fc).toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 16)
+    : '';
+  if (gp && preferredFriendCode && !gp.friendCode) gp.friendCode = preferredFriendCode;
+  return { guestProgress: gp, preferredFriendCode: preferredFriendCode || undefined };
+}
+
 async function submitAuthForm(e) {
   if (e) e.preventDefault();
   const login = (document.getElementById('authLogin')?.value || '').trim();
@@ -4143,20 +4208,14 @@ async function submitAuthForm(e) {
     const body = { login, password };
     if (authMode === 'register' && nick) body.nick = nick;
     if (authMode === 'register') {
-      try { await refreshGuestAllowedFromServer(); } catch (_) {}
-      try { await syncGuestProgressToServer({ force: true, full: true }); } catch (_) {}
-      const gp = collectGuestProgressForRegister();
-      if (gp) {
-        body.guestProgress = gp;
-        try { applyGuestProgressSnapshot(gp); } catch (_) {}
-        if (!_ipGuestProgress) _ipGuestProgress = gp;
-      }
       try {
-        const fc = (gp && gp.friendCode)
-          || (_ipGuestProgress && _ipGuestProgress.friendCode)
-          || myFriendCode
-          || localStorage.getItem('bp_my_code');
-        if (fc) body.preferredFriendCode = String(fc).toUpperCase().replace(/[^A-Z0-9]/g, '');
+        const prep = await prepareRegisterGuestPayload();
+        if (prep.guestProgress) {
+          body.guestProgress = prep.guestProgress;
+          try { applyGuestProgressSnapshot(prep.guestProgress); } catch (_) {}
+          _ipGuestProgress = prep.guestProgress;
+        }
+        if (prep.preferredFriendCode) body.preferredFriendCode = prep.preferredFriendCode;
       } catch (_) {}
     }
     const { ok, data, status, networkError, contentType } = await apiFetch(path, { method: 'POST', body });
@@ -5038,24 +5097,15 @@ async function submitEntryAuthForm(e) {
     const body = { login, password };
     if (authMode === 'register' && nick) body.nick = nick;
     if (authMode === 'register') {
-      // Pull server IP guest progress (survives browser wipe)
-      try { await refreshGuestAllowedFromServer(); } catch (_) {}
-      // Only works when bp_guest_ok — after wipe this is a no-op
-      try { await syncGuestProgressToServer({ force: true, full: true }); } catch (_) {}
+      // Same path for entry-gate and profile «Войти / Регистрация» — 1:1 guest migrate
       try {
-        const gp = collectGuestProgressForRegister();
-        if (gp) {
-          body.guestProgress = gp;
-          // Restore server progress into local memory before finishAuthSuccess
-          try { applyGuestProgressSnapshot(gp); } catch (_) {}
-          if (!_ipGuestProgress) _ipGuestProgress = gp;
+        const prep = await prepareRegisterGuestPayload();
+        if (prep.guestProgress) {
+          body.guestProgress = prep.guestProgress;
+          try { applyGuestProgressSnapshot(prep.guestProgress); } catch (_) {}
+          _ipGuestProgress = prep.guestProgress;
         }
-        // Prefer server-known friend code so cosmetics profile can be found
-        const fc = (gp && gp.friendCode)
-          || (_ipGuestProgress && _ipGuestProgress.friendCode)
-          || myFriendCode
-          || localStorage.getItem('bp_my_code');
-        if (fc) body.preferredFriendCode = String(fc).toUpperCase().replace(/[^A-Z0-9]/g, '');
+        if (prep.preferredFriendCode) body.preferredFriendCode = prep.preferredFriendCode;
       } catch (_) {}
     }
     const { ok, data, status, networkError } = await apiFetch(path, { method: 'POST', body });

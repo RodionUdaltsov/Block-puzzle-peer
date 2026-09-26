@@ -88,7 +88,8 @@ function isFreeBoard(id) {
 function normalizeProfile(raw) {
   const p = raw && typeof raw === 'object' ? raw : {};
   let diamonds = parseInt(p.diamonds, 10);
-  if (!Number.isFinite(diamonds) || diamonds < 0) diamonds = 0;
+  // Missing/invalid → test starter pack (never silently 0)
+  if (!Number.isFinite(diamonds) || diamonds < 0) diamonds = 9999;
   // Cap absurd values (anti-abuse); migration can raise once
   if (diamonds > 999999) diamonds = 999999;
 
@@ -129,7 +130,8 @@ function normalizeProfile(raw) {
 
 function defaultProfile() {
   return normalizeProfile({
-    diamonds: 0,
+    // TEST starter balance — server is sole authority for paid cosmetics
+    diamonds: 9999,
     ownedSkins: FREE_SKIN_IDS.slice(),
     ownedBoards: FREE_BOARD_IDS.slice(),
     equippedSkin: 'default',
