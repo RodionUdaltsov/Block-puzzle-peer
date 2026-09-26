@@ -1004,7 +1004,7 @@ function bindMatchClientHandlers() {
 try { bindMatchClientHandlers(); } catch (_) {}
 try { bindPrivateLobbyHandlers(); } catch (_) {}
 try { ensureFriendPresence(); } catch (_) {}
-setInterval(() => { try { ensureFriendPresence(); } catch (_) {} }, 15000);
+setInterval(() => { try { ensureFriendPresence(); } catch (_) {} }, 45000);
 
 try {
   window.__bpHandlersReady = true;
@@ -1034,25 +1034,18 @@ function registerWsPresence() {
   try {
     if (typeof MatchClient === 'undefined') return;
     if (!myFriendCode) return;
-    var hint = null;
-    try {
-      hint = {
-        diamonds: typeof diamonds === 'number' ? diamonds : 0,
-        ownedSkins: typeof ownedSkins !== 'undefined' ? ownedSkins.slice() : undefined,
-        ownedBoards: typeof ownedBoards !== 'undefined' ? ownedBoards.slice() : undefined,
-        equippedSkin: typeof equippedSkinId !== 'undefined' ? equippedSkinId : undefined,
-        equippedBoard: typeof equippedBoardId !== 'undefined' ? equippedBoardId : undefined
-      };
-    } catch (_) {}
-    MatchClient.registerPresence({
-      friendCode: myFriendCode,
-      name: myNickname,
-      trophies: trophies | 0,
-      activity: 'online',
-      avatarId: typeof myAvatarId !== 'undefined' ? myAvatarId : 'init',
-      avatarCustom: (typeof myAvatarId !== 'undefined' && myAvatarId === 'custom' && typeof myAvatarCustom !== 'undefined') ? myAvatarCustom : '',
-      cosmeticsHint: hint
-    });
+    // Lean presence — heavy payload only via ensureFriendPresence(true) after auth/profile save
+    if (typeof ensureFriendPresence === 'function') ensureFriendPresence(true);
+    else {
+      MatchClient.registerPresence({
+        friendCode: myFriendCode,
+        name: myNickname,
+        trophies: trophies | 0,
+        activity: 'online',
+        avatarId: typeof myAvatarId !== 'undefined' ? myAvatarId : 'init',
+        status: (typeof myStatus === 'string') ? myStatus : ''
+      });
+    }
     const codes = (friends || []).map(f => f.code).filter(Boolean);
     if (codes.length) MatchClient.queryPresence(codes);
   } catch (_) {}
@@ -1065,7 +1058,7 @@ try {
       const codes = (friends || []).map(f => f.code).filter(Boolean);
       if (codes.length) MatchClient.queryPresence(codes);
     } catch (_) {}
-  }, 20000);
+  }, 45000);
 } catch (_) {}
 
 

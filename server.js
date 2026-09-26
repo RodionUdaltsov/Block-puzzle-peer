@@ -3075,13 +3075,21 @@ wss.on('connection', (ws) => {
           }
         }
 
+        // Preserve previously known custom avatar when client omits the heavy blob
+        const prevPres = presence.get(code);
+        let nextCustom = '';
+        if (typeof data.avatarCustom === 'string' && data.avatarCustom.length > 8) {
+          nextCustom = data.avatarCustom.slice(0, 49152);
+        } else if (prevPres && typeof prevPres.avatarCustom === 'string' && prevPres.avatarCustom) {
+          nextCustom = prevPres.avatarCustom;
+        }
         const presEntry = {
           token: ws._token, ws,
           name: String(data.name || 'Игрок').slice(0, 24),
           activity: String(data.activity || 'online').slice(0, 32),
           trophies: Math.max(0, data.trophies | 0),
           avatarId: data.avatarId ? String(data.avatarId).slice(0, 32) : 'init',
-          avatarCustom: (typeof data.avatarCustom === 'string') ? data.avatarCustom.slice(0, 49152) : '',
+          avatarCustom: nextCustom,
           status: typeof data.status === 'string' ? String(data.status).slice(0, 80) : '',
           platform: normalizePlatform(data.platform || ws._platform || 'web'),
           os: String(data.os || ws._os || 'unknown').slice(0, 24),
@@ -3111,17 +3119,20 @@ wss.on('connection', (ws) => {
         }
         schedulePersistMeta();
         send(ws, { type: 'presence_ok', friendCode: code, reassigned: !!reassigned });
-        // Server-authoritative cosmetics: load/migrate profile and push state
+        // Cosmetics only when client sends a hint or profile not yet migrated —
+        // re-pushing cosmetics_state on every presence heartbeat caused login lag.
         try {
+          const hasHint = !!(data && data.cosmeticsHint);
           let profile = await loadCosmeticsProfile(code);
-          if (!profile.migrated && data.cosmeticsHint) {
-            profile = Cosmetics.migrateFromClient(profile, data.cosmeticsHint);
+          if (!profile.migrated) {
+            if (hasHint) profile = Cosmetics.migrateFromClient(profile, data.cosmeticsHint);
+            else profile = Cosmetics.migrateFromClient(profile, {});
             await saveCosmeticsProfile(code, profile);
-          } else if (!profile.migrated) {
-            profile = Cosmetics.migrateFromClient(profile, {});
-            await saveCosmeticsProfile(code, profile);
+            send(ws, cosmeticsStatePayload(profile));
+          } else if (hasHint) {
+            // Occasional explicit sync request
+            send(ws, cosmeticsStatePayload(profile));
           }
-          send(ws, cosmeticsStatePayload(profile));
         } catch (_) {}
         const deliverBox = (box) => {
           if (!box || !box.length) return;
@@ -3158,8 +3169,7 @@ wss.on('connection', (ws) => {
             activity: p.activity || 'online',
             trophies: p.trophies | 0,
             avatarId: p.avatarId ? String(p.avatarId).slice(0, 32) : 'init',
-            avatarCustom: (typeof p.avatarCustom === 'string' && p.avatarId === 'custom')
-              ? p.avatarCustom.slice(0, 49152) : '',
+            // avatarCustom omitted from query (heavy base64) — use friend_profile for full
             status: typeof p.status === 'string' ? p.status.slice(0, 80) : '',
             lastSeen: p.lastSeen || p.ts || Date.now()
           };
@@ -3171,8 +3181,6 @@ wss.on('connection', (ws) => {
             activity: p.activity || 'away',
             trophies: p.trophies | 0,
             avatarId: p.avatarId ? String(p.avatarId).slice(0, 32) : 'init',
-            avatarCustom: (typeof p.avatarCustom === 'string' && p.avatarId === 'custom')
-              ? p.avatarCustom.slice(0, 49152) : '',
             status: typeof p.status === 'string' ? p.status.slice(0, 80) : '',
             lastSeen: p.lastSeen || p.ts || 0
           };
@@ -3194,9 +3202,7 @@ wss.on('connection', (ws) => {
               if ((!snap.avatarId || snap.avatarId === 'init') && data.avatarId) {
                 snap.avatarId = String(data.avatarId).slice(0, 32);
               }
-              if (!snap.avatarCustom && data.avatarCustom && snap.avatarId === 'custom') {
-                snap.avatarCustom = String(data.avatarCustom).slice(0, 49152);
-              }
+              // skip avatarCustom on presence_query (use friend_profile)
               if (!snap.lastSeen && data.lastSeen) snap.lastSeen = data.lastSeen;
               if (!snap.status && data.status) snap.status = String(data.status).slice(0, 80);
             }
@@ -3209,9 +3215,7 @@ wss.on('connection', (ws) => {
               if (acc.nick || acc.login) snap.name = String(acc.nick || acc.login).slice(0, 24);
               if (typeof acc.trophies === 'number') snap.trophies = acc.trophies | 0;
               if (acc.avatarId) snap.avatarId = String(acc.avatarId).slice(0, 32);
-              if (typeof acc.avatarCustom === 'string' && snap.avatarId === 'custom') {
-                snap.avatarCustom = acc.avatarCustom.slice(0, 49152);
-              }
+              // skip avatarCustom on presence_query
               if (typeof acc.status === 'string') snap.status = String(acc.status).slice(0, 80);
               const stats = computeWinStats(acc.history);
               snap.wins = stats.wins;
