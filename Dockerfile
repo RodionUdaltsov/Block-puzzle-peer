@@ -2,14 +2,17 @@ FROM node:20-bookworm-slim
 
 WORKDIR /app
 
-# Zero npm dependencies — pure Node + vendor/ws + shared/rules + optional Redis/file store
 COPY package.json ./
+# Install production deps (pg for PostgreSQL store; optional at runtime)
+RUN npm install --omit=dev --no-audit --no-fund || true
+
 COPY server.js ./
 COPY shared ./shared
 COPY lib ./lib
 COPY public ./public
 COPY vendor ./vendor
 COPY scripts ./scripts
+COPY docs ./docs
 COPY README.md LICENSE ./
 
 # Ensure client bundle is present and up to date
@@ -17,9 +20,11 @@ RUN node scripts/bundle-client.js
 
 ENV NODE_ENV=production
 ENV PORT=9000
-# Persistence: file (default) | memory | redis
-# ENV BP_STORE=file
-# ENV REDIS_URL=redis://redis:6379
+# Player progress source of truth: PostgreSQL
+# ENV BP_STORE=postgres
+# ENV DATABASE_URL=postgres://bp:bp@postgres:5432/blockpuzzle
+# Optional ephemeral: REDIS_URL=redis://redis:6379
+# Dev-only fallback: BP_STORE=file
 
 # Non-root user
 RUN groupadd --system --gid 1001 bp \

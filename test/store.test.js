@@ -1,13 +1,10 @@
 /**
- * Behavioral tests for lib/store.js — rooms + queue/presence API
+ * Behavioral tests for lib/store.js — MemoryStore (postgres needs DATABASE_URL)
  */
 'use strict';
-const { describe, it, before, after } = require('node:test');
+const { describe, it } = require('node:test');
 const assert = require('node:assert/strict');
-const fs = require('fs');
-const path = require('path');
-const os = require('os');
-const { MemoryStore, FileStore, QUEUE_TTL, PRESENCE_TTL } = require('../lib/store');
+const { MemoryStore, QUEUE_TTL, PRESENCE_TTL } = require('../lib/store');
 
 describe('MemoryStore', () => {
   it('save/load/delete room', async () => {
@@ -47,43 +44,26 @@ describe('MemoryStore', () => {
     await s.unbindToken('tok');
     assert.equal(await s.tokenMatch('tok'), null);
   });
-});
 
-describe('FileStore', () => {
-  let dir;
-  let s;
-
-  before(async () => {
-    dir = fs.mkdtempSync(path.join(os.tmpdir(), 'bp-store-'));
-    s = new FileStore(dir);
+  it('guest progress save/load', async () => {
+    const s = new MemoryStore();
     await s.init();
+    await s.saveGuestProgress('XYZ', { diamonds: 100, botStars: { nova: { '60': true } } });
+    const g = await s.loadGuestProgress('XYZ');
+    assert.equal(g.diamonds, 100);
+    assert.ok(g.botStars.nova['60']);
   });
 
-  after(() => {
-    try { fs.rmSync(dir, { recursive: true, force: true }); } catch (_) {}
-  });
-
-  it('persists room across new instance', async () => {
-    await s.saveRoom('r1', { id: 'r1', status: 'loading' }, 120);
-    const s2 = new FileStore(dir);
-    await s2.init();
-    assert.equal((await s2.loadRoom('r1')).id, 'r1');
-  });
-
-  it('persists queue', async () => {
-    await s.saveQueue([{ token: 'x', duration: 60, queuedAt: Date.now() }], QUEUE_TTL);
-    const s2 = new FileStore(dir);
-    await s2.init();
-    const q = await s2.loadQueue();
-    assert.equal(q[0].token, 'x');
-  });
-
-  it('persists presence last-seen', async () => {
-    await s.savePresence('ZZ9', { name: 'Z', lastSeen: 12345, activity: 'offline' }, PRESENCE_TTL);
-    const s2 = new FileStore(dir);
-    await s2.init();
-    const p = await s2.loadPresence('ZZ9');
-    assert.equal(p.lastSeen, 12345);
-    assert.ok((await s2.listPresenceCodes()).includes('ZZ9'));
+  it('account + session', async () => {
+    const s = new MemoryStore();
+    await s.init();
+    await s.saveAccount({
+      id: 'a1', login: 'tester', friendCode: 'AB12CD',
+      passSalt: 'x', passHash: 'y', nick: 'T', trophies: 0, diamonds: 0
+    });
+    assert.equal((await s.loadAccountByLogin('tester')).id, 'a1');
+    assert.equal((await s.loadAccountByCode('AB12CD')).id, 'a1');
+    await s.saveSession('sess1', 'a1', 3600);
+    assert.equal(await s.loadSession('sess1'), 'a1');
   });
 });

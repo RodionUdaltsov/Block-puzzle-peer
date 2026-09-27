@@ -16,6 +16,25 @@ function _cachedBoardCells(boardEl) {
 }
 
 function softRenderGrid(g, boardEl) {
+  /* OPP CLEAR HOLD GUARD: while holding, only update opponent board; never touch metrics/ghost */
+  try {
+    const holding = (typeof isDragging !== 'undefined' && isDragging)
+      || (typeof activeDragSlot !== 'undefined' && activeDragSlot)
+      || (document.body && document.body.classList.contains('is-dragging'));
+    if (holding) {
+      const isMe = boardEl && (
+        boardEl.id === 'boardMe' || boardEl.id === 'board'
+        || (typeof boardMe !== 'undefined' && boardEl === boardMe)
+        || (typeof boardEl !== 'undefined' && boardEl === boardEl && boardEl.id === 'board')
+      );
+      // Local board: skip entirely during hold (prevents layout thrash → ghost blink)
+      if (isMe || (boardEl && boardEl.id === 'boardMe') || (boardEl && boardEl.id === 'board')) {
+        try { if (typeof ensureHeldPieceVisible === 'function') ensureHeldPieceVisible(); } catch (_) {}
+        return;
+      }
+    }
+  } catch (_) {}
+
   if (!boardEl || !g) return;
   try {
     // Never thrash board mid clear animation (esp. mobile 420ms window)
@@ -95,10 +114,15 @@ function softRenderPieces(areaEl) {
   if (!areaEl) return;
   // While the player is holding a piece, never rebuild the hand DOM —
   // that drops pointer capture on phones and snaps the ghost back to tray.
+  // Also keep the floating ghost visible if an opp clear/sync tried to hide it.
   try {
-    if (typeof isDragging !== 'undefined' && isDragging) return;
-    if (typeof activeDragSlot !== 'undefined' && activeDragSlot) return;
-    if (typeof selectedIdx === 'number' && selectedIdx >= 0 && typeof isDragging !== 'undefined' && isDragging) return;
+    const holding = (typeof isDragging !== 'undefined' && isDragging)
+      || (typeof activeDragSlot !== 'undefined' && activeDragSlot)
+      || (typeof document !== 'undefined' && document.body && document.body.classList.contains('is-dragging'));
+    if (holding) {
+      try { if (typeof ensureHeldPieceVisible === 'function') ensureHeldPieceVisible(); } catch (_) {}
+      return;
+    }
   } catch (_) {}
   try {
     if (!pieces || !pieces.length) {
@@ -183,6 +207,10 @@ function softRenderPieces(areaEl) {
       if (window._softHandFullTimer) clearTimeout(window._softHandFullTimer);
       window._softHandFullTimer = setTimeout(() => {
         try {
+          if ((typeof isDragging !== 'undefined' && isDragging)
+              || (typeof activeDragSlot !== 'undefined' && activeDragSlot)) {
+            return;
+          }
           window._lastSoftHandFullAt = Date.now();
           BPState.quietPieceRender = true;
           renderPieces(areaEl);

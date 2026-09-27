@@ -534,6 +534,10 @@ function applyEquippedBoard() {
   } catch (_) {}
   // Only local boards — opponent field is applied separately via applyOppBoard
   document.querySelectorAll('.board-wrap').forEach(w => {
+    // Never overwrite the shop/inventory preview modal field
+    try {
+      if (w.id === 'skinPrevWrap' || (w.closest && w.closest('#skinPreviewModal'))) return;
+    } catch (_) {}
     if (isLocalBoardWrap(w)) applyBoardToWrap(w, board);
   });
   const classicBoard = document.getElementById('board');
@@ -588,37 +592,60 @@ function confirmGuestShopPurchase() {
 }
 try { window.confirmGuestShopPurchase = confirmGuestShopPurchase; window.isGuestShopper = isGuestShopper; } catch (_) {}
 
+
+/** Purchase celebration: card pulse + full preview modal with real skin/board look. */
+function playPurchaseFx(kind, id) {
+  try {
+    const root = document.getElementById('shopGrid') || document.getElementById('invGrid') || document;
+    const sel = kind === 'board'
+      ? '[data-board="' + id + '"]'
+      : '[data-skin="' + id + '"]';
+    const card = root.querySelector(sel);
+    if (card) {
+      card.classList.remove('purchase-fx');
+      void card.offsetWidth;
+      card.classList.add('purchase-fx');
+      setTimeout(function () { try { card.classList.remove('purchase-fx'); } catch (_) {} }, 1000);
+    }
+  } catch (_) {}
+  try { if (typeof SFX !== 'undefined' && SFX.ui) SFX.ui(); } catch (_) {}
+  try { if (typeof hapticTap === 'function') hapticTap(18); } catch (_) {}
+  // Open real preview celebration (auto-close)
+  try {
+    // Defer one frame so equipBoard/renderShop cannot overwrite the preview
+    setTimeout(function () {
+      try {
+        if (kind === 'board') openBoardPreview(id, { celebrate: true });
+        else openSkinPreview(id, { celebrate: true });
+      } catch (_) {}
+    }, 40);
+  } catch (_) {}
+}
+
+
 function buyBoard(id) {
   const board = getBoardById(id);
   if (!board || board.price <= 0) return false;
   if (ownedBoards.includes(id)) return false;
-  // Prefer server-authoritative purchase when online
   if (diamonds < board.price) return false;
+  diamonds -= board.price;
+  try { localStorage.setItem('bp_diamonds', String(diamonds)); } catch (_) {}
+  if (!ownedBoards.includes(id)) ownedBoards.push(id);
+  try { saveBoardsState(); } catch (_) {}
+  try { updateMenuStats(); } catch (_) {}
+  try { playPurchaseFx('board', id); } catch (_) {}
   try {
     if (typeof MatchClient !== 'undefined' && MatchClient.ws && MatchClient.ws.readyState === 1 && typeof MatchClient.cosmeticsBuy === 'function') {
-      // Optimistic local deduct; server confirms via cosmetics_buy_result
-      diamonds -= board.price;
-      try { localStorage.setItem('bp_diamonds', String(diamonds)); } catch (_) {}
-      try { updateMenuStats(); } catch (_) {}
       MatchClient.cosmeticsBuy('board', id);
-      return true;
-    }
-  } catch (_) {}
-  diamonds -= board.price;
-  try { localStorage.setItem('bp_diamonds', diamonds); } catch (_) {}
-  try {
-    if (typeof syncGuestProgressToServer === 'function' && !(typeof authToken !== 'undefined' && authToken)) {
+    } else if (typeof syncGuestProgressToServer === 'function' && !(typeof authToken !== 'undefined' && authToken)) {
       syncGuestProgressToServer({ force: true }).catch(function () {});
     }
   } catch (_) {}
-  ownedBoards.push(id);
-  saveBoardsState();
   try {
     bumpAchStat('boardsBought', 1);
     if (board.rarity === 'legendary') setAchStat('boardsLegendary', Math.max(1, getAchStat('boardsLegendary')));
     checkNewAchievements();
   } catch (_) {}
-  try { updateMenuStats(); } catch (_) {}
   return true;
 }
 function equipBoard(id) {
@@ -648,6 +675,8 @@ function fieldMiniPatternHTML(board) {
   return pattern.map(on => on ? '<i class="on"></i>' : '<i></i>').join('');
 }
 function boardShopItemHTML(board) {
+  // preview via data-preview-board on stage
+
   const owned = ownedBoards.includes(board.id);
   const eq = equippedBoardId === board.id;
   const rar = board.rarity || 'common';
@@ -662,7 +691,7 @@ function boardShopItemHTML(board) {
   return `<div class="skin-item ${owned ? 'owned' : ''} ${eq ? 'equipped' : ''}" role="listitem" data-board="${board.id}" data-rarity="${rar}"
     style="--field-empty:${board.empty};--field-surface:${board.surface};--field-accent:${board.accent}">
     <span class="skin-rarity ${rar}">${skinRarityLabel(rar)}</span>
-    <div class="skin-item-stage">
+    <div class="skin-item-stage" data-preview-board="${board.id}" title="Превью поля">
       <div class="field-mini${fxClass}" aria-hidden="true">${fieldMiniPatternHTML(board)}</div>
     </div>
     <div class="skin-item-meta">
@@ -712,25 +741,19 @@ function buySkin(id) {
   if (!skin || skin.price <= 0) return false;
   if (ownedSkins.includes(id)) return false;
   if (diamonds < skin.price) return false;
+  diamonds -= skin.price;
+  try { localStorage.setItem('bp_diamonds', String(diamonds)); } catch (_) {}
+  if (!ownedSkins.includes(id)) ownedSkins.push(id);
+  try { saveSkinsState(); } catch (_) {}
+  try { updateMenuStats(); } catch (_) {}
+  try { playPurchaseFx('skin', id); } catch (_) {}
   try {
     if (typeof MatchClient !== 'undefined' && MatchClient.ws && MatchClient.ws.readyState === 1 && typeof MatchClient.cosmeticsBuy === 'function') {
-      diamonds -= skin.price;
-      try { localStorage.setItem('bp_diamonds', String(diamonds)); } catch (_) {}
-      try { updateMenuStats(); } catch (_) {}
       MatchClient.cosmeticsBuy('skin', id);
-      return true;
-    }
-  } catch (_) {}
-  diamonds -= skin.price;
-  try { localStorage.setItem('bp_diamonds', diamonds); } catch (_) {}
-  try {
-    if (typeof syncGuestProgressToServer === 'function' && !(typeof authToken !== 'undefined' && authToken)) {
+    } else if (typeof syncGuestProgressToServer === 'function' && !(typeof authToken !== 'undefined' && authToken)) {
       syncGuestProgressToServer({ force: true }).catch(function () {});
     }
   } catch (_) {}
-  ownedSkins.push(id);
-  saveSkinsState();
-  try { updateMenuStats(); } catch (_) {}
   try { setAchStat('skinsOwned', ownedSkins.length); } catch (_) {}
   try { bumpAchStat('skinsBought', 1); } catch (_) {}
   return true;
@@ -1028,9 +1051,11 @@ function startShopMiniPreviews(root) {
         if (shouldOn) {
           const col = cols[i % cols.length];
           if (!isOn || cell.style.getPropertyValue('--cell-base') !== col) {
-            cell.style.background = col;
-            cell.style.setProperty('--cell-base', col);
-            cell.style.setProperty('--cell-glow', col);
+            try { paintCellColor(cell, col); } catch (_) {
+              cell.style.background = col;
+              cell.style.setProperty('--cell-base', col);
+              cell.style.setProperty('--cell-glow', col);
+            }
             if (!isOn) cell.classList.add('on');
           }
         } else if (isOn) {
@@ -1048,15 +1073,54 @@ function startShopMiniPreviews(root) {
 }
 
 let skinPrevTimer = null;
+
+const PREVIEW_FX_CLASSES = ['skin-fx-matte', 'skin-fx-gloss', 'skin-fx-prism', 'skin-fx-rare'];
+
+/** Apply skin material FX only on the preview modal (independent of equipped skin / body). */
+function setPreviewModalSkinFx(skinOrRarity) {
+  const ov = document.getElementById('skinPreviewModal');
+  if (!ov) return '';
+  let rar = 'common';
+  try {
+    if (skinOrRarity && typeof skinOrRarity === 'object') rar = skinOrRarity.rarity || 'common';
+    else if (typeof skinOrRarity === 'string') rar = skinOrRarity;
+  } catch (_) {}
+  const fx = skinFxClass(rar);
+  PREVIEW_FX_CLASSES.forEach(function (c) { ov.classList.remove(c); });
+  ov.classList.add(fx);
+  if (rar === 'rare') ov.classList.add('skin-fx-rare');
+  // Also stamp on wrap for any wrap-scoped CSS
+  try {
+    const wrap = document.getElementById('skinPrevWrap');
+    if (wrap) {
+      PREVIEW_FX_CLASSES.forEach(function (c) { wrap.classList.remove(c); });
+      wrap.classList.add(fx);
+      if (rar === 'rare') wrap.classList.add('skin-fx-rare');
+    }
+  } catch (_) {}
+  return fx;
+}
+
+function clearPreviewModalSkinFx() {
+  const ov = document.getElementById('skinPreviewModal');
+  if (ov) PREVIEW_FX_CLASSES.forEach(function (c) { ov.classList.remove(c); });
+  try {
+    const wrap = document.getElementById('skinPrevWrap');
+    if (wrap) PREVIEW_FX_CLASSES.forEach(function (c) { wrap.classList.remove(c); });
+  } catch (_) {}
+}
+
 function closeSkinPreview() {
+  if (skinPrevTimer) { clearTimeout(skinPrevTimer); skinPrevTimer = null; }
   const ov = document.getElementById('skinPreviewModal');
   if (ov) {
-    ov.classList.remove('visible');
+    ov.classList.remove('visible', 'purchase-celebrate');
     ov.setAttribute('aria-hidden', 'true');
     if (ov._restoreFx) { try { ov._restoreFx(); } catch (_) {} }
   }
-  if (skinPrevTimer) { clearTimeout(skinPrevTimer); skinPrevTimer = null; }
+  try { clearPreviewModalSkinFx(); } catch (_) {}
   document.body.classList.remove('skin-previewing');
+  // Restore GAME body FX only after modal is closed — never while preview is open
   try { applyEquippedSkin(); } catch (_) {
     document.body.classList.remove('skin-fx-matte', 'skin-fx-gloss', 'skin-fx-prism', 'skin-fx-rare');
     try {
@@ -1066,172 +1130,361 @@ function closeSkinPreview() {
     } catch (__) {}
   }
 }
-function openSkinPreview(skinId) {
-  const skin = getSkinById(skinId);
-  if (!skin) return;
-  const ov = document.getElementById('skinPreviewModal');
-  const boardEl = document.getElementById('skinPrevBoard');
-  const title = document.getElementById('skinPrevTitle');
-  const meta = document.getElementById('skinPrevMeta');
-  const btn = document.getElementById('skinPrevAction');
-  if (!ov || !boardEl) return;
-  const rar = skin.rarity || 'common';
-  title.textContent = locCosName(skin);
-  meta.textContent = locCosDesc(skin) + ' · ' + skinRarityLabel(rar)
-    + (rar === 'legendary' ? ' · перелив + особое комбо' : rar === 'epic' ? ' · глянец + яркое комбо' : rar === 'rare' ? ' · мягкое свечение' : ' · матовые кубики');
-  const wrap = boardEl.parentElement;
-  const modalInner = document.getElementById('skinPrevModalInner') || ov.querySelector('.modal');
-  // Rarity frames
-  [wrap, modalInner].forEach(el => {
-    if (!el) return;
-    el.classList.remove('rarity-common', 'rarity-rare', 'rarity-epic', 'rarity-legendary');
-    el.classList.add('rarity-' + rar);
-  });
-  // Build empty 8x8
+
+
+
+/** Sample tetromino-like shapes for skin preview (matches in-game cell look). */
+function _previewSampleShapes() {
+  try {
+    if (typeof SHAPES !== 'undefined' && Array.isArray(SHAPES) && SHAPES.length) {
+      // Pick a few distinct shapes (prefer multi-cell)
+      const picks = [];
+      for (let i = 0; i < SHAPES.length && picks.length < 5; i++) {
+        const s = SHAPES[i];
+        if (Array.isArray(s) && s.length >= 3) picks.push(s);
+      }
+      if (picks.length) return picks;
+    }
+  } catch (_) {}
+  return [
+    [[0,0],[0,1],[0,2],[1,0]],           // Г
+    [[0,0],[0,1],[0,2],[1,1]],           // Т
+    [[0,0],[0,1],[1,0],[1,1]],           // O
+    [[0,0],[1,0],[2,0],[2,1]],           // L
+    [[0,1],[1,0],[1,1],[1,2]]            // T up
+  ];
+}
+
+function _buildPreviewBoardEl(boardEl, size) {
+  size = size || 8;
   boardEl.innerHTML = '';
-  for (let i = 0; i < 64; i++) {
+  boardEl.className = 'board skin-prev-board';
+  boardEl.style.display = 'grid';
+  boardEl.style.gridTemplateColumns = 'repeat(' + size + ', 1fr)';
+  boardEl.style.gridTemplateRows = 'repeat(' + size + ', 1fr)';
+  boardEl.style.gap = '2px';
+  boardEl.style.width = 'min(72vw, 280px)';
+  boardEl.style.aspectRatio = '1';
+  for (let i = 0; i < size * size; i++) {
     const d = document.createElement('div');
     d.className = 'cell';
     boardEl.appendChild(d);
   }
-  // Apply same body fx classes as in-game so preview cells match live board
-  const prevFx = skinFxClass(rar);
-  document.body.classList.add('skin-previewing');
-  document.body.classList.remove('skin-fx-matte', 'skin-fx-gloss', 'skin-fx-prism', 'skin-fx-rare');
-  document.body.classList.add(prevFx);
-  if (rar === 'rare') document.body.classList.add('skin-fx-rare');
+  return size;
+}
+
+
+/** Build a real in-game board grid inside the preview modal (SIZE×SIZE .cell). */
+function buildPreviewBoardGrid(boardEl) {
+  if (!boardEl) return;
+  boardEl.innerHTML = '';
+  boardEl.className = 'board skin-prev-board';
+  const n = (typeof SIZE === 'number' && SIZE > 0) ? SIZE : 8;
+  for (let i = 0; i < n * n; i++) {
+    const d = document.createElement('div');
+    d.className = 'cell';
+    boardEl.appendChild(d);
+  }
+  return n;
+}
+
+
+function openBoardPreview(boardId, opts) {
+  opts = opts || {};
+  const board = getBoardById(boardId);
+  if (!board) return;
+  const ov = document.getElementById('skinPreviewModal');
+  if (!ov) return;
+  const title = document.getElementById('skinPrevTitle');
+  const meta = document.getElementById('skinPrevMeta');
+  const boardEl = document.getElementById('skinPrevBoard');
+  const combo = document.getElementById('skinPrevCombo');
+  const btn = document.getElementById('skinPrevAction');
+  const wrap = document.getElementById('skinPrevWrap');
+  if (skinPrevTimer) { clearTimeout(skinPrevTimer); skinPrevTimer = null; }
+
+  if (title) title.textContent = (typeof locCosName === 'function' ? locCosName(board) : null) || board.name || board.id;
+  if (meta) {
+    meta.textContent = skinRarityLabel(board.rarity || 'common')
+      + (board.price > 0 ? ' · 💎 ' + board.price : '');
+  }
+  if (combo) combo.textContent = opts.celebrate ? '✓ Куплено!' : '';
+
+  // Always the requested board — same before and after purchase
+  if (wrap) {
+    wrap.classList.add('board-wrap', 'skin-prev-board-wrap');
+    wrap.style.overflow = 'hidden';
+    wrap.style.position = 'relative';
+    wrap.style.isolation = 'isolate';
+    wrap.style.width = 'min(72vw, 280px)';
+    wrap.style.margin = '10px auto';
+  }
+  const n = buildPreviewBoardGrid(boardEl) || 8;
+  if (boardEl) {
+    boardEl.style.width = '100%';
+    boardEl.style.aspectRatio = '1';
+    boardEl.style.display = 'grid';
+    boardEl.style.gridTemplateColumns = 'repeat(' + n + ', 1fr)';
+    boardEl.style.gridTemplateRows = 'repeat(' + n + ', 1fr)';
+  }
   try {
-    document.body.dataset.skinId = skin.id || 'default';
-    document.body.dataset.skinRarity = rar;
+    if (wrap) applyBoardToWrap(wrap, board);
+  } catch (e) {
+    try { console.warn('[preview] applyBoard', e); } catch (_) {}
+  }
+
+  // Sample pieces so empty + filled look match a real match
+  if (boardEl) {
+    const sample = [
+      [1, 1], [1, 2], [1, 3], [2, 3],
+      [3, 5], [4, 5], [5, 5], [5, 4],
+      [6, 1], [6, 2], [7, 2]
+    ];
+    const sampleCols = ['#00d4aa', '#7c5cff', '#ff5c7a', '#ffb347', '#4fc3f7'];
+    sample.forEach(function (rc, i) {
+      const r = rc[0], c = rc[1];
+      if (r >= n || c >= n) return;
+      const cell = boardEl.children[r * n + c];
+      if (!cell) return;
+      const col = sampleCols[i % sampleCols.length];
+      try { paintCellColor(cell, col); } catch (_) { cell.style.background = col; }
+      cell.classList.add('filled');
+    });
+  }
+
+  const owned = ownedBoards.includes(board.id);
+  const eq = equippedBoardId === board.id;
+  if (btn) {
+    btn.hidden = false;
+    if (opts.celebrate) {
+      btn.textContent = 'Отлично!';
+      btn.disabled = false;
+      btn.className = 'primary';
+      btn.onclick = function () { closeSkinPreview(); };
+    } else if (eq) {
+      btn.textContent = 'Надето';
+      btn.disabled = true;
+      btn.className = 'primary';
+      btn.onclick = null;
+    } else if (owned) {
+      btn.textContent = 'Надеть';
+      btn.disabled = false;
+      btn.className = 'primary';
+      btn.onclick = function () {
+        equipBoard(board.id);
+        try { renderShopGrid(); } catch (_) {}
+        try { renderInvGrid(); } catch (_) {}
+        closeSkinPreview();
+      };
+    } else {
+      const can = diamonds >= board.price;
+      btn.textContent = can ? ('Купить · 💎 ' + board.price) : ('💎 ' + board.price);
+      btn.disabled = !can;
+      btn.className = can ? 'primary' : 'ghost';
+      btn.onclick = function () {
+        confirmGuestShopPurchase().then(function (ok) {
+          if (!ok) return;
+          if (buyBoard(board.id)) {
+            // Re-open same preview with celebrate (identical look)
+            try { equipBoard(board.id); } catch (_) {}
+            try { renderShopGrid(); } catch (_) {}
+            try { renderInvGrid(); } catch (_) {}
+            openBoardPreview(board.id, { celebrate: true });
+          }
+        });
+      };
+    }
+  }
+
+  ov.classList.add('visible');
+  ov.setAttribute('aria-hidden', 'false');
+  if (opts.celebrate) ov.classList.add('purchase-celebrate');
+  // Pin field again after equip/layout so celebrate cannot show default
+  try {
+    if (wrap) applyBoardToWrap(wrap, board);
   } catch (_) {}
+}
+
+function openSkinPreview(skinId, opts) {
+  opts = opts || {};
+  const skin = getSkinById(skinId);
+  if (!skin) return;
+  const ov = document.getElementById('skinPreviewModal');
+  if (!ov) return;
+  const title = document.getElementById('skinPrevTitle');
+  const meta = document.getElementById('skinPrevMeta');
+  const boardEl = document.getElementById('skinPrevBoard');
+  const combo = document.getElementById('skinPrevCombo');
+  const btn = document.getElementById('skinPrevAction');
+  const wrap = document.getElementById('skinPrevWrap');
+  if (skinPrevTimer) { clearTimeout(skinPrevTimer); skinPrevTimer = null; }
+
+  if (title) title.textContent = (typeof locCosName === 'function' ? locCosName(skin) : null) || skin.name || skin.id;
+  if (meta) {
+    meta.textContent = skinRarityLabel(skin.rarity || 'common')
+      + (skin.price > 0 ? ' · 💎 ' + skin.price : '');
+  }
+  if (combo) combo.textContent = opts.celebrate ? '✓ Куплено!' : '';
+
+  // Preview FX are isolated on the modal — do NOT change body (keeps game + other previews independent)
+  const rar = skin.rarity || 'common';
+  document.body.classList.add('skin-previewing');
+  try { setPreviewModalSkinFx(skin); } catch (_) {}
+
+  // Neutral default field under pieces
+  if (wrap) {
+    wrap.classList.add('board-wrap', 'skin-prev-board-wrap');
+    wrap.style.overflow = 'hidden';
+    wrap.style.position = 'relative';
+    wrap.style.isolation = 'isolate';
+    wrap.style.width = 'min(72vw, 280px)';
+    wrap.style.margin = '10px auto';
+    try { applyBoardToWrap(wrap, getBoardById('field_default')); } catch (_) {}
+  }
+  const n = buildPreviewBoardGrid(boardEl) || 8;
+  if (boardEl) {
+    boardEl.style.width = '100%';
+    boardEl.style.aspectRatio = '1';
+    boardEl.style.display = 'grid';
+    boardEl.style.gridTemplateColumns = 'repeat(' + n + ', 1fr)';
+    boardEl.style.gridTemplateRows = 'repeat(' + n + ', 1fr)';
+    boardEl.style.minHeight = '160px';
+  }
+
+  const colors = (skin.colors && skin.colors.length) ? skin.colors.slice() : ['#00d4aa'];
+  const shapes = [
+    { cells: [[0,0],[0,1],[0,2],[1,1]], origin: [1, 2] },
+    { cells: [[0,0],[1,0],[2,0],[2,1]], origin: [2, 0] },
+    { cells: [[0,0],[0,1],[0,2],[0,3]], origin: [4, 1] },
+    { cells: [[0,0],[0,1],[1,0],[1,1]], origin: [5, 5] },
+    { cells: [[0,1],[1,0],[1,1],[1,2]], origin: [2, 4] }
+  ];
+
+  function clearBoard() {
+    if (!boardEl) return;
+    for (let i = 0; i < boardEl.children.length; i++) {
+      const cell = boardEl.children[i];
+      cell.classList.remove('filled', 'placing', 'clearing');
+      cell.style.background = '';
+      cell.style.backgroundColor = '';
+      cell.style.backgroundImage = '';
+      cell.style.removeProperty('--cell-base');
+      cell.style.removeProperty('--cell-glow');
+    }
+  }
+
+  function placeShape(sh, col, animate) {
+    if (!boardEl || !sh) return;
+    sh.cells.forEach(function (rc) {
+      const r = sh.origin[0] + rc[0];
+      const c = sh.origin[1] + rc[1];
+      if (r < 0 || c < 0 || r >= n || c >= n) return;
+      const cell = boardEl.children[r * n + c];
+      if (!cell) return;
+      try { paintCellColor(cell, col); } catch (_) {
+        cell.style.background = col;
+        cell.style.setProperty('--cell-base', col);
+      }
+      cell.classList.add('filled');
+      if (animate) {
+        cell.classList.add('placing');
+        setTimeout(function () { try { cell.classList.remove('placing'); } catch (_) {} }, 450);
+      }
+    });
+  }
+
+  // Immediate paint so the preview is never blank
+  clearBoard();
+  shapes.forEach(function (sh, i) {
+    placeShape(sh, colors[i % colors.length], !!opts.celebrate);
+  });
+
+  // Soft loop only when browsing (not after purchase)
+  if (!opts.celebrate) {
+    let step = 0;
+    const tick = function () {
+      if (!ov.classList.contains('visible')) {
+        return;
+      }
+      // Keep modal FX pinned every frame so equip/purchase cannot strip holo
+      try { setPreviewModalSkinFx(skin); } catch (_) {}
+      clearBoard();
+      const sh = shapes[step % shapes.length];
+      placeShape(sh, colors[step % colors.length], true);
+      // also show previous shapes static for denser look
+      for (let j = 0; j < shapes.length; j++) {
+        if (j === (step % shapes.length)) continue;
+        placeShape(shapes[j], colors[j % colors.length], false);
+      }
+      step++;
+      skinPrevTimer = setTimeout(tick, 1400);
+    };
+    skinPrevTimer = setTimeout(tick, 1600);
+  }
 
   const owned = ownedSkins.includes(skin.id);
   const eq = equippedSkinId === skin.id;
-  if (eq) {
-    btn.textContent = (typeof globalThis.t==='function'?globalThis.t('js.equipped','Надето'):'Надето');
-    btn.disabled = true;
-    btn.className = 'primary';
-    btn.onclick = null;
-  } else if (owned) {
-    btn.textContent = (typeof globalThis.t==='function'?globalThis.t('js.equip','Надеть'):'Надеть');
-    btn.disabled = false;
-    btn.className = 'primary';
-    btn.onclick = () => { equipSkin(skin.id); closeSkinPreview(); renderShopGrid(); renderInvGrid(); };
-  } else {
-    const can = diamonds >= skin.price;
-    btn.textContent = can ? ((typeof globalThis.t==='function'?globalThis.t('js.buy','Купить'):'Купить') + ' · 💎 ' + skin.price) : ('💎 ' + skin.price);
-    btn.disabled = !can;
-    btn.className = can ? 'primary' : 'ghost';
-    btn.onclick = () => {
-      confirmGuestShopPurchase().then(function (ok) {
-        if (!ok) return;
-        if (buySkin(skin.id)) {
-          equipSkin(skin.id);
-          closeSkinPreview();
-          renderShopGrid();
-          renderInvGrid();
-        } else {
-          try {
-            if (typeof showInfoToast === 'function') showInfoToast('Магазин', 'Не хватает алмазов', 'bad');
-            else alert('Не хватает алмазов');
-          } catch (_) { alert('Не хватает алмазов'); }
-        }
-      });
-    };
+  if (btn) {
+    btn.hidden = false;
+    if (opts.celebrate) {
+      btn.textContent = 'Отлично!';
+      btn.disabled = false;
+      btn.className = 'primary';
+      btn.onclick = function () { closeSkinPreview(); };
+    } else if (eq) {
+      btn.textContent = 'Надето';
+      btn.disabled = true;
+      btn.className = 'primary';
+      btn.onclick = null;
+    } else if (owned) {
+      btn.textContent = 'Надеть';
+      btn.disabled = false;
+      btn.className = 'primary';
+      btn.onclick = function () {
+        equipSkin(skin.id);
+        closeSkinPreview();
+        try { renderShopGrid(); } catch (_) {}
+        try { renderInvGrid(); } catch (_) {}
+      };
+    } else {
+      const can = diamonds >= skin.price;
+      btn.textContent = can ? ('Купить · 💎 ' + skin.price) : ('💎 ' + skin.price);
+      btn.disabled = !can;
+      btn.className = can ? 'primary' : 'ghost';
+      btn.onclick = function () {
+        confirmGuestShopPurchase().then(function (ok) {
+          if (!ok) return;
+          if (buySkin(skin.id)) {
+            try { equipSkin(skin.id); } catch (_) {}
+            try { renderShopGrid(); } catch (_) {}
+            try { renderInvGrid(); } catch (_) {}
+            openSkinPreview(skin.id, { celebrate: true });
+          }
+        });
+      };
+    }
   }
+
+  try { setPreviewModalSkinFx(skin); } catch (_) {}
   ov.classList.add('visible');
   ov.setAttribute('aria-hidden', 'false');
-
-  // Animate place → combo clear on a mini pattern
-  const colors = skin.colors.slice();
-  const pattern = [
-    // soft blob then clear a row
-    [0,0],[0,1],[0,2],[1,0],[1,1],[2,2],[2,3],[3,3],
-    [4,1],[4,2],[4,3],[4,4],[5,4],[6,5],[7,5],[7,6]
-  ];
-  let step = 0;
-  if (skinPrevTimer) clearTimeout(skinPrevTimer);
-  const tick = () => {
-    if (!ov.classList.contains('visible')) {
-      // restore equipped fx
-      document.body.classList.remove('skin-fx-matte', 'skin-fx-gloss', 'skin-fx-prism');
-      const eqSkin = getSkinById(equippedSkinId);
-      document.body.classList.add(skinFxClass(eqSkin.rarity || 'common'));
-      return;
-    }
-    if (step < pattern.length) {
-      const [r, c] = pattern[step];
-      const cell = boardEl.children[r * 8 + c];
-      const col = colors[step % colors.length];
-      if (cell) {
-        try { paintCellColor(cell, col); } catch (_) {
-          cell.style.background = col;
-          cell.style.setProperty('--cell-base', col);
-          cell.style.setProperty('--cell-glow', col);
-        }
-        cell.classList.add('filled', 'placing');
-        setTimeout(() => cell.classList.remove('placing'),
-          (document.body && document.body.classList.contains('touch-ui')) ? 400 : 780);
-      }
-      step++;
-      skinPrevTimer = setTimeout(tick, 90);
-    } else {
-      // clear middle row with combo flash
-      const row = 4;
-      for (let c = 0; c < 8; c++) {
-        const cell = boardEl.children[row * 8 + c];
-        if (cell && cell.classList.contains('filled')) {
-          cell.classList.add('clearing');
-        }
-      }
-      const banner = document.getElementById('skinPrevCombo');
-      if (banner) {
-        banner.textContent = rar === 'legendary' ? '×4' : rar === 'epic' ? '×3' : '×2';
-        banner.classList.remove('show');
-        void banner.offsetWidth;
-        banner.classList.add('show');
-      }
-      setTimeout(() => {
-        for (let c = 0; c < 8; c++) {
-          const cell = boardEl.children[row * 8 + c];
-          if (cell) {
-            cell.classList.remove('filled', 'clearing');
-            cell.style.background = '';
-          }
-        }
-        // loop preview
-        step = 0;
-        // clear all and restart
-        for (let i = 0; i < 64; i++) {
-          const cell = boardEl.children[i];
-          if (cell) {
-            cell.classList.remove('filled', 'clearing', 'placing');
-            cell.style.background = '';
-            cell.style.backgroundColor = '';
-            try {
-              cell.style.removeProperty('--cell-base');
-              cell.style.removeProperty('--cell-glow');
-            } catch (_) {}
-          }
-        }
-        skinPrevTimer = setTimeout(tick, 500);
-      }, 420);
-    }
-  };
-  skinPrevTimer = setTimeout(tick, 200);
-  // restore fx when closed via other means handled in closeSkinPreview
-  const restore = () => {
-    document.body.classList.remove('skin-previewing');
-    try { applyEquippedSkin(); } catch (_) {}
-  };
-  ov._restoreFx = restore;
+  if (opts.celebrate) ov.classList.add('purchase-celebrate');
+  setTimeout(function () { try { setPreviewModalSkinFx(skin); } catch (_) {} }, 50);
+  setTimeout(function () { try { setPreviewModalSkinFx(skin); } catch (_) {} }, 250);
 }
+
 function bindSkinPreviewClicks(root) {
   if (!root) return;
   root.querySelectorAll('[data-preview]').forEach(el => {
     el.addEventListener('click', (e) => {
       e.stopPropagation();
       openSkinPreview(el.getAttribute('data-preview'));
+    });
+  });
+  root.querySelectorAll('[data-preview-board]').forEach(el => {
+    el.addEventListener('click', (e) => {
+      e.stopPropagation();
+      if (typeof openBoardPreview === 'function') openBoardPreview(el.getAttribute('data-preview-board'));
     });
   });
 }
@@ -1364,10 +1617,21 @@ function applyCosmeticsStateFromServer(data) {
   if (!data || typeof data !== 'object') return;
   try {
     if (typeof data.diamonds === 'number' && data.diamonds >= 0) {
-      // Server cosmetics profile is authoritative for shop balance.
-      // Never Math.max with local — that undid purchases (local stayed high while
-      // buySkin/buyBoard only deducted on the server path).
-      diamonds = Math.max(0, data.diamonds | 0);
+      // Cosmetics profile diamonds — but registered account is higher authority
+      let d = Math.max(0, data.diamonds | 0);
+      try {
+        if (typeof authToken !== 'undefined' && authToken && typeof authAccount !== 'undefined'
+            && authAccount && typeof authAccount.diamonds === 'number') {
+          const ad = Math.max(0, authAccount.diamonds | 0);
+          // Never let a stale profile default (9999) overwrite real account balance
+          if (d === 9999 && ad !== 9999) d = ad;
+          else if (ad >= 0 && ad !== d) {
+            // Prefer account row for logged-in users (donation currency lives on accounts)
+            d = ad;
+          }
+        }
+      } catch (_) {}
+      diamonds = d;
       try { localStorage.setItem('bp_diamonds', String(diamonds)); } catch (_) {}
       try {
         const loggedIn = !!(typeof authToken !== 'undefined' && authToken);
@@ -1418,6 +1682,13 @@ function applyCosmeticsStateFromServer(data) {
     if (data && data.ok) {
       applyCosmeticsStateFromServer(data);
       try {
+        if (data.id) playPurchaseFx(data.kind === 'board' ? 'board' : 'skin', data.id);
+      } catch (_) {}
+      try {
+        if (typeof renderShopGrid === 'function') renderShopGrid();
+        if (typeof renderInvGrid === 'function') renderInvGrid();
+      } catch (_) {}
+      try {
         if (data.kind === 'board') {
           bumpAchStat('boardsBought', 1);
           const board = getBoardById(data.id);
@@ -1430,6 +1701,9 @@ function applyCosmeticsStateFromServer(data) {
       } catch (_) {}
     } else if (data) {
       applyCosmeticsStateFromServer(data);
+      try {
+        if (typeof renderShopGrid === 'function') renderShopGrid();
+      } catch (_) {}
     }
   }
   function onEquip(data) {

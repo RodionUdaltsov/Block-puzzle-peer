@@ -1126,96 +1126,10 @@ body.touch-ui .cell.clearing::after {
       border-radius: 3.5px;
     }
     /* Preview board inherits body.skin-fx-* the same way as live boards */
-    body.skin-fx-matte .skin-prev-board .cell.filled {
-      box-shadow: inset 0 0 0 1px rgba(0,0,0,0.14);
-    }
-    body.skin-fx-rare .skin-prev-board .cell.filled {
-      box-shadow:
-        inset 0 1px 0 rgba(255,255,255,0.22),
-        inset 0 0 0 1px rgba(0,0,0,0.12),
-        0 0 8px color-mix(in srgb, var(--cell-glow, var(--cell-base, #5ee7ff)) 28%, transparent);
-    }
-    body.skin-fx-gloss .skin-prev-board .cell.filled {
-      box-shadow:
-        inset 0 2px 0 rgba(255,255,255,0.45),
-        inset 0 -2.5px 5px rgba(0,0,0,0.28),
-        0 0 0 1px color-mix(in srgb, var(--cell-base, #fff) 35%, transparent),
-        0 0 12px color-mix(in srgb, var(--cell-glow, var(--cell-base, #c77dff)) 35%, transparent);
-      overflow: hidden;
-    }
-    body.skin-fx-gloss .skin-prev-board .cell.filled::after {
-      content: '';
-      position: absolute;
-      inset: 10% 12% auto 12%;
-      height: 32%;
-      border-radius: 2px;
-      background: linear-gradient(180deg, rgba(255,255,255,0.55), transparent);
-      pointer-events: none;
-      z-index: 1;
-    }
-    body.skin-fx-gloss .skin-prev-board .cell.filled::before {
-      content: '';
-      position: absolute;
-      top: -20%; left: -60%;
-      width: 55%; height: 140%;
-      background: linear-gradient(105deg, transparent 0%, rgba(255,255,255,0.08) 35%, rgba(255,255,255,0.5) 50%, rgba(255,200,255,0.22) 58%, transparent 78%);
-      animation: epicSheen 2.6s ease-in-out infinite;
-      pointer-events: none;
-      mix-blend-mode: soft-light;
-      z-index: 0;
-    }
-    body.skin-fx-prism .skin-prev-board .cell.filled {
-      position: relative;
-      background: var(--cell-base) !important;
-      background-color: var(--cell-base) !important;
-      box-shadow:
-        inset 0 2.5px 0 rgba(255,255,255,0.7),
-        inset 0 -3px 7px rgba(0,0,0,0.4),
-        0 0 0 1.5px color-mix(in srgb, var(--cell-base) 45%, #fff),
-        0 0 14px color-mix(in srgb, var(--cell-glow, var(--cell-base)) 70%, transparent),
-        0 0 28px color-mix(in srgb, var(--cell-glow, var(--cell-base)) 40%, transparent);
-      overflow: hidden;
-      isolation: isolate;
-    }
-    body.skin-fx-prism .skin-prev-board .cell.filled::before {
-      content: '';
-      position: absolute;
-      inset: -45%;
-      border-radius: inherit;
-      background: conic-gradient(
-        from 0deg,
-        rgba(255,255,255,0.0),
-        rgba(255,255,255,0.55),
-        rgba(255,140,255,0.4),
-        rgba(80,220,255,0.45),
-        rgba(255,255,140,0.35),
-        rgba(255,255,255,0.55),
-        rgba(255,255,255,0.0)
-      );
-      animation: legendHoloSpin 5.2s linear infinite;
-      pointer-events: none;
-      mix-blend-mode: soft-light;
-      opacity: 0.82;
-      filter: saturate(1.2) brightness(1.05);
-    }
-    body.skin-fx-prism .skin-prev-board .cell.filled::after {
-      content: '';
-      position: absolute;
-      inset: 0;
-      border-radius: inherit;
-      background:
-        linear-gradient(160deg, rgba(255,255,255,0.65) 0%, transparent 38%),
-        linear-gradient(320deg, transparent 50%, rgba(255,255,255,0.2) 100%);
-      box-shadow: inset 0 0 0 1px rgba(255,255,255,0.22);
-      pointer-events: none;
-      animation: legendSpecPulse 2.6s ease-in-out infinite;
-    }
-    .skin-prev-meta {
-      font-size: 0.78rem;
-      color: var(--text-dim);
-      margin-bottom: 10px;
-      line-height: 1.35;
-    }
+    
+    /* Preview cells use the SAME rules as #board / #boardMe (styles-home.css).
+       Do not add separate .skin-prev-board filled FX — they diverged from in-game look. */
+
     .skin-prev-actions {
       display: flex;
       gap: 8px;
@@ -1257,7 +1171,7 @@ body.touch-ui .cell.clearing::after {
     #ghost.cell-glide {
       transition:
         opacity 0.18s ease,
-        transform 0.13s cubic-bezier(0.22, 0.85, 0.32, 1);
+        transform 0.14s cubic-bezier(0.25, 0.8, 0.3, 1);
     }
     #ghost .piece-grid { gap: 2px; }
     #ghost .piece-cell { /* size set inline to match board cells */ border-radius: 5px; }
@@ -2961,3 +2875,80 @@ body.touch-ui .cell.clearing::after {
       -ms-overflow-style: none;
     }
     #screenFriends .friend-list::-webkit-scrollbar { width: 0; height: 0; display: none; }
+
+
+/* Preview uses real board-wrap pipeline */
+.skin-prev-board-wrap.board-wrap {
+  background: var(--field-surface, var(--surface));
+  border: 1px solid var(--field-border, var(--border));
+  box-shadow: var(--shadow);
+}
+.skin-prev-board-wrap.board-wrap .board.skin-prev-board {
+  background: transparent;
+}
+.skin-prev-board-wrap.board-wrap .cell {
+  background: var(--field-empty, var(--cell-empty, #16191f));
+  border-radius: 4px;
+}
+.skin-prev-board-wrap.board-wrap .cell.filled {
+  /* skin FX from body.skin-fx-* applies the same as in-game */
+}
+
+
+/* Shop preview: clip legendary FX so they never cover Buy button */
+#skinPreviewModal #skinPrevWrap.board-wrap {
+  overflow: hidden !important;
+  isolation: isolate;
+  max-width: min(72vw, 280px);
+  margin-left: auto;
+  margin-right: auto;
+}
+#skinPreviewModal #skinPrevWrap.board-wrap::before,
+#skinPreviewModal #skinPrevWrap.board-wrap::after {
+  /* keep FX but contained */
+  pointer-events: none;
+}
+#skinPreviewModal .skin-prev-actions {
+  position: relative;
+  z-index: 20;
+}
+#skinPreviewModal .modal {
+  overflow: hidden;
+}
+#skinPreviewModal #skinPrevBoard.board {
+  width: 100% !important;
+  max-width: 100%;
+  aspect-ratio: 1;
+  min-height: 160px;
+}
+
+/* Held piece must not flicker — keep opacity locked, but ALLOW soft cell-glide on transform */
+body.is-dragging #ghost,
+body.is-dragging #ghost.visible {
+  opacity: 1 !important;
+  visibility: visible !important;
+  display: block !important;
+  pointer-events: none !important;
+  animation: none !important;
+  filter: none !important;
+}
+body.is-dragging #ghost.cell-glide {
+  transition:
+    opacity 0s linear,
+    transform 0.14s cubic-bezier(0.25, 0.8, 0.3, 1) !important;
+}
+body.is-dragging #ghost.no-glide {
+  transition:
+    opacity 0s linear,
+    transform 0.01ms linear !important;
+}
+body.is-dragging #ghost .piece-cell {
+  opacity: 1 !important;
+  visibility: visible !important;
+  animation: none !important;
+}
+body.touch-ui.is-dragging #ghost {
+  /* Touch uses JS lerp for position — no CSS transform transition */
+  transition: opacity 0s linear, transform 0s linear !important;
+  opacity: 1 !important;
+}

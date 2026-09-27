@@ -284,6 +284,15 @@ function awardBotStar(botId, sec) {
   botStars[botId][key] = true;
   saveBotStars();
   try { checkNewAchievements(); } catch (_) {}
+  try {
+    if (typeof scheduleGuestProgressSync === 'function') scheduleGuestProgressSync();
+    else if (typeof syncGuestProgressToServer === 'function') syncGuestProgressToServer({ force: true });
+  } catch (_) {}
+  try {
+    if (typeof authToken !== 'undefined' && authToken && typeof syncProfileToServer === 'function') {
+      syncProfileToServer({ botStars: botStars });
+    }
+  } catch (_) {}
   return true;
 }
 function botStarsHTML(botId) {

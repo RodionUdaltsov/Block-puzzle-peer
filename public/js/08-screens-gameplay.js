@@ -9,6 +9,18 @@
 function showScreen(name, opts) {
   opts = opts || {};
   const isPlay = (name === 'classic' || name === 'versus');
+  // Leaving match UI: clear stuck "Матч начинается" on Friends and loading flags
+  try {
+    if (!isPlay && (BPState.matchEnded || !(typeof vsActive !== 'undefined' && vsActive))) {
+      if (typeof mpMatchStarting !== 'undefined' && mpMatchStarting) mpMatchStarting = false;
+      try { mpLoading = false; } catch (_) {}
+      try { vsIntroLock = false; } catch (_) {}
+      try { BPState.matchAwaitingGo = false; } catch (_) {}
+      if (name === 'friends' || name === 'menu') {
+        try { if (typeof setMpStatus === 'function') setMpStatus(''); } catch (_) {}
+      }
+    }
+  } catch (_) {}
   // Animated loader on EVERY non-play navigation (including Back → menu)
   // so tab switches never feel frozen. Skip only if caller already owns the loader.
   try {
@@ -752,7 +764,17 @@ function clearLinesOn(g, boardDOM) {
   const animName = touchUi ? 'clearMobileSoft' : meta.name;
   const animCss = `${animName} ${meta.ms}ms cubic-bezier(0.2,0.7,0.2,1) forwards`;
   if (boardDOM) {
-    try { if (typeof scrubTransientFx === 'function') scrubTransientFx(); } catch (_) {}
+    // Only strip particle debris — do NOT call full scrubTransientFx (it used to wipe #ghost)
+    try {
+      document.querySelectorAll(
+        '.clear-debris, .clear-beam, .legend-spark, .epic-spark, .score-float'
+      ).forEach(function (el) {
+        try {
+          // Keep floats on the OTHER board; only remove orphans not under a board-wrap
+          el.remove();
+        } catch (_) {}
+      });
+    } catch (_) {}
     markClearBusy(boardDOM, meta.ms);
     const cells = [];
     toAnim.forEach(idx => {
@@ -869,6 +891,14 @@ function getClearFloatPositions(boardDOM, rows, cols, placeAnchor) {
 
 /** Drop temporary DOM FX + drop will-change so mobile GC can reclaim layers. */
 function scrubTransientFx() {
+  // Player independence: never touch local held piece / pending place when opponent FX clears
+  let holding = false;
+  try {
+    holding = !!(typeof isDragging !== 'undefined' && isDragging)
+      || !!(typeof activeDragSlot !== 'undefined' && activeDragSlot)
+      || !!(document.body && document.body.classList.contains('is-dragging'));
+  } catch (_) { holding = false; }
+
   try {
     document.querySelectorAll(
       '.clear-debris, .legend-spark, .epic-spark, .skin-particle, .neon-spark, .candy-spark, .sunset-spark, .rare-spark, .score-float, .clear-beam'
@@ -877,8 +907,14 @@ function scrubTransientFx() {
   try {
     document.querySelectorAll('.cell.placing, .cell[class*="clearing-"]').forEach(cell => {
       try {
+        // Do not strip styles from the board the player is currently aiming at mid-drag
+        if (holding) {
+          try {
+            const board = cell.closest && cell.closest('.board');
+            if (board && (board.id === 'boardMe' || board.id === 'board')) return;
+          } catch (_) {}
+        }
         cell.classList.remove('placing');
-        // strip clearing-* without wiping filled paint mid-match only when match over
         cell.style.removeProperty('will-change');
         cell.style.removeProperty('animation');
         cell.style.removeProperty('filter');
@@ -889,25 +925,52 @@ function scrubTransientFx() {
     });
   } catch (_) {}
   try {
-    const g = document.getElementById('ghost');
-    if (g) {
-      g.style.display = 'none';
-      g.classList.remove('visible', 'cell-glide', 'no-glide');
-      g.innerHTML = '';
+    // LOCAL drag ghost (#ghost) — never wipe while holding (opp clear must not hide it)
+    if (!holding) {
+      const g = document.getElementById('ghost');
+      if (g) {
+        g.style.display = 'none';
+        g.classList.remove('visible', 'cell-glide', 'no-glide');
+        g.innerHTML = '';
+        try { delete g.dataset.holdSig; } catch (_) {}
+      }
+    } else {
+      // Re-assert held ghost stays visible after any concurrent DOM thrash
+      try {
+        const g = document.getElementById('ghost');
+        if (g) {
+          g.style.display = 'block';
+          g.style.visibility = 'visible';
+          g.style.opacity = '1';
+          g.style.transition = 'none';
+          g.classList.add('visible');
+        }
+      } catch (_) {}
     }
+    // aiGhost is opponent/bot fly only — safe to clear when not mid opp anim
+    // (applyOppRemotePlace owns aiGhost during its timeout; do not wipe if visible opacity)
     const ag = document.getElementById('aiGhost');
     if (ag) {
-      ag.style.display = 'none';
-      ag.innerHTML = '';
-      ag.style.opacity = '';
+      const oppBusy = (typeof _oppPlaceAnimBusy !== 'undefined' && _oppPlaceAnimBusy);
+      if (!oppBusy) {
+        ag.style.display = 'none';
+        ag.innerHTML = '';
+        ag.style.opacity = '';
+      }
     }
   } catch (_) {}
-  try { _previewCells = []; } catch (_) {}
-  try { lastPreview = null; } catch (_) {}
-  try {
-    if (typeof BPState.pendingServerPlace !== 'undefined') BPState.pendingServerPlace = null;
-    if (BPState.pendingPlaceTimer) { clearTimeout(BPState.pendingPlaceTimer); BPState.pendingPlaceTimer = null; }
-  } catch (_) {}
+  // Placement preview / pending place belong to LOCAL player only
+  if (!holding) {
+    try { _previewCells = []; } catch (_) {}
+    try { lastPreview = null; } catch (_) {}
+    try {
+      if (typeof BPState !== 'undefined' && BPState && !BPState.pendingServerPlace) {
+        // leave pendingServerPlace alone always — server ack owns it
+      }
+    } catch (_) {}
+  }
+  // NEVER clear pendingServerPlace here — that is local optimistic place state
+  // (previously wiped on every opp clear → desync)
 }
 
 function renderGrid(g, boardDOM) {
@@ -999,6 +1062,21 @@ function chainBonusFor(chain) {
   return Math.min(800, (chain - 1) * 50);
 }
 
+function classicSaveStorageKey() {
+  try {
+    if (typeof authToken !== 'undefined' && authToken && typeof authAccount !== 'undefined'
+        && authAccount && authAccount.id) {
+      return 'bp_classic_save_acc_' + String(authAccount.id);
+    }
+  } catch (_) {}
+  try {
+    if (typeof myFriendCode === 'string' && myFriendCode) {
+      return 'bp_classic_save_fc_' + String(myFriendCode).toUpperCase();
+    }
+  } catch (_) {}
+  return 'bp_classic_save_guest';
+}
+
 function saveClassicState() {
   if (mode !== 'classic') return;
   try {
@@ -1012,15 +1090,30 @@ function saveClassicState() {
         used: !!p.used
       }))
     };
-    localStorage.setItem('bp_classic_save', JSON.stringify(payload));
+    localStorage.setItem(classicSaveStorageKey(), JSON.stringify(payload));
+    // Persist classic board + best to Postgres (guest device bind or registered account)
+    try {
+      if (typeof best === 'number' && typeof payload.score === 'number' && payload.score > best) {
+        best = payload.score | 0;
+        try { localStorage.setItem('bp_best', String(best)); } catch (_2) {}
+      }
+    } catch (_) {}
+    try {
+      if (typeof scheduleGuestProgressSync === 'function') scheduleGuestProgressSync();
+    } catch (_) {}
+    try {
+      if (typeof syncProfileToServer === 'function') {
+        syncProfileToServer({ best: (typeof best === 'number' ? best : undefined), classicSave: payload });
+      }
+    } catch (_) {}
   } catch (_) {}
 }
 function clearClassicSave() {
-  try { localStorage.removeItem('bp_classic_save'); } catch (_) {}
+  try { localStorage.removeItem(classicSaveStorageKey()); } catch (_) {}
 }
 function loadClassicState() {
   try {
-    const raw = localStorage.getItem('bp_classic_save');
+    const raw = localStorage.getItem(classicSaveStorageKey());
     if (!raw) return null;
     const data = JSON.parse(raw);
     if (!data || !Array.isArray(data.grid) || data.grid.length !== SIZE) return null;
@@ -1178,11 +1271,26 @@ function getPieceSlotPx(isVs) {
   return Math.max(isVs ? 44 : 56, Math.min(isVs ? 78 : 110, cell * 5 + (isVs ? 8 : 12)));
 }
 function renderPieces(areaEl) {
+  // Never rebuild tray while a piece is held — opp line-clears must not blink the ghost
+  try {
+    if ((typeof isDragging !== 'undefined' && isDragging)
+        || (typeof activeDragSlot !== 'undefined' && activeDragSlot)
+        || (document.body && document.body.classList.contains('is-dragging'))) {
+      try { if (typeof ensureHeldPieceVisible === 'function') ensureHeldPieceVisible(); } catch (_) {}
+      return;
+    }
+  } catch (_) {}
+
   // Never overwrite replay trays with live hand
   if (typeof replayMode !== 'undefined' && replayMode) return;
   // Critical: do not destroy hand DOM mid-drag (phones lose pointer capture → piece snaps back)
   try {
-    if (typeof isDragging !== 'undefined' && isDragging) return;
+    if ((typeof isDragging !== 'undefined' && isDragging)
+        || (typeof activeDragSlot !== 'undefined' && activeDragSlot)
+        || (document.body && document.body.classList.contains('is-dragging'))) {
+      try { if (typeof ensureHeldPieceVisible === 'function') ensureHeldPieceVisible(); } catch (_) {}
+      return;
+    }
   } catch (_) {}
   // Rejoin / desync safety: try restore own hand from match log if empty
   try {
@@ -1366,6 +1474,106 @@ function clearAllLifting(areaEl) {
     });
   } catch (_) {}
 }
+/**
+ * Close every transient UI layer when a real match is about to start
+ * (ranked, private, rematch, rejoin). Replay scrubber, modals, toasts —
+ * nothing may block piece input or cover the board.
+ */
+function prepareUiForLiveMatch() {
+  try {
+    // Stop replay / review
+    if (typeof replayTimer !== 'undefined' && replayTimer) {
+      try { clearTimeout(replayTimer); } catch (_) {}
+      try { replayTimer = null; } catch (_) {}
+    }
+    try { replayMode = false; } catch (_) {}
+    try {
+      document.body.classList.remove(
+        'replay-ui', 'replay-playing', 'match-ending',
+        'rejoin-loading', 'quiet-hands', 'vs-bots'
+      );
+    } catch (_) {}
+    try {
+      const rb = document.getElementById('reviewBar');
+      if (rb) rb.classList.remove('visible', 'replay-dock');
+    } catch (_) {}
+    try {
+      const scrub = document.getElementById('replayScrubBar');
+      if (scrub) {
+        scrub.style.display = 'none';
+        scrub.setAttribute('aria-hidden', 'true');
+        scrub.classList.remove('visible');
+      }
+    } catch (_) {}
+    try {
+      document.querySelectorAll('.replay-scrub, .review-bar, #reviewBar, #replayScrubBar').forEach((el) => {
+        try {
+          el.classList.remove('visible', 'show', 'replay-dock');
+          if (el.id === 'replayScrubBar') el.style.display = 'none';
+        } catch (_) {}
+      });
+    } catch (_) {}
+    // Result / duel / rematch chrome
+    try { if (typeof dismissPostMatchResult === 'function') dismissPostMatchResult(); } catch (_) {}
+    try { if (typeof hideRematchOffer === 'function') hideRematchOffer(); } catch (_) {}
+    try { if (typeof hideRematchWait === 'function') hideRematchWait(); } catch (_) {}
+    try { if (typeof hideRmToast === 'function') hideRmToast(false); } catch (_) {}
+    try {
+      document.getElementById('versusResult')?.classList.remove('visible');
+      const sd = document.getElementById('scoreDuelOverlay');
+      if (sd) {
+        sd.classList.remove('visible', 'show-verdict', 'duel-win', 'duel-lose', 'duel-draw');
+        sd.setAttribute('aria-hidden', 'true');
+      }
+      document.getElementById('matchEndFreeze')?.classList.remove('visible', 'show');
+    } catch (_) {}
+    // Social / search / auth modals
+    try { if (typeof closeNickSearchModal === 'function') closeNickSearchModal(); } catch (_) {}
+    try { if (typeof closeFriendMiniProfile === 'function') closeFriendMiniProfile(); } catch (_) {}
+    try { if (typeof closeAuthModal === 'function') closeAuthModal(); } catch (_) {}
+    try { if (typeof closeAccountDeleteModal === 'function') closeAccountDeleteModal(); } catch (_) {}
+    try {
+      ['nickSearchModal', 'friendMiniProfileModal', 'authModal', 'accountDeleteModal',
+       'lobbyInviteModal', 'bpConfirmModal', 'settingsModal'].forEach((id) => {
+        const el = document.getElementById(id);
+        if (!el) return;
+        el.classList.remove('visible', 'show');
+        el.setAttribute('aria-hidden', 'true');
+        try { el.hidden = true; } catch (_) {}
+        try { el.style.display = 'none'; } catch (_) {}
+      });
+    } catch (_) {}
+    // Achievement / shop overlays that might sit on top
+    try { if (typeof closeAllAchTabs === 'function') closeAllAchTabs(); } catch (_) {}
+    try {
+      document.querySelectorAll('.modal.visible, .overlay.visible, .sheet.visible').forEach((el) => {
+        // Keep match-critical overlays (loading / versus HUD)
+        const id = el.id || '';
+        if (id === 'screenVersus' || id === 'matchLoading' || id === 'vsLiveControls') return;
+        if (el.closest && el.closest('#screenVersus')) return;
+        try {
+          el.classList.remove('visible', 'show');
+          el.setAttribute('aria-hidden', 'true');
+        } catch (_) {}
+      });
+    } catch (_) {}
+    // Input locks left over from replay / result
+    try { placingLock = false; } catch (_) {}
+    try {
+      BPState.rejoinLoading = false;
+      BPState.rejoinInputLock = false;
+      BPState.paintFrozen = false;
+      BPState.quietPieceRender = false;
+    } catch (_) {}
+    try { if (typeof cancelActivePieceDrag === 'function') cancelActivePieceDrag(); } catch (_) {}
+    try { if (typeof clearAllLifting === 'function') clearAllLifting(); } catch (_) {}
+    try { if (typeof hideGhost === 'function') hideGhost(); } catch (_) {}
+  } catch (e) {
+    try { console.warn('prepareUiForLiveMatch', e); } catch (_) {}
+  }
+}
+try { window.prepareUiForLiveMatch = prepareUiForLiveMatch; } catch (_) {}
+
 /** Abort any in-progress piece drag (used during rejoin load). */
 function cancelActivePieceDrag() {
   try {
@@ -1480,6 +1688,7 @@ function startDrag(e, idx, areaEl) {
   clearAllLifting(areaEl);
   slot.classList.add('lifting');
   showGhost(dragPiece);
+  try { startHoldVisibilityPin(); } catch (_) {}
   const slotRect = slot.getBoundingClientRect();
   ghost.classList.add('no-glide');
   invalidateBoardMetrics();
@@ -1715,13 +1924,58 @@ function startDrag(e, idx, areaEl) {
 }
 
 /** World center of a placement so the ghost sits flush on those cells */
+/**
+ * Ghost uses translate(-50%,-50%) on its bounding box.
+ * Must target the AABB center of the placement cells — NOT the centroid
+ * (L/T shapes have different centroid vs bbox → misalignment).
+ * Scale-independent: reads live DOM cell rects.
+ */
 function placementWorldCenter(result, shape) {
-  if (!boardRect || !result || !shape) return null;
+  if (!result || !shape || !shape.length) return null;
+  try {
+    const board = (typeof getActiveBoard === 'function') ? getActiveBoard() : null;
+    if (board && board.children && board.children.length >= SIZE * SIZE) {
+      let minR = Infinity, minC = Infinity, maxR = -Infinity, maxC = -Infinity;
+      for (let i = 0; i < shape.length; i++) {
+        const cell = shape[i];
+        if (!cell || cell.length < 2) continue;
+        const r = (result.baseR | 0) + (cell[0] | 0);
+        const c = (result.baseC | 0) + (cell[1] | 0);
+        if (r < 0 || c < 0 || r >= SIZE || c >= SIZE) continue;
+        if (r < minR) minR = r;
+        if (c < minC) minC = c;
+        if (r > maxR) maxR = r;
+        if (c > maxC) maxC = c;
+      }
+      if (minR !== Infinity) {
+        const tl = board.children[minR * SIZE + minC];
+        const br = board.children[maxR * SIZE + maxC];
+        if (tl && br) {
+          const a = tl.getBoundingClientRect();
+          const b = br.getBoundingClientRect();
+          if (a.width > 2 && b.width > 2) {
+            return { x: (a.left + b.right) * 0.5, y: (a.top + b.bottom) * 0.5 };
+          }
+        }
+      }
+    }
+  } catch (_) {}
+  if (!boardRect) return null;
   const step = boardRect.width / SIZE;
-  const maxR = Math.max(...shape.map(s => s[0]));
-  const maxC = Math.max(...shape.map(s => s[1]));
-  const cx = boardRect.left + (result.baseC + (maxC + 1) / 2) * step;
-  const cy = boardRect.top + (result.baseR + (maxR + 1) / 2) * step;
+  let minR = Infinity, minC = Infinity, maxR = -Infinity, maxC = -Infinity;
+  for (let i = 0; i < shape.length; i++) {
+    const cell = shape[i];
+    if (!cell || cell.length < 2) continue;
+    const r = (result.baseR | 0) + (cell[0] | 0);
+    const c = (result.baseC | 0) + (cell[1] | 0);
+    if (r < minR) minR = r;
+    if (c < minC) minC = c;
+    if (r > maxR) maxR = r;
+    if (c > maxC) maxC = c;
+  }
+  if (minR === Infinity) return null;
+  const cx = boardRect.left + ((minC + maxC + 1) * 0.5) * step;
+  const cy = boardRect.top + ((minR + maxR + 1) * 0.5) * step;
   return { x: cx, y: cy };
 }
 let _dragShapeMaxR = 0, _dragShapeMaxC = 0;
@@ -1733,7 +1987,86 @@ function _isTouchUi() {
 }
 let _dragLastTs = 0;
 let _ghostNoGlideOn = false;
+
+/** Keep tray-slot hidden + floating ghost visible while the player holds a piece.
+ *  Opp line-clears / softRender storms must not leave an invisible held piece. */
+
+/** While holding, re-assert ghost visibility every animation frame (survives opp clear storms). */
+function startHoldVisibilityPin() {
+  try {
+    if (window._holdVisPin) return;
+    const tick = function () {
+      window._holdVisPin = 0;
+      try {
+        const holding = (typeof isDragging !== 'undefined' && isDragging)
+          || (typeof activeDragSlot !== 'undefined' && activeDragSlot)
+          || (document.body && document.body.classList.contains('is-dragging'));
+        if (!holding) return;
+        const g = document.getElementById('ghost');
+        if (g) {
+          g.style.display = 'block';
+          g.style.visibility = 'visible';
+          g.style.opacity = '1';
+          g.style.transition = 'none';
+          g.classList.add('visible');
+        }
+        window._holdVisPin = requestAnimationFrame(tick);
+      } catch (_) {}
+    };
+    window._holdVisPin = requestAnimationFrame(tick);
+  } catch (_) {}
+}
+function stopHoldVisibilityPin() {
+  try {
+    if (window._holdVisPin) {
+      cancelAnimationFrame(window._holdVisPin);
+      window._holdVisPin = 0;
+    }
+  } catch (_) {}
+}
+
+function ensureHeldPieceVisible() {
+  try {
+    const holding = (typeof isDragging !== 'undefined' && isDragging)
+      || (typeof activeDragSlot !== 'undefined' && activeDragSlot)
+      || (document.body && document.body.classList.contains('is-dragging'));
+    if (!holding) return;
+    try { document.body.classList.add('is-dragging'); } catch (_) {}
+    const slot = (typeof activeDragSlot !== 'undefined') ? activeDragSlot : null;
+    if (slot) {
+      try {
+        slot.classList.add('lifting');
+        slot.classList.remove('show');
+      } catch (_) {}
+    }
+    const g = (typeof ghost !== 'undefined' && ghost) ? ghost : document.getElementById('ghost');
+    if (g) {
+      try {
+        g.style.display = 'block';
+        g.style.visibility = 'visible';
+        g.style.opacity = '1';
+        g.style.pointerEvents = 'none';
+        g.classList.add('visible');
+        // Rebuild only if DOM was wiped — never thrash an intact ghost (blink)
+        if ((!g.firstChild || !g.querySelector('.piece-cell')) && typeof dragPiece !== 'undefined' && dragPiece
+            && typeof showGhost === 'function') {
+          showGhost(dragPiece);
+          g.classList.add('visible');
+          g.style.display = 'block';
+        } else {
+          g.style.display = 'block';
+          g.style.visibility = 'visible';
+          g.style.opacity = '1';
+          g.style.transition = 'none';
+          g.classList.add('visible');
+        }
+      } catch (_) {}
+    }
+  } catch (_) {}
+}
+
 function dragFrame(ts) {
+  try { ensureHeldPieceVisible(); } catch (_) {}
   rafId = 0; if (!isDragging) return;
   // Metrics only when dirty — never getBoundingClientRect every frame (kills 120/144Hz)
   if (_metricsDirty) ensureBoardMetrics();
@@ -1775,12 +2108,12 @@ function dragFrame(ts) {
       _ghostLerpInit = true;
     }
     if (onCell) {
-      // Fast cell lock (~20ms) — smooth border cross without trailing the finger
-      const k = 1 - Math.exp(-55 * dt);
+      // Cell snap: short ease (~35ms) — not instant, still tight to finger
+      const k = 1 - Math.exp(-38 * dt);
       _ghostLerpX += (targetX - _ghostLerpX) * k;
       _ghostLerpY += (targetY - _ghostLerpY) * k;
     } else {
-      // Free drag: true 1:1 (PC feel)
+      // Free drag: true 1:1 with finger
       _ghostLerpX = targetX;
       _ghostLerpY = targetY;
     }
@@ -1790,59 +2123,123 @@ function dragFrame(ts) {
       _ghostNoGlideOn = true;
     }
     moveGhost(_ghostLerpX, _ghostLerpY);
-    // Only schedule next frame while still catching a cell (saves battery / heat)
+    // Extra frames only while easing into a cell center
     if (isDragging && onCell) {
       const dx = targetX - _ghostLerpX, dy = targetY - _ghostLerpY;
-      if (dx * dx + dy * dy > 0.25) rafId = requestAnimationFrame(dragFrame);
+      if (dx * dx + dy * dy > 0.15) {
+        rafId = requestAnimationFrame(dragFrame);
+      }
     }
     return;
   }
 
-  // Desktop: CSS cell-glide path
-  if (lastPreview && dragPiece && boardRect && boardRect.width > 8) {
-    const key = lastPreview.baseR + ',' + lastPreview.baseC + ',' + (lastPreview.valid ? 1 : 0);
-    const center = placementWorldCenter(lastPreview, dragPiece.shape);
-    if (center) {
-      if (key !== _ghostCellKey) {
-        _ghostCellKey = key;
-        ghost.classList.remove('no-glide');
-        ghost.classList.add('cell-glide');
-        _ghostNoGlideOn = false;
-        moveGhost(center.x, center.y);
+  // Desktop: 1:1 with mouse off-cell; short soft ease only when snapping cell→cell
+  {
+    let targetX = aim.x, targetY = aim.y;
+    let onCell = false;
+    if (lastPreview && dragPiece && boardRect && boardRect.width > 8) {
+      const center = placementWorldCenter(lastPreview, dragPiece.shape);
+      if (center) {
+        targetX = center.x;
+        targetY = center.y;
+        onCell = true;
+        const key = lastPreview.baseR + ',' + lastPreview.baseC + ',' + (lastPreview.valid ? 1 : 0);
+        if (key !== _ghostCellKey) {
+          _ghostCellKey = key;
+          ghost.classList.remove('no-glide');
+          ghost.classList.add('cell-glide');
+          _ghostNoGlideOn = false;
+        }
+      } else {
+        _ghostCellKey = '';
       }
-      return;
+    } else {
+      _ghostCellKey = '';
+    }
+    if (!_ghostLerpInit) {
+      _ghostLerpX = targetX;
+      _ghostLerpY = targetY;
+      _ghostLerpInit = true;
+    }
+    if (onCell) {
+      // ~30–40ms cell ease — readable, not laggy
+      const k = 1 - Math.exp(-40 * dt);
+      _ghostLerpX += (targetX - _ghostLerpX) * k;
+      _ghostLerpY += (targetY - _ghostLerpY) * k;
+      ghost.classList.remove('no-glide');
+      ghost.classList.add('cell-glide');
+      _ghostNoGlideOn = false;
+    } else {
+      // True 1:1 mouse follow
+      _ghostLerpX = targetX;
+      _ghostLerpY = targetY;
+      if (!_ghostNoGlideOn) {
+        ghost.classList.add('no-glide');
+        ghost.classList.remove('cell-glide');
+        _ghostNoGlideOn = true;
+      }
+    }
+    moveGhost(_ghostLerpX, _ghostLerpY);
+    if (isDragging && onCell) {
+      const dx = targetX - _ghostLerpX, dy = targetY - _ghostLerpY;
+      if (dx * dx + dy * dy > 0.15) {
+        rafId = requestAnimationFrame(dragFrame);
+      }
     }
   }
-  if (_ghostCellKey !== '') {
-    _ghostCellKey = '';
-    ghost.classList.add('no-glide');
-    ghost.classList.remove('cell-glide');
-    _ghostNoGlideOn = true;
-  }
-  moveGhost(aim.x, aim.y);
 }
 function showGhost(piece) {
-  ghost.innerHTML = '';
-  ghost.classList.remove('visible', 'cell-glide');
-  // Force visible pipeline: CSS defaults opacity:0 until .visible
+  // Avoid full rebuild while already showing the same held piece (opp clears would blink)
+  try {
+    if (piece && ghost && ghost.querySelector('.piece-cell')
+        && ghost.dataset && ghost.dataset.holdSig) {
+      const sig = (piece.color || '') + '|' + (piece.shape || []).map(function (c) {
+        return Array.isArray(c) ? (c[0] + ':' + c[1]) : String(c);
+      }).join(';');
+      if (ghost.dataset.holdSig === sig) {
+        ghost.style.display = 'block';
+        ghost.style.visibility = 'visible';
+        ghost.style.opacity = '';
+        ghost.classList.add('visible');
+        return;
+      }
+    }
+  } catch (_) {}
+  // Keep .visible during rebuild so opacity transition never flashes to 0
+  ghost.classList.remove('cell-glide');
   try {
     ghost.style.display = 'block';
-    ghost.style.opacity = '';
+    ghost.style.opacity = '1';
     ghost.style.visibility = 'visible';
     ghost.style.pointerEvents = 'none';
+    ghost.classList.add('visible');
   } catch (_) {}
+  ghost.innerHTML = '';
   invalidateBoardMetrics();
   updateBoardMetrics();
   let px = 24;
   let gapPx = 2;
-  if (boardRect && boardRect.width > 40) {
-    const step = boardRect.width / SIZE;
-    if (cellSize > 4 && cellSize <= step) {
-      px = Math.round(cellSize);
-      gapPx = Math.max(1, Math.round(step - cellSize));
-    } else {
-      px = Math.max(12, Math.min(48, Math.round(step * 0.9)));
-      gapPx = Math.max(1, Math.round(step - px));
+  try {
+    const board = (typeof getActiveBoard === 'function') ? getActiveBoard() : null;
+    if (board && board.children && board.children.length >= 2) {
+      const a = board.children[0].getBoundingClientRect();
+      const b = board.children[1].getBoundingClientRect();
+      if (a.width > 4) {
+        px = a.width;
+        // horizontal gap between cell 0 and cell 1
+        const g = b.left - a.right;
+        gapPx = (g > 0.5 && g < a.width) ? g : 0;
+      }
+    } else if (boardRect && boardRect.width > 40) {
+      const step = boardRect.width / SIZE;
+      px = (cellSize > 4 && cellSize <= step) ? cellSize : step * 0.92;
+      gapPx = Math.max(0, step - px);
+    }
+  } catch (_) {
+    if (boardRect && boardRect.width > 40) {
+      const step = boardRect.width / SIZE;
+      px = step * 0.92;
+      gapPx = Math.max(0, step - px);
     }
   }
   const maxR = Math.max(...piece.shape.map(s => s[0]));
@@ -1865,6 +2262,11 @@ function showGhost(piece) {
     gridEl.appendChild(cell);
   }
   ghost.appendChild(gridEl);
+  try {
+    ghost.dataset.holdSig = (piece.color || '') + '|' + (piece.shape || []).map(function (c) {
+      return Array.isArray(c) ? (c[0] + ':' + c[1]) : String(c);
+    }).join(';');
+  } catch (_) {}
   _ghostCellKey = '';
 }
 function moveGhost(x, y) {
@@ -1877,7 +2279,10 @@ function hideGhost() {
   try {
     if (typeof isDragging !== 'undefined' && isDragging) return;
     if (typeof activeDragSlot !== 'undefined' && activeDragSlot) return;
+    if (document.body && document.body.classList.contains('is-dragging')) return;
   } catch (_) {}
+  try { stopHoldVisibilityPin(); } catch (_) {}
+  try { if (ghost && ghost.dataset) delete ghost.dataset.holdSig; } catch (_) {}
   ghost.style.display = 'none';
   ghost.classList.remove('visible', 'cell-glide', 'no-glide');
 }

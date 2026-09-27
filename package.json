@@ -1,7 +1,7 @@
 {
   "name": "block-puzzle-server",
-  "version": "3.9.57",
-  "description": "Block Puzzle \u2014 ESM client pipeline + zero-dep bundler",
+  "version": "3.10.0",
+  "description": "Block Puzzle — PostgreSQL-only player progress",
   "license": "MIT",
   "main": "server.js",
   "scripts": {
@@ -10,13 +10,15 @@
     "build:watch": "node scripts/bundle-client.js --watch",
     "build:css": "node scripts/bundle-css.js",
     "start": "node scripts/bundle-css.js && node scripts/bundle-client.js && node server.js",
-    "start:file": "node scripts/bundle-css.js && node scripts/bundle-client.js && BP_STORE=file node server.js",
-    "start:redis": "node scripts/bundle-css.js && node scripts/bundle-client.js && BP_STORE=redis node server.js",
+    "start:postgres": "node scripts/bundle-css.js && node scripts/bundle-client.js && BP_STORE=postgres node server.js",
+    "migrate:postgres": "node scripts/migrate-file-to-postgres.js",
     "check": "node scripts/check.js",
     "test": "node --test test/*.test.js"
   },
   "engines": {
     "node": ">=18"
   },
-  "dependencies": {}
+  "dependencies": {
+    "pg": "^8.13.1"
+  }
 }

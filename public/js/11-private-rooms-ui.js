@@ -1322,6 +1322,13 @@ function endVersus(opts) {
   } catch (_) {}
   try { mpMatchStarting = false; } catch (_) {}
   try { vsIntroLock = false; } catch (_) {}
+  try { mpLoading = false; } catch (_) {}
+  try { BPState.matchAwaitingGo = false; } catch (_) {}
+  try { BPState.matchIntroSeqRunning = false; } catch (_) {}
+  try { if (typeof setMpStatus === 'function') setMpStatus(''); } catch (_) {}
+  try {
+    if (typeof broadcastMyActivity === 'function') broadcastMyActivity(true);
+  } catch (_) {}
   clearDisconnectTimer();
   if (vsTimerId) clearInterval(vsTimerId);
   if (aiInterval) clearInterval(aiInterval);

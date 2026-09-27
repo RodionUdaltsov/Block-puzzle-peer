@@ -1,7 +1,12 @@
-# Default: app only (file store). Redis optional via profile.
+# Production-oriented: PostgreSQL is the source of truth for player progress.
 #
 #   docker compose up -d --build
-#   BP_STORE=redis REDIS_URL=redis://redis:6379 docker compose --profile redis up -d --build
+#
+# Optional Redis (hot ephemeral data: rooms / queue / tokens):
+#   docker compose --profile redis up -d --build
+#
+# Local file store only (dev, no DB):
+#   BP_STORE=file docker compose up -d --build app
 #
 services:
   app:
@@ -10,13 +15,34 @@ services:
       - "9000:9000"
     environment:
       PORT: "9000"
-      BP_STORE: ${BP_STORE:-file}
+      NODE_ENV: ${NODE_ENV:-production}
+      BP_STORE: ${BP_STORE:-postgres}
+      DATABASE_URL: ${DATABASE_URL:-postgres://bp:bp@postgres:5432/blockpuzzle}
       REDIS_URL: ${REDIS_URL:-}
       BP_WS_ORIGINS: ${BP_WS_ORIGINS:-}
       BP_LOG: ${BP_LOG:-info}
     volumes:
       - bp-data:/app/data
     restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-bp}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-bp}
+      POSTGRES_DB: ${POSTGRES_DB:-blockpuzzle}
+    volumes:
+      - bp-postgres:/var/lib/postgresql/data
+      - ./docs/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER:-bp} -d $${POSTGRES_DB:-blockpuzzle}"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
 
   redis:
     image: redis:7-alpine
@@ -24,9 +50,8 @@ services:
     restart: unless-stopped
     volumes:
       - bp-redis:/data
-    # ports:
-    #   - "6379:6379"
 
 volumes:
   bp-data:
+  bp-postgres:
   bp-redis:

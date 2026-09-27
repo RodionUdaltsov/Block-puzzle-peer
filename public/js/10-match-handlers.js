@@ -12,6 +12,8 @@ function bindMatchClientHandlers() {
   MatchClient.on('match_found', (data) => {
     try { if (typeof broadcastMyActivity === 'function') broadcastMyActivity(true); } catch (_) {}
     try {
+      // Always clear replay / modals / overlays before a new live match (incl. rematch)
+      try { if (typeof prepareUiForLiveMatch === 'function') prepareUiForLiveMatch(); } catch (_) {}
       try { if (typeof clearAfkUi === 'function') clearAfkUi(); } catch (_) {}
       try { if (typeof clearRmPending === 'function') clearRmPending(); } catch (_) {}
       try { if (typeof scrubTransientFx === 'function') scrubTransientFx(); } catch (_) {}
@@ -846,6 +848,13 @@ function bindMatchClientHandlers() {
     try {
       try { if (typeof clearAfkUi === 'function') clearAfkUi(); } catch (_) {}
       try { if (typeof clearRmPending === 'function') clearRmPending(); } catch (_) {}
+      // Match is over — never leave "Матч начинается" / loading flags stuck on Friends
+      try { mpMatchStarting = false; } catch (_) {}
+      try { mpLoading = false; } catch (_) {}
+      try { vsIntroLock = false; } catch (_) {}
+      try { BPState.matchAwaitingGo = false; } catch (_) {}
+      try { BPState.matchIntroSeqRunning = false; } catch (_) {}
+      try { if (typeof setMpStatus === 'function') setMpStatus(''); } catch (_) {}
       try {
         window._lastMatchWasVoid = !!(data && (data.void || data.preStart || data.reason === 'void'));
       } catch (_) { window._lastMatchWasVoid = false; }
@@ -965,7 +974,6 @@ function bindMatchClientHandlers() {
   });
   MatchClient.on('rematch_decline', (data) => {
     try {
-      const wasWaiting = !!(rematchPending || rematchIWant);
       rematchIWant = false;
       rematchTheyWant = false;
       rematchPending = false;
@@ -973,23 +981,19 @@ function bindMatchClientHandlers() {
       try { hideRematchOffer(); } catch (_) {}
       try { hideRematchWait(); } catch (_) {}
       try { hideRmToast(false); } catch (_) {}
-      // Opponent (or self cancel) declined — always return to result window
-      if (wasWaiting || !(data && data.self)) {
-        try {
-          if (typeof leaveAfterRematchDecline === 'function') {
-            leaveAfterRematchDecline(
-              (data && data.self) ? null : 'Соперник отклонил'
-            );
-          } else {
-            if (!(data && data.self)) {
-              try { showInfoToast('Реванш', 'Соперник отклонил', 'bad'); } catch (_) {}
-            }
-            try { restorePostMatchResultUI && restorePostMatchResultUI(); } catch (_) {}
+      // Clear rematch UI; only re-show result if still on versus (no forced jump)
+      try {
+        if (typeof leaveAfterRematchDecline === 'function') {
+          leaveAfterRematchDecline(
+            (data && data.self) ? null : 'Соперник отклонил'
+          );
+        } else {
+          if (!(data && data.self)) {
+            try { showInfoToast('Реванш', 'Соперник отклонил', 'bad'); } catch (_) {}
           }
-        } catch (_) {}
-      } else {
-        try { restorePostMatchResultUI && restorePostMatchResultUI(); } catch (_) {}
-      }
+          try { restorePostMatchResultUI && restorePostMatchResultUI(); } catch (_) {}
+        }
+      } catch (_) {}
     } catch (_) {}
   });
 
@@ -1653,6 +1657,7 @@ function forceUnlockAfterIntroStuck() {
 
 /** After loading: flash "Старт!", then unlock and start the match timer. */
 function finishRoomMatchLoadAndGo() {
+  try { if (typeof prepareUiForLiveMatch === 'function') prepareUiForLiveMatch(); } catch (_) {}
   try {
     if (BPState.matchGoFallbackTimer) {
       clearTimeout(BPState.matchGoFallbackTimer);

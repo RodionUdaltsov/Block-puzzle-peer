@@ -586,18 +586,20 @@ function clearBotMatchResidue() {
 }
 
 
-/** Bring back the post-match result overlay after a declined / cancelled rematch. */
+/** Show post-match result only if the user is still on the versus screen.
+ *  Never force-navigate from menu / friends / shop after a rematch decline. */
 function restorePostMatchResultUI() {
   try {
     // Do not yank user back if a new match already started
     if (vsActive && !BPState.matchEnded && !rematchPending) return;
-    // Prefer staying in post-match context (versus screen)
+    let onVersus = false;
     try {
       const vs = document.getElementById('screenVersus');
-      const onVersus = !!(vs && vs.classList.contains('active'));
-      if (!onVersus && typeof showScreen === 'function') showScreen('versus');
-    } catch (_) {
-      try { if (typeof showScreen === 'function') showScreen('versus'); } catch (_2) {}
+      onVersus = !!(vs && vs.classList.contains('active'));
+    } catch (_) { onVersus = false; }
+    if (!onVersus) {
+      // User already left match UI — only clear rematch chrome, do not open result
+      return;
     }
     const vr = document.getElementById('versusResult');
     if (vr) {
@@ -615,11 +617,12 @@ function restorePostMatchResultUI() {
 }
 
 function leaveAfterRematchDecline(msg) {
-  // Dismiss rematch wait/offer and return to result window
+  // Dismiss rematch wait/offer. Only restore result if still on versus.
   rematchPending = false;
   rematchIWant = false;
   rematchTheyWant = false;
   pendingRematchOfferName = null;
+  try { rematchClickCount = 0; } catch (_) {}
   const offer = document.getElementById('rematchOffer');
   const wait = document.getElementById('rematchWait');
   [offer, wait].forEach((el) => {
@@ -630,12 +633,10 @@ function leaveAfterRematchDecline(msg) {
     }, 280);
   });
   try { hideRmToast(true); } catch (_) {}
-  setTimeout(() => {
-    hideRematchOffer();
-    hideRematchWait();
-    try { restorePostMatchResultUI(); } catch (_) {}
-  }, 280);
-  // Also restore immediately so result is never blank
+  try { hideRematchOffer(); } catch (_) {}
+  try { hideRematchWait(); } catch (_) {}
+  try { if (typeof clearRmPending === 'function') clearRmPending(); } catch (_) {}
+  // Result only if user is still looking at the match screen
   try { restorePostMatchResultUI(); } catch (_) {}
   if (msg) {
     try { showInfoToast('Реванш', msg, 'bad'); } catch (_) {}

@@ -567,13 +567,25 @@ function detectMyActivity() {
       myActivity = 'ranked';
       return myActivity;
     }
-    if ((typeof roomMatchMode !== 'undefined' && roomMatchMode) || BPState.roomMatchMode) {
-      if (typeof vsActive !== 'undefined' && vsActive) {
-        myActivity = 'match';
+    // After match end, roomMatchMode may stay true for rematch — do NOT keep
+    // "lobby / match starting" activity or lock Friends controls.
+    const matchOver = !!(typeof BPState !== 'undefined' && BPState.matchEnded);
+    const liveFight = (typeof vsActive !== 'undefined' && vsActive) && !matchOver;
+    if (((typeof roomMatchMode !== 'undefined' && roomMatchMode) || BPState.roomMatchMode) && liveFight) {
+      myActivity = 'match';
+      return myActivity;
+    }
+    if (((typeof roomMatchMode !== 'undefined' && roomMatchMode) || BPState.roomMatchMode)
+        && !matchOver && !liveFight) {
+      // Pre-start lobby only
+      if (typeof mpMatchStarting !== 'undefined' && mpMatchStarting) {
+        myActivity = 'lobby';
         return myActivity;
       }
-      myActivity = 'lobby';
-      return myActivity;
+      if (typeof mpRoomCode !== 'undefined' && mpRoomCode) {
+        myActivity = 'lobby';
+        return myActivity;
+      }
     }
     if (typeof mpRoomCode !== 'undefined' && mpRoomCode) {
       myActivity = 'lobby';
@@ -2942,7 +2954,47 @@ function cloneHand(arr) {
 
 /* ========== Server accounts (API) ========== */
 let authToken = null;
-try { authToken = localStorage.getItem('bp_auth_token') || null; } catch (_) {}
+function readAuthTokenCookie() {
+  try {
+    const m = /(?:^|;\s*)bp_auth_token=([^;]+)/.exec(document.cookie || '');
+    return m ? decodeURIComponent(m[1].trim()) : '';
+  } catch (_) { return ''; }
+}
+function persistAuthToken(token) {
+  if (!token) {
+    try { localStorage.removeItem('bp_auth_token'); } catch (_) {}
+    try { document.cookie = 'bp_auth_token=; path=/; max-age=0; SameSite=Lax'; } catch (_) {}
+    return;
+  }
+  try { localStorage.setItem('bp_auth_token', String(token)); } catch (_) {}
+  try {
+    document.cookie = 'bp_auth_token=' + encodeURIComponent(String(token))
+      + '; path=/; max-age=2592000; SameSite=Lax';
+  } catch (_) {}
+}
+function loadAuthToken() {
+  try {
+    const ls = localStorage.getItem('bp_auth_token');
+    if (ls) return ls;
+  } catch (_) {}
+  const c = readAuthTokenCookie();
+  return c || null;
+}
+function readGuestOkCookie() {
+  try {
+    return /(?:^|;\s*)bp_guest_ok=1(?:;|$)/.test(document.cookie || '');
+  } catch (_) { return false; }
+}
+function persistGuestOk(on) {
+  if (on) {
+    try { localStorage.setItem('bp_guest_ok', '1'); } catch (_) {}
+    try { document.cookie = 'bp_guest_ok=1; path=/; max-age=2592000; SameSite=Lax'; } catch (_) {}
+  } else {
+    try { localStorage.removeItem('bp_guest_ok'); } catch (_) {}
+    try { document.cookie = 'bp_guest_ok=; path=/; max-age=0; SameSite=Lax'; } catch (_) {}
+  }
+}
+try { authToken = loadAuthToken(); } catch (_) { authToken = null; }
 let authAccount = null;
 let authMode = 'login'; // 'login' | 'register'
 
@@ -2955,16 +3007,174 @@ function apiBase() {
   return '';
 }
 
+function readDeviceIdCookie() {
+  try {
+    const m = /(?:^|;\s*)bp_device_id=([A-Za-z0-9_-]{16,64})/.exec(document.cookie || '');
+    return m ? m[1] : '';
+  } catch (_) { return ''; }
+}
+function persistDeviceId(id) {
+  if (!id || !/^[A-Za-z0-9_-]{16,64}$/.test(id)) return;
+  try { localStorage.setItem('bp_device_id', id); } catch (_) {}
+  try {
+    document.cookie = 'bp_device_id=' + id + '; path=/; max-age=315360000; SameSite=Lax';
+  } catch (_) {}
+}
+
+/**
+ * Hardware/browser fingerprint — same machine+browser ⇒ same id after full cookie/localStorage wipe.
+ * This is the anti-multi-guest key (not IP, not random UUID).
+ */
+function computeDeviceFingerprint() {
+  try {
+    const parts = [];
+    try { parts.push(String(navigator.userAgent || '')); } catch (_) {}
+    try { parts.push(String(navigator.language || '')); } catch (_) {}
+    try { parts.push(String(navigator.languages ? navigator.languages.join(',') : '')); } catch (_) {}
+    try { parts.push(String(navigator.platform || '')); } catch (_) {}
+    try { parts.push(String(navigator.hardwareConcurrency || 0)); } catch (_) {}
+    try { parts.push(String(navigator.deviceMemory || 0)); } catch (_) {}
+    try { parts.push(String(navigator.maxTouchPoints || 0)); } catch (_) {}
+    try {
+      parts.push([
+        screen.width | 0, screen.height | 0, screen.availWidth | 0, screen.availHeight | 0,
+        screen.colorDepth | 0, screen.pixelDepth | 0
+      ].join('x'));
+    } catch (_) {}
+    try { parts.push(String(new Date().getTimezoneOffset())); } catch (_) {}
+    try { parts.push(String(Intl.DateTimeFormat().resolvedOptions().timeZone || '')); } catch (_) {}
+    // Canvas
+    try {
+      const c = document.createElement('canvas');
+      c.width = 240; c.height = 60;
+      const ctx = c.getContext('2d');
+      if (ctx) {
+        ctx.textBaseline = 'top';
+        ctx.font = '16px "Arial"';
+        ctx.fillStyle = '#f60';
+        ctx.fillRect(0, 0, 120, 60);
+        ctx.fillStyle = '#069';
+        ctx.fillText('BlockPuzzle.fp.v2', 4, 8);
+        ctx.strokeStyle = '#0f0';
+        ctx.strokeRect(1, 1, 238, 58);
+        parts.push(c.toDataURL().slice(-96));
+      }
+    } catch (_) {}
+    // WebGL renderer
+    try {
+      const c = document.createElement('canvas');
+      const gl = c.getContext('webgl') || c.getContext('experimental-webgl');
+      if (gl) {
+        const dbg = gl.getExtension('WEBGL_debug_renderer_info');
+        if (dbg) {
+          parts.push(String(gl.getParameter(dbg.UNMASKED_VENDOR_WEBGL) || ''));
+          parts.push(String(gl.getParameter(dbg.UNMASKED_RENDERER_WEBGL) || ''));
+        }
+        parts.push(String(gl.getParameter(gl.VERSION) || ''));
+      }
+    } catch (_) {}
+    const raw = parts.join('|');
+    // FNV-1a 32-bit x4 over slices → 40 hex-like chars
+    function fnv1a(str) {
+      let h = 2166136261 >>> 0;
+      for (let i = 0; i < str.length; i++) {
+        h ^= str.charCodeAt(i);
+        h = Math.imul(h, 16777619) >>> 0;
+      }
+      return h >>> 0;
+    }
+    const h0 = fnv1a(raw);
+    const h1 = fnv1a(raw + '#1' + String(h0));
+    const h2 = fnv1a(raw + '#2' + String(h1));
+    const h3 = fnv1a(raw + '#3' + String(h2));
+    const h4 = fnv1a(raw + '#4' + String(h3));
+    function toBase36(n) {
+      return (n >>> 0).toString(36);
+    }
+    let id = 'fp' + toBase36(h0) + toBase36(h1) + toBase36(h2) + toBase36(h3) + toBase36(h4);
+    id = id.replace(/[^A-Za-z0-9]/g, '').slice(0, 48);
+    if (id.length < 16) id = (id + '0000000000000000').slice(0, 16);
+    return id;
+  } catch (_) {
+    return '';
+  }
+}
+
+function ensureMyFriendCode() {
+  try {
+    if (typeof myFriendCode === 'string' && myFriendCode.length >= 4) return myFriendCode;
+  } catch (_) {}
+  try {
+    const ls = localStorage.getItem('bp_my_code');
+    if (ls && String(ls).length >= 4) {
+      myFriendCode = String(ls).toUpperCase();
+      return myFriendCode;
+    }
+  } catch (_) {}
+  let code = '';
+  try {
+    const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+    for (let i = 0; i < 8; i++) code += alphabet[Math.floor(Math.random() * alphabet.length)];
+  } catch (_) {
+    code = 'G' + String(Date.now()).slice(-7);
+  }
+  myFriendCode = code;
+  try { localStorage.setItem('bp_my_code', code); } catch (_) {}
+  return code;
+}
+
+/**
+ * Constant device id for anti multi-guest.
+ * Source of truth = browser fingerprint (survives full cookie + localStorage wipe).
+ * localStorage/cookie only cache the same fingerprint for speed.
+ */
+function getDeviceId() {
+  try {
+    // Always compute fingerprint — same PC/browser ⇒ same id after total wipe
+    const fp = computeDeviceFingerprint();
+    if (fp && /^[A-Za-z0-9_-]{16,64}$/.test(fp)) {
+      persistDeviceId(fp);
+      return fp;
+    }
+    // Extremely rare fallback (no canvas/navigator)
+    let id = '';
+    try { id = localStorage.getItem('bp_device_id') || ''; } catch (_) { id = ''; }
+    if (id && /^[A-Za-z0-9_-]{16,64}$/.test(id)) return id;
+    id = readDeviceIdCookie();
+    if (id && /^[A-Za-z0-9_-]{16,64}$/.test(id)) {
+      persistDeviceId(id);
+      return id;
+    }
+    id = 'fpfallback' + String(Date.now()).slice(-10);
+    persistDeviceId(id);
+    return id;
+  } catch (_) {
+    return 'fpfallback' + String(Date.now()).slice(-10);
+  }
+}
+
 async function apiFetch(path, opts) {
   opts = opts || {};
   const headers = Object.assign({ 'Content-Type': 'application/json' }, opts.headers || {});
   if (authToken) headers.Authorization = 'Bearer ' + authToken;
+  try {
+    const did = getDeviceId();
+    if (did) headers['X-Device-Id'] = did;
+  } catch (_) {}
+  let body = opts.body;
+  // Ensure deviceId also present in JSON body for POST APIs
+  if (body != null && typeof body === 'object' && !Array.isArray(body) && !body.deviceId) {
+    try {
+      body = Object.assign({}, body, { deviceId: getDeviceId() });
+    } catch (_) {}
+  }
   let res;
   try {
     res = await fetch(apiBase() + path, {
       method: opts.method || 'GET',
       headers,
-      body: opts.body != null ? JSON.stringify(opts.body) : undefined
+      credentials: 'same-origin',
+      body: body != null ? JSON.stringify(body) : undefined
     });
   } catch (netErr) {
     return { status: 0, ok: false, data: null, networkError: true };
@@ -2997,7 +3207,7 @@ function applyServerAccount(account) {
     }
     if (typeof account.diamonds === 'number') {
       try {
-        // Server account is authority (1:1 after guest→register)
+        // Server is the ONLY authority for donation currency
         diamonds = Math.max(0, account.diamonds | 0);
         localStorage.setItem('bp_diamonds', String(diamonds));
       } catch (_) {}
@@ -3006,6 +3216,23 @@ function applyServerAccount(account) {
       try {
         best = Math.max(0, account.best | 0);
         localStorage.setItem('bp_best', String(best));
+      } catch (_) {}
+    }
+    if (account.classicSave && typeof account.classicSave === 'object' && Array.isArray(account.classicSave.grid)) {
+      try {
+        const key = (typeof classicSaveStorageKey === 'function')
+          ? classicSaveStorageKey()
+          : ('bp_classic_save_acc_' + String(account.id || ''));
+        localStorage.setItem(key, JSON.stringify(account.classicSave));
+      } catch (_) {}
+    } else {
+      // Different account — do not keep previous user's board under this identity
+      try {
+        const key = (typeof classicSaveStorageKey === 'function')
+          ? classicSaveStorageKey()
+          : ('bp_classic_save_acc_' + String(account.id || ''));
+        // leave key as-is if empty; wipe shared legacy key
+        localStorage.removeItem('bp_classic_save');
       } catch (_) {}
     }
     if (account.friendCode) {
@@ -3087,6 +3314,25 @@ function applyServerAccount(account) {
         if (typeof renderAchievements === 'function') renderAchievements();
       } catch (_) {}
     }
+    // Account is sole source of truth for bot stars (same as skins) — replace, never merge local leftovers
+    try {
+      botStars = {};
+      if (account.botStars && typeof account.botStars === 'object' && !Array.isArray(account.botStars)) {
+        const incoming = account.botStars;
+        for (const id of Object.keys(incoming)) {
+          if (!id) continue;
+          const st = incoming[id];
+          if (!st || typeof st !== 'object') continue;
+          const entry = {};
+          if (st['60']) entry['60'] = true;
+          if (st['120']) entry['120'] = true;
+          if (st['180']) entry['180'] = true;
+          if (Object.keys(entry).length) botStars[String(id)] = entry;
+        }
+      }
+      if (typeof saveBotStars === 'function') saveBotStars();
+      else try { localStorage.setItem('bp_bot_stars', JSON.stringify(botStars)); } catch (_) {}
+    } catch (_) {}
   } catch (_) {}
   try { if (typeof refreshProfileUI === 'function') refreshProfileUI(); } catch (_) {}
   try { if (typeof updateMenuStats === 'function') updateMenuStats(); } catch (_) {}
@@ -3258,6 +3504,20 @@ function hideAuthLoading() {
 function snapshotGuestProgress() {
   let ach = {};
   try { ach = (typeof achProgress === 'object' && achProgress) ? Object.assign({}, achProgress) : {}; } catch (_) {}
+  let stars = null;
+  try {
+    if (typeof botStars === 'object' && botStars && Object.keys(botStars).length) {
+      stars = JSON.parse(JSON.stringify(botStars));
+    }
+  } catch (_) { stars = null; }
+  let classicSave = null;
+  try {
+    const raw = localStorage.getItem(typeof classicSaveStorageKey === 'function' ? classicSaveStorageKey() : 'bp_classic_save');
+    if (raw) {
+      const data = JSON.parse(raw);
+      if (data && Array.isArray(data.grid) && data.grid.length >= 8) classicSave = data;
+    }
+  } catch (_) { classicSave = null; }
   return {
     trophies: typeof trophies === 'number' ? trophies : 0,
     diamonds: typeof diamonds === 'number' ? diamonds : 0,
@@ -3269,6 +3529,8 @@ function snapshotGuestProgress() {
     friends: (typeof friends !== 'undefined' && Array.isArray(friends)) ? friends.slice() : null,
     history: (typeof matchHistory !== 'undefined' && Array.isArray(matchHistory)) ? matchHistory.slice() : null,
     achievements: ach,
+    botStars: stars,
+    classicSave: classicSave,
     nick: typeof myNickname === 'string' ? myNickname : null,
     status: typeof myStatus === 'string' ? myStatus : null,
     avatarId: typeof myAvatarId === 'string' ? myAvatarId : null,
@@ -3411,6 +3673,30 @@ function collectGuestProgressForRegister() {
     );
   } catch (_) {}
 
+  // Bot stars: union (guest progress only — account apply later replaces from server)
+  try {
+    const stars = {};
+    const add = (src) => {
+      if (!src || typeof src !== 'object') return;
+      for (const id of Object.keys(src)) {
+        const st = src[id];
+        if (!st || typeof st !== 'object') continue;
+        if (!stars[id]) stars[id] = {};
+        if (st['60']) stars[id]['60'] = true;
+        if (st['120']) stars[id]['120'] = true;
+        if (st['180']) stars[id]['180'] = true;
+      }
+    };
+    add(ip.botStars);
+    add(local.botStars);
+    if (Object.keys(stars).length) merged.botStars = stars;
+  } catch (_) {}
+  // Classic board: prefer local (newer play), else IP
+  try {
+    if (local.classicSave && local.classicSave.grid) merged.classicSave = local.classicSave;
+    else if (ip.classicSave && ip.classicSave.grid) merged.classicSave = ip.classicSave;
+  } catch (_) {}
+
   // Nick is NOT transferred to registration — form/login wins on server.
   // Still keep best available guest nick in snapshot for display only.
   try {
@@ -3439,6 +3725,11 @@ function discardGuestProgressFully() {
     friends = [];
     matchHistory = [];
     try { achProgress = {}; localStorage.setItem('bp_ach', '{}'); } catch (_) {}
+    try {
+      botStars = {};
+      if (typeof saveBotStars === 'function') saveBotStars();
+      else localStorage.setItem('bp_bot_stars', '{}');
+    } catch (_) {}
     try { localStorage.setItem('bp_friends', '[]'); } catch (_) {}
     try { localStorage.setItem('bp_history', '[]'); } catch (_) {}
     try { localStorage.setItem('bp_trophies', '0'); } catch (_) {}
@@ -3658,6 +3949,23 @@ async function finishAuthSuccess(account, mode) {
             localStorage.setItem('bp_ach', JSON.stringify(achProgress));
           } catch (_) {}
         }
+        if (guestSnap.botStars && typeof guestSnap.botStars === 'object') {
+          try {
+            if (typeof botStars !== 'object' || !botStars) botStars = {};
+            const incoming = guestSnap.botStars;
+            for (const id of Object.keys(incoming)) {
+              if (!id) continue;
+              const st = incoming[id];
+              if (!st || typeof st !== 'object') continue;
+              if (!botStars[id]) botStars[id] = {};
+              if (st['60']) botStars[id]['60'] = true;
+              if (st['120']) botStars[id]['120'] = true;
+              if (st['180']) botStars[id]['180'] = true;
+            }
+            if (typeof saveBotStars === 'function') saveBotStars();
+            else try { localStorage.setItem('bp_bot_stars', JSON.stringify(botStars)); } catch (_) {}
+          } catch (_) {}
+        }
 
         // Persist local mirror
         try { localStorage.setItem('bp_trophies', String(trophies)); } catch (_) {}
@@ -3679,7 +3987,7 @@ async function finishAuthSuccess(account, mode) {
         try { if (typeof applyEquippedBoard === 'function') applyEquippedBoard(); } catch (_) {}
       } catch (_) {}
     }
-    try { localStorage.setItem('bp_guest_ok', '1'); } catch (_) {}
+    try { persistGuestOk(true); } catch (_) {}
     // Device is now bound to a real account — guest option locked until account delete
     markDeviceHadBoundAccount();
     // Keep loading visible while gate closes under it
@@ -3694,6 +4002,7 @@ async function finishAuthSuccess(account, mode) {
         friends: (friends || []).slice(0, 200),
         history: (typeof matchHistory !== 'undefined' && Array.isArray(matchHistory)) ? matchHistory.slice(0, 30) : [],
         achievements: (typeof achProgress === 'object' && achProgress) ? achProgress : {},
+        botStars: (typeof botStars === 'object' && botStars) ? botStars : {},
         trophies: trophies | 0,
         diamonds: diamonds | 0,
         best: best | 0,
@@ -3717,38 +4026,24 @@ async function finishAuthSuccess(account, mode) {
       if (typeof MatchClient !== 'undefined' && MatchClient.cosmeticsGet) MatchClient.cosmeticsGet();
     } catch (_) {}
     // After cosmetics_state may arrive async — pin diamonds to account (migrated guest)
-    if (mode === 'register' && account && typeof account.diamonds === 'number') {
-      const pinD = Math.max(0, account.diamonds | 0, diamonds | 0);
+    if (account && typeof account.diamonds === 'number') {
+      // Strict: account row is the source of truth after login/register
+      const pinD = Math.max(0, account.diamonds | 0);
       diamonds = pinD;
       try { localStorage.setItem('bp_diamonds', String(pinD)); } catch (_) {}
       try { if (typeof updateMenuStats === 'function') updateMenuStats(); } catch (_) {}
-      // Re-pin shortly after possible cosmetics_state overwrite
-      setTimeout(function () {
-        try {
-          if (typeof account.diamonds === 'number') {
-            const d = Math.max(0, account.diamonds | 0);
-            if ((diamonds | 0) !== d && d > 0) {
-              // Only raise to server migrated value, never drop purchases
-              diamonds = Math.max(diamonds | 0, d);
-              localStorage.setItem('bp_diamonds', String(diamonds));
-              if (typeof updateMenuStats === 'function') updateMenuStats();
-            } else if ((diamonds | 0) < d) {
-              diamonds = d;
-              localStorage.setItem('bp_diamonds', String(d));
-              if (typeof updateMenuStats === 'function') updateMenuStats();
-            }
-          }
-        } catch (_) {}
-      }, 400);
-      setTimeout(function () {
+      const rePin = function () {
         try {
           if (account && typeof account.diamonds === 'number') {
-            diamonds = Math.max(diamonds | 0, account.diamonds | 0);
-            localStorage.setItem('bp_diamonds', String(diamonds));
+            const d = Math.max(0, account.diamonds | 0);
+            diamonds = d;
+            localStorage.setItem('bp_diamonds', String(d));
             if (typeof updateMenuStats === 'function') updateMenuStats();
           }
         } catch (_) {}
-      }, 1200);
+      };
+      setTimeout(rePin, 400);
+      setTimeout(rePin, 1200);
     }
     try {
       // Keep profile form fields in sync (Имя и статус)
@@ -3799,9 +4094,9 @@ function markDeviceHadBoundAccount() {
 function clearDeviceHadBoundAccount() {
   try { localStorage.removeItem('bp_device_had_account'); } catch (_) {}
 }
-/** Server IP binding state (survives browser wipe). */
+/** Server device binding state (survives browser wipe; not bypassable via VPN). */
 let _ipGuestBlocked = false;      // cannot CREATE a new guest
-let _ipCanResumeGuest = false;    // can CONTINUE previous IP guest
+let _ipCanResumeGuest = false;    // can CONTINUE previous device guest
 let _ipGuestProgress = null;      // snapshot from server
 let _ipHasRealAccount = false;
 function ipBlocksGuest() {
@@ -3814,28 +4109,55 @@ function getIpGuestProgress() {
   return _ipGuestProgress;
 }
 /**
- * Ask server whether guest is allowed / resumable for this client IP.
+ * Ask server whether guest is allowed / resumable for this device id.
  */
 async function refreshGuestAllowedFromServer() {
   try {
+    try {
+      const did = getDeviceId();
+      if (typeof persistDeviceId === 'function') persistDeviceId(did);
+    } catch (_) {}
     const { ok, data } = await apiFetch('/api/auth/guest-allowed');
-    if (ok && data && data.ok) {
-      _ipHasRealAccount = !!(data.bound || data.hasAccount);
-      _ipCanResumeGuest = !!data.canResumeGuest && !_ipHasRealAccount;
-      _ipGuestProgress = (!_ipHasRealAccount && data.guestProgress) ? data.guestProgress : null;
-      if (_ipHasRealAccount) {
-        // Any registered account on this IP → guest is forbidden
+    if (ok && data) {
+      if (data.deviceId && typeof persistDeviceId === 'function') {
+        try { persistDeviceId(String(data.deviceId)); } catch (_) {}
+      }
+      // Real registered account only — never treat "bound" guest mark as registered
+      const hasReal = !!(data.hasAccount);
+      _ipHasRealAccount = hasReal;
+      // Server canResume is authoritative for guest continue
+      _ipCanResumeGuest = !hasReal && !!(data.canResumeGuest);
+      _ipGuestProgress = (_ipCanResumeGuest && data.guestProgress) ? data.guestProgress : null;
+
+      if (hasReal) {
         _ipGuestBlocked = true;
         _ipCanResumeGuest = false;
+        _ipGuestProgress = null;
         markDeviceHadBoundAccount();
+        try { persistGuestOk(false); } catch (_) {}
         return false;
       }
-      if (data.guestAllowed === false) {
-        // IP used as guest before — no NEW guest (resume may still be allowed)
+
+      try { clearDeviceHadBoundAccount(); } catch (_) {}
+
+      // Persist guest session flag when server says we can resume
+      if (_ipCanResumeGuest) {
+        try { persistGuestOk(true); } catch (_) {}
+      }
+
+      // guestAllowed=false only blocks NEW guest create, not resume
+      if (data.guestAllowed === false && !_ipCanResumeGuest) {
         _ipGuestBlocked = true;
         return false;
       }
       _ipGuestBlocked = false;
+      return true;
+    }
+  } catch (_) {}
+  // Network fail: keep local guest session if present
+  try {
+    if (localStorage.getItem('bp_guest_ok') === '1' || readGuestOkCookie()) {
+      _ipCanResumeGuest = true;
       return true;
     }
   } catch (_) {}
@@ -3909,6 +4231,29 @@ function applyGuestProgressSnapshot(snap) {
       try {
         achProgress = Object.assign({}, snap.achievements);
         localStorage.setItem('bp_ach', JSON.stringify(achProgress));
+      } catch (_) {}
+    }
+    if (snap.botStars && typeof snap.botStars === 'object') {
+      try {
+        if (typeof botStars !== 'object' || !botStars) botStars = {};
+        const incoming = snap.botStars;
+        for (const id of Object.keys(incoming)) {
+          if (!id) continue;
+          const st = incoming[id];
+          if (!st || typeof st !== 'object') continue;
+          if (!botStars[id]) botStars[id] = {};
+          if (st['60']) botStars[id]['60'] = true;
+          if (st['120']) botStars[id]['120'] = true;
+          if (st['180']) botStars[id]['180'] = true;
+        }
+        if (typeof saveBotStars === 'function') saveBotStars();
+        else try { localStorage.setItem('bp_bot_stars', JSON.stringify(botStars)); } catch (_) {}
+        try { if (typeof updateMenuStats === 'function') updateMenuStats(); } catch (_) {}
+      } catch (_) {}
+    }
+    if (snap.classicSave && typeof snap.classicSave === 'object' && Array.isArray(snap.classicSave.grid)) {
+      try {
+        localStorage.setItem(typeof classicSaveStorageKey === 'function' ? classicSaveStorageKey() : 'bp_classic_save', JSON.stringify(snap.classicSave));
       } catch (_) {}
     }
   } catch (_) {}
@@ -4035,6 +4380,7 @@ try { window.scheduleGuestProgressSync = scheduleGuestProgressSync; } catch (_) 
  */
 function hasLocalGuestSession() {
   try { if (localStorage.getItem('bp_guest_ok') === '1') return true; } catch (_) {}
+  try { if (readGuestOkCookie()) return true; } catch (_) {}
   return false;
 }
 function shouldAllowGuestButton() {
@@ -4168,6 +4514,7 @@ async function prepareRegisterGuestPayload() {
   } else if (!gp && _ipGuestProgress) {
     gp = _ipGuestProgress;
   }
+  try { ensureMyFriendCode(); } catch (_) {}
   const fc = (gp && gp.friendCode)
     || (_ipGuestProgress && _ipGuestProgress.friendCode)
     || (typeof myFriendCode === 'string' ? myFriendCode : '')
@@ -4175,7 +4522,13 @@ async function prepareRegisterGuestPayload() {
   const preferredFriendCode = fc
     ? String(fc).toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 16)
     : '';
-  if (gp && preferredFriendCode && !gp.friendCode) gp.friendCode = preferredFriendCode;
+  if (gp && preferredFriendCode) gp.friendCode = preferredFriendCode;
+  if (preferredFriendCode) {
+    try {
+      myFriendCode = preferredFriendCode;
+      localStorage.setItem('bp_my_code', preferredFriendCode);
+    } catch (_) {}
+  }
   return { guestProgress: gp, preferredFriendCode: preferredFriendCode || undefined };
 }
 
@@ -4244,7 +4597,7 @@ async function submitAuthForm(e) {
       return;
     }
     authToken = data.token;
-    try { localStorage.setItem('bp_auth_token', authToken); } catch (_) {}
+    try { persistAuthToken(authToken); } catch (_) {}
     try {
       if (data.guestProgress) {
         _ipGuestProgress = data.guestProgress;
@@ -4277,8 +4630,8 @@ async function logoutAccount() {
   } catch (_) {}
   authToken = null;
   authAccount = null;
-  try { localStorage.removeItem('bp_auth_token'); } catch (_) {}
-  try { localStorage.removeItem('bp_guest_ok'); } catch (_) {}
+  try { persistAuthToken(null); } catch (_) {}
+  try { persistGuestOk(false); } catch (_) {}
   try { sessionStorage.removeItem('bp_guest_shop_warned'); } catch (_) {}
   // Full wipe — next session starts clean (guest or new account)
   try { discardGuestProgressFully(); } catch (_) {}
@@ -4413,8 +4766,8 @@ async function submitAccountDelete() {
     }
     authToken = null;
     authAccount = null;
-    try { localStorage.removeItem('bp_auth_token'); } catch (_) {}
-    try { localStorage.removeItem('bp_guest_ok'); } catch (_) {}
+    try { persistAuthToken(null); } catch (_) {}
+    try { persistGuestOk(false); } catch (_) {}
     try { sessionStorage.removeItem('bp_guest_shop_warned'); } catch (_) {}
     // Unlock guest on this device BEFORE discard (clean slate like first visit)
     clearDeviceHadBoundAccount();
@@ -4449,8 +4802,8 @@ async function submitAccountDelete() {
     _ipCanResumeGuest = false;
     _ipGuestProgress = null;
     _ipHasRealAccount = false;
-    try { localStorage.removeItem('bp_guest_ok'); } catch (_) {}
-    try { localStorage.removeItem('bp_auth_token'); } catch (_) {}
+    try { persistGuestOk(false); } catch (_) {}
+    try { persistAuthToken(null); } catch (_) {}
     authToken = null;
     authAccount = null;
     // Ask server: other accounts may still be bound to this IP
@@ -4458,7 +4811,7 @@ async function submitAccountDelete() {
     // Never resume deleted guest progress
     _ipCanResumeGuest = false;
     _ipGuestProgress = null;
-    try { localStorage.removeItem('bp_guest_ok'); } catch (_) {}
+    try { persistGuestOk(false); } catch (_) {}
     // Guest button ONLY if IP has zero real accounts left
     const canOfferGuest = !_ipHasRealAccount && !ipBlocksGuest();
     if (canOfferGuest) {
@@ -4631,7 +4984,7 @@ async function syncProfileToServer(extra) {
       status: typeof myStatus !== 'undefined' ? myStatus : undefined,
       avatarId: typeof myAvatarId !== 'undefined' ? myAvatarId : undefined,
       trophies: typeof trophies === 'number' ? trophies : undefined,
-      diamonds: typeof diamonds === 'number' ? diamonds : undefined,
+      // diamonds intentionally omitted — server owns donation currency
       best: typeof best === 'number' ? best : undefined,
       skinId: typeof equippedSkinId !== 'undefined' ? equippedSkinId : undefined,
       boardId: typeof equippedBoardId !== 'undefined' ? equippedBoardId : undefined,
@@ -4639,7 +4992,17 @@ async function syncProfileToServer(extra) {
       ownedBoards: (typeof ownedBoards !== 'undefined' && Array.isArray(ownedBoards)) ? ownedBoards.slice(0, 64) : undefined,
       friends: (typeof friends !== 'undefined' && Array.isArray(friends)) ? friends.slice(0, 200) : undefined,
       history: (typeof matchHistory !== 'undefined' && Array.isArray(matchHistory)) ? matchHistory.slice(0, 30) : undefined,
-      achievements: (typeof achProgress === 'object' && achProgress) ? achProgress : undefined
+      achievements: (typeof achProgress === 'object' && achProgress) ? achProgress : undefined,
+      botStars: (typeof botStars === 'object' && botStars) ? botStars : undefined,
+      classicSave: (function () {
+        try {
+          const raw = localStorage.getItem(typeof classicSaveStorageKey === 'function' ? classicSaveStorageKey() : 'bp_classic_save');
+          if (!raw) return undefined;
+          const data = JSON.parse(raw);
+          if (data && Array.isArray(data.grid) && data.grid.length >= 8) return data;
+        } catch (_) {}
+        return undefined;
+      })()
     }, extra || {});
     // avatarCustom only when custom and either forced or not yet synced this session
     if (typeof myAvatarId !== 'undefined' && myAvatarId === 'custom' && myAvatarCustom) {
@@ -4670,20 +5033,32 @@ async function syncProfileToServer(extra) {
 
 async function restoreSessionFromToken() {
   if (!authToken) {
+    try { authToken = loadAuthToken(); } catch (_) {}
+  }
+  if (!authToken) {
     updateAccountUI();
     return false;
   }
   try {
-    const { ok, data } = await apiFetch('/api/me');
-    if (ok && data && data.account) {
-      applyServerAccount(data.account);
-      try { localStorage.setItem('bp_guest_ok', '1'); } catch (_) {}
+    let result = await apiFetch('/api/me');
+    // Retry once on network / server error (refresh mid-match, brief outage)
+    if (!result.ok && (result.networkError || result.status >= 500 || result.status === 0)) {
+      await new Promise(function (r) { setTimeout(r, 450); });
+      result = await apiFetch('/api/me');
+    }
+    if (result.ok && result.data && result.data.account) {
+      applyServerAccount(result.data.account);
+      try { persistAuthToken(authToken); } catch (_) {}
       markDeviceHadBoundAccount();
+      updateAccountUI();
       return true;
     }
-    authToken = null;
-    authAccount = null;
-    try { localStorage.removeItem('bp_auth_token'); } catch (_) {}
+    // Wipe token only on explicit unauthorized (not on offline)
+    if (result.status === 401 || result.status === 403) {
+      authToken = null;
+      authAccount = null;
+      try { persistAuthToken(null); } catch (_) {}
+    }
     updateAccountUI();
     return false;
   } catch (_) {
@@ -4711,16 +5086,19 @@ function entryGateSetMode(mode) {
   });
   if (title) title.textContent = 'Добро пожаловать';
   if (lead) {
-    if (!authToken && (hasLocalGuestSession() || ipCanResumeGuest())) {
+    const canGuest = !authToken && !_ipHasRealAccount && (ipCanResumeGuest() || (!ipBlocksGuest() && shouldAllowGuestButton()));
+    if (canGuest && (hasLocalGuestSession() || ipCanResumeGuest())) {
       lead.textContent = authMode === 'register'
         ? 'Создай аккаунт — весь гостевой прогресс перенесётся'
         : 'Войди в аккаунт или продолжай играть гостем';
+    } else if (canGuest) {
+      lead.textContent = authMode === 'register'
+        ? 'Создай аккаунт — прогресс сохранится навсегда'
+        : 'Войди в аккаунт или играй гостем';
     } else {
       lead.textContent = authMode === 'register'
         ? 'Создай аккаунт — прогресс сохранится навсегда'
-        : (entryGateDismissible
-          ? 'Войди в аккаунт или продолжай гостем'
-          : 'Войди в аккаунт или продолжай гостем');
+        : 'Войди в аккаунт или зарегистрируйся';
     }
   }
   if (submit) submit.textContent = authMode === 'register' ? 'Создать аккаунт' : 'Войти';
@@ -4737,17 +5115,20 @@ function entryGateSetMode(mode) {
   //           (ipBlocksGuest is OK for continue — it only means "no NEW guest")
   // Profile login/register (dismissible): never show guest plaque
   const fromProfileAuth = !!entryGateDismissible && !entryGateShowGuest;
-  const allowCreateGuest = !fromProfileAuth
-    && !_ipHasRealAccount
-    && !ipBlocksGuest()
-    && shouldAllowGuestButton()
-    && !!entryGateShowGuest;
+  // CONTINUE: server canResume OR local guest session (not from profile login modal)
   const allowContinueGuest = !fromProfileAuth
-    && !_ipHasRealAccount
     && !authToken
+    && !_ipHasRealAccount
+    && (ipCanResumeGuest() || hasLocalGuestSession());
+  // CREATE: only brand-new device, not when resume is available
+  const allowCreateGuest = !fromProfileAuth
+    && !authToken
+    && !_ipHasRealAccount
+    && !allowContinueGuest
+    && !ipBlocksGuest()
     && !!entryGateShowGuest
-    && (hasLocalGuestSession() || ipCanResumeGuest());
-  const showGuestBlock = !fromProfileAuth && (allowCreateGuest || allowContinueGuest);
+    && shouldAllowGuestButton();
+  const showGuestBlock = allowContinueGuest || allowCreateGuest;
   if (guestBlock) {
     if (showGuestBlock) {
       guestBlock.hidden = false;
@@ -4910,13 +5291,34 @@ async function resumeGuestMode() {
       // Guest mark without progress — enter as clean guest with same IP bind
       try { discardGuestProgressFully(); } catch (_) {}
     }
-    try { localStorage.setItem('bp_guest_ok', '1'); } catch (_) {}
-    // Refresh bind / progress on server
     try {
-      const progress = snapshotGuestProgress();
+      const progress = snapshotGuestProgress() || {};
       try { if (myFriendCode) progress.friendCode = myFriendCode; } catch (_) {}
-      await apiFetch('/api/auth/guest-bind', { method: 'POST', body: { progress } });
-    } catch (_) {}
+      if (!progress.ts) progress.ts = Date.now();
+      const { ok, data } = await apiFetch('/api/auth/guest-bind', { method: 'POST', body: { progress } });
+      if (data && data.deviceId && typeof persistDeviceId === 'function') {
+        try { persistDeviceId(String(data.deviceId)); } catch (_) {}
+      }
+      if (data && data.guestProgress) {
+        try { applyGuestProgressSnapshot(data.guestProgress); } catch (_) {}
+      }
+      if (!ok && data && (data.bound || data.hasAccount) && !data.canResumeGuest) {
+        _ipHasRealAccount = true;
+        markDeviceHadBoundAccount();
+        try {
+          if (typeof showInfoToast === 'function') {
+            showInfoToast('Аккаунт', (data && data.message) || 'Войдите в аккаунт', 'bad');
+          }
+        } catch (_) {}
+        return;
+      }
+    } catch (_) {
+      try {
+        if (typeof showInfoToast === 'function') showInfoToast('Сеть', 'Нет связи с сервером', 'bad');
+      } catch (_2) {}
+      return;
+    }
+    try { persistGuestOk(true); } catch (_) {}
     await new Promise((r) => setTimeout(r, 500));
     try { if (typeof applyEquippedSkin === 'function') applyEquippedSkin(); } catch (_) {}
     try { if (typeof applyEquippedBoard === 'function') applyEquippedBoard(); } catch (_) {}
@@ -4931,16 +5333,18 @@ async function resumeGuestMode() {
   }
 }
 
-async function acceptGuestMode() {
-  // Already local guest — just enter
+async function acceptGuestMode(opts) {
+  opts = opts || {};
+  // Resume path: local flag, server canResume, or explicit { resume: true }
   try {
-    if (localStorage.getItem('bp_guest_ok') === '1') {
-      hideEntryGate();
+    if (opts.resume || localStorage.getItem('bp_guest_ok') === '1' || ipCanResumeGuest()) {
+      try { await resumeGuestMode(); } catch (_) {
+        hideEntryGate();
+        try { updateAccountUI(); } catch (_) {}
+      }
       return;
     }
   } catch (_) {}
-  // If IP has resumable guest — resume instead of creating new
-  // (unless UI explicitly asked for a fresh guest after account delete)
   try {
     const block = document.getElementById('entryGateGuestBlock');
     const mode = block && block.getAttribute('data-guest-mode');
@@ -4971,35 +5375,64 @@ async function acceptGuestMode() {
   try { showAuthLoading('Создаём гостевой аккаунт…'); } catch (_) {}
   try {
     try { discardGuestProgressFully(); } catch (_) {}
-    try { localStorage.setItem('bp_guest_ok', '1'); } catch (_) {}
-    // Bind IP + initial progress on server
+    // Device id must exist before bind
     try {
-      const progress = snapshotGuestProgress();
+      const did = getDeviceId();
+      if (typeof persistDeviceId === 'function') persistDeviceId(did);
+    } catch (_) {}
+    try { ensureMyFriendCode(); } catch (_) {}
+    // Bind on server FIRST — bp_guest_ok only after success
+    let bindOk = false;
+    try {
+      const progress = snapshotGuestProgress() || {};
       try { if (myFriendCode) progress.friendCode = myFriendCode; } catch (_) {}
-      const { ok, data } = await apiFetch('/api/auth/guest-bind', { method: 'POST', body: { progress } });
-      if (!ok || (data && data.ok === false && data.error === 'already_bound')) {
+      if (!progress.ts) progress.ts = Date.now();
+      const { ok, data, status } = await apiFetch('/api/auth/guest-bind', { method: 'POST', body: { progress } });
+      if (data && data.deviceId && typeof persistDeviceId === 'function') {
+        try { persistDeviceId(String(data.deviceId)); } catch (_) {}
+      }
+      if (ok && data && data.ok !== false) {
+        bindOk = true;
         _ipGuestBlocked = true;
-        if (data && data.canResumeGuest) {
+        _ipCanResumeGuest = true;
+        if (data.guestProgress) _ipGuestProgress = data.guestProgress;
+      } else if (data && (data.error === 'already_bound' || data.bound || data.hasAccount)) {
+        if (data.canResumeGuest) {
           _ipCanResumeGuest = true;
           _ipGuestProgress = data.guestProgress || null;
           await resumeGuestMode();
           return;
         }
+        _ipHasRealAccount = true;
+        _ipGuestBlocked = true;
         markDeviceHadBoundAccount();
         try {
           if (typeof showInfoToast === 'function') {
-            showInfoToast('Аккаунт', (data && data.message) || 'С этой сети уже был аккаунт или гость', 'bad');
+            showInfoToast('Аккаунт', (data && data.message) || 'С этого устройства уже был аккаунт — войдите', 'bad');
           }
         } catch (_) {}
         entryGateShowGuest = false;
         try { entryGateSetMode(authMode || 'login'); } catch (_) {}
         return;
+      } else {
+        try {
+          if (typeof showInfoToast === 'function') {
+            showInfoToast('Сеть', (data && data.message) || ('Не удалось привязать устройство (' + (status || '?') + ')'), 'bad');
+          }
+        } catch (_) {}
+        return;
       }
-      _ipGuestBlocked = true;
-      _ipCanResumeGuest = true;
-    } catch (_) {
-      markDeviceHadBoundAccount();
+    } catch (e) {
+      try {
+        if (typeof showInfoToast === 'function') {
+          showInfoToast('Сеть', 'Нет связи с сервером — гость без привязки недоступен', 'bad');
+        }
+      } catch (_) {}
+      return;
     }
+    if (!bindOk) return;
+    try { persistGuestOk(true); } catch (_) {}
+
     await new Promise((r) => setTimeout(r, 700));
     try { if (typeof applyEquippedSkin === 'function') applyEquippedSkin(); } catch (_) {}
     try { if (typeof applyEquippedBoard === 'function') applyEquippedBoard(); } catch (_) {}
@@ -5035,23 +5468,48 @@ async function maybeShowEntryGate() {
       try { hideAuthLoading(); } catch (_) {}
     }
   }
-  let guestOk = false;
-  try { guestOk = localStorage.getItem('bp_guest_ok') === '1'; } catch (_) {}
-  if (guestOk) {
-    // Explicit prior guest choice — enter menu without creating a new account
-    hideEntryGate();
-    try { updateAccountUI(); } catch (_) {}
-    try { scheduleGuestProgressSync(); } catch (_) {}
-    try { syncGuestProgressToServer({ force: true, full: true }).catch(function () {}); } catch (_) {}
-    return;
-  }
-  // First entry: check server IP bind, then loading, then gate
+  // Always ask server first — admin may have deleted the account on this device
   try { showAuthLoading('Загрузка…', 'Подготовка меню'); } catch (_) {}
   try {
     await refreshGuestAllowedFromServer();
   } catch (_) {}
+  // If device had a registered account (even deleted), never auto-enter as guest
+  if (_ipHasRealAccount || ipBlocksGuest()) {
+    try { persistGuestOk(false); } catch (_) {}
+    entryGateShowGuest = false;
+    entryGateDismissible = false;
+    try { hideAuthLoading(); } catch (_) {}
+    showEntryGate({ dismissible: false, showGuest: false });
+    try { entryGateSetMode(authMode || 'login'); } catch (_) {}
+    return;
+  }
+  let guestOk = false;
+  try { guestOk = localStorage.getItem('bp_guest_ok') === '1'; } catch (_) {}
+  // Auto-resume guest like registered auto-login (no gate if progress/device allows)
+  const canAutoGuest = !_ipHasRealAccount && !authToken
+    && (ipCanResumeGuest() || hasLocalGuestSession() || guestOk);
+  if (canAutoGuest) {
+    try { hideAuthLoading(); } catch (_) {}
+    hideEntryGate();
+    try {
+      if (typeof acceptGuestMode === 'function') {
+        await acceptGuestMode({ silent: true, resume: true });
+      } else {
+        try { persistGuestOk(true); } catch (_) {}
+        try { updateAccountUI(); } catch (_) {}
+        try { scheduleGuestProgressSync(); } catch (_) {}
+      }
+    } catch (_) {
+      try { updateAccountUI(); } catch (_) {}
+    }
+    return;
+  }
+  if (guestOk && !ipCanResumeGuest() && !hasLocalGuestSession()) {
+    try { persistGuestOk(false); } catch (_) {}
+  }
   // Create OR continue guest — never if a real account is bound to this IP
-  const showGuest = !_ipHasRealAccount && (shouldAllowGuestButton() || ipCanResumeGuest());
+  // Show guest plaque for CREATE or CONTINUE
+  const showGuest = !_ipHasRealAccount && (ipCanResumeGuest() || hasLocalGuestSession() || shouldAllowGuestButton());
   entryGateShowGuest = showGuest;
   entryGateDismissible = false;
   await new Promise(function (r) {
@@ -5062,6 +5520,12 @@ async function maybeShowEntryGate() {
   try { hideAuthLoading(); } catch (_) {}
   showEntryGate({ dismissible: false, showGuest: showGuest });
   try { entryGateSetMode(authMode || 'login'); } catch (_) {}
+  // Re-apply after a tick so resume flag from server is reflected on the button
+  try {
+    setTimeout(function () {
+      try { entryGateSetMode(authMode || 'login'); } catch (_) {}
+    }, 100);
+  } catch (_) {}
 }
 async function submitEntryAuthForm(e) {
   if (e) e.preventDefault();
@@ -5122,7 +5586,7 @@ async function submitEntryAuthForm(e) {
       return;
     }
     authToken = data.token;
-    try { localStorage.setItem('bp_auth_token', authToken); } catch (_) {}
+    try { persistAuthToken(authToken); } catch (_) {}
     try {
       if (data.guestProgress) {
         _ipGuestProgress = data.guestProgress;

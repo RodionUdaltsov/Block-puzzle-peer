@@ -173,12 +173,20 @@
         try {
           if (typeof BPRules !== 'undefined' && BPRules.PROTOCOL_VERSION) proto = BPRules.PROTOCOL_VERSION;
         } catch (_) {}
+        let deviceId = '';
+        try {
+          if (typeof getDeviceId === 'function') deviceId = getDeviceId();
+          else {
+            deviceId = localStorage.getItem('bp_device_id') || '';
+          }
+        } catch (_) {}
         this.send({
           type: 'client_info',
           platform: info.platform,
           os: info.os,
           protocolVersion: proto,
-          build: 'v3929m6'
+          build: 'v3929m6',
+          deviceId: deviceId || undefined
         });
       } catch (_) {}
     },

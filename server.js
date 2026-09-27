@@ -113,30 +113,56 @@ const PUBLIC = path.join(__dirname, 'public');
 let store = null;
 let accountsApi = null;
 
-/* —— IP ↔ account binding (survives browser data wipe) —— */
-const IP_BINDS_PATH = path.join(
-  (process.env.BP_DATA_DIR && String(process.env.BP_DATA_DIR)) || path.join(__dirname, 'data'),
-  'ip_binds.json'
-);
-let _ipBinds = {}; // ip -> { ids: string[], ts: number }
-function loadIpBinds() {
-  try {
-    _ipBinds = JSON.parse(fs.readFileSync(IP_BINDS_PATH, 'utf8')) || {};
-  } catch (_) {
-    _ipBinds = {};
-  }
+/* —— Device ↔ account binding (SQL; survives browser wipe, not bypassable via VPN) —— */
+const DEVICE_GUEST_MARK = '__guest__';
+const DEVICE_HAD_MARK = '__had_account__';
+
+function normalizeDeviceId(raw) {
+  const s = String(raw || '').trim();
+  if (!/^[A-Za-z0-9_-]{16,64}$/.test(s)) return '';
+  return s;
 }
-function saveIpBinds() {
+
+/** Prefer X-Device-Id header, then body.deviceId, then bp_device_id cookie. */
+function extractDeviceId(req, body) {
   try {
-    fs.mkdirSync(path.dirname(IP_BINDS_PATH), { recursive: true });
-    fs.writeFileSync(IP_BINDS_PATH, JSON.stringify(_ipBinds, null, 0), 'utf8');
+    const h = req && req.headers;
+    if (h) {
+      const fromHeader = h['x-device-id'] || h['X-Device-Id'];
+      const n = normalizeDeviceId(fromHeader);
+      if (n) return n;
+    }
   } catch (_) {}
+  try {
+    if (body && body.deviceId) {
+      const n = normalizeDeviceId(body.deviceId);
+      if (n) return n;
+    }
+  } catch (_) {}
+  try {
+    const raw = String((req && req.headers && req.headers.cookie) || '');
+    const m = /(?:^|;\s*)bp_device_id=([^;]+)/.exec(raw);
+    if (m) {
+      let v = decodeURIComponent(m[1].trim());
+      const n = normalizeDeviceId(v);
+      if (n) return n;
+    }
+  } catch (_) {}
+  return '';
 }
+
+function deviceIdSetCookieHeader(deviceId) {
+  const id = normalizeDeviceId(deviceId);
+  if (!id) return null;
+  // 10 years
+  return 'bp_device_id=' + id + '; Path=/; Max-Age=315360000; SameSite=Lax';
+}
+
+// Keep IP helper only for logs / rate-limit (not for guest binding).
 function normalizeClientIp(req) {
   try {
     const xf = String((req.headers && (req.headers['x-forwarded-for'] || req.headers['x-real-ip'])) || '');
     if (xf) {
-      // first hop in X-Forwarded-For
       const first = xf.split(',')[0].trim();
       if (first) return first.replace(/^::ffff:/, '');
     }
@@ -148,36 +174,195 @@ function normalizeClientIp(req) {
     return 'unknown';
   }
 }
-function ipHasBoundAccount(ip) {
-  if (!ip || ip === 'unknown' || ip === '127.0.0.1' || ip === '::1') {
-    // localhost: still track, but allow testing — actually user wants bind even on local
+
+async function loadDeviceBindRecord(deviceId) {
+  const id = normalizeDeviceId(deviceId);
+  if (!id || !store || typeof store.loadDeviceBind !== 'function') return null;
+  try {
+    return await store.loadDeviceBind(id);
+  } catch (_) {
+    return null;
   }
-  const e = _ipBinds[ip];
-  return !!(e && Array.isArray(e.ids) && e.ids.length > 0);
 }
-const IP_GUEST_MARK = '__guest__';
-function bindIpToAccount(ip, accountId) {
-  if (!ip || !accountId) return;
-  const id = String(accountId);
-  if (!_ipBinds[ip]) _ipBinds[ip] = { ids: [], ts: Date.now() };
-  if (_ipBinds[ip].ids.indexOf(id) === -1) _ipBinds[ip].ids.push(id);
-  _ipBinds[ip].ts = Date.now();
-  if (_ipBinds[ip].ids.length > 32) _ipBinds[ip].ids = _ipBinds[ip].ids.slice(-32);
-  saveIpBinds();
+
+async function persistDeviceBind(deviceId, rec) {
+  const id = normalizeDeviceId(deviceId);
+  if (!id) return false;
+  if (!store || typeof store.saveDeviceBind !== 'function') {
+    try { console.warn('[device] store.saveDeviceBind unavailable'); } catch (_) {}
+    return false;
+  }
+  try {
+    await store.saveDeviceBind(id, {
+      accountIds: Array.isArray(rec.accountIds) ? rec.accountIds : [],
+      guestProgress: rec.guestProgress || null,
+      updatedAt: Date.now()
+    });
+    return true;
+  } catch (e) {
+    try { console.warn('[device] saveDeviceBind failed', e && e.message); } catch (_) {}
+    return false;
+  }
 }
-function ipHasRealAccount(ip) {
-  const e = _ipBinds[ip];
-  if (!e || !Array.isArray(e.ids)) return false;
-  return e.ids.some((id) => id && id !== IP_GUEST_MARK);
+
+async function deviceHasBoundAccount(deviceId) {
+  const e = await loadDeviceBindRecord(deviceId);
+  if (!e || !Array.isArray(e.accountIds) || !e.accountIds.length) return false;
+  // Ignore legacy HAD-only rows (device is free for a new guest)
+  const meaningful = e.accountIds.some(
+    (id) => id && id !== DEVICE_HAD_MARK && id !== '__had_account__'
+  );
+  return meaningful;
 }
-function ipCanResumeGuest(ip) {
-  if (!ip || ipHasRealAccount(ip)) return false;
-  const e = _ipBinds[ip];
+
+/** True if device is linked to at least one live registered account id (not marks). */
+async function deviceHasRealAccount(deviceId) {
+  const e = await loadDeviceBindRecord(deviceId);
+  if (!e || !Array.isArray(e.accountIds)) return false;
+  return e.accountIds.some((id) => id && id !== DEVICE_GUEST_MARK && id !== DEVICE_HAD_MARK);
+}
+
+/**
+ * Forbid NEW guest only while at least one LIVE registered account is linked.
+ * After all accounts on this device are deleted, guest is allowed again.
+ */
+async function deviceForbidsNewGuest(deviceId) {
+  return deviceHasRealAccount(deviceId);
+}
+
+async function deviceCanResumeGuest(deviceId) {
+  if (!deviceId) return false;
+  // Live registered account on device → no guest
+  if (await deviceHasRealAccount(deviceId)) return false;
+  const e = await loadDeviceBindRecord(deviceId);
   if (!e) return false;
+  if (Array.isArray(e.accountIds) && e.accountIds.indexOf(DEVICE_GUEST_MARK) !== -1) return true;
   if (e.guestProgress && typeof e.guestProgress === 'object') return true;
-  if (Array.isArray(e.ids) && e.ids.indexOf(IP_GUEST_MARK) !== -1) return true;
   return false;
 }
+
+async function bindDeviceToAccount(deviceId, accountId) {
+  const id = normalizeDeviceId(deviceId);
+  if (!id || !accountId) return;
+  const aid = String(accountId);
+  let e = await loadDeviceBindRecord(id);
+  if (!e) e = { accountIds: [], guestProgress: null };
+  if (!Array.isArray(e.accountIds)) e.accountIds = [];
+  if (e.accountIds.indexOf(aid) === -1) e.accountIds.push(aid);
+  if (e.accountIds.length > 32) e.accountIds = e.accountIds.slice(-32);
+  await persistDeviceBind(id, e);
+}
+
+async function setDeviceGuestProgress(deviceId, progress) {
+  const id = normalizeDeviceId(deviceId);
+  if (!id) return;
+  let e = await loadDeviceBindRecord(id);
+  if (!e) e = { accountIds: [DEVICE_GUEST_MARK], guestProgress: null };
+  if (!Array.isArray(e.accountIds)) e.accountIds = [];
+  if (e.accountIds.indexOf(DEVICE_GUEST_MARK) === -1) e.accountIds.push(DEVICE_GUEST_MARK);
+  const cleaned = sanitizeGuestProgress(progress);
+  if (cleaned) {
+    const prev = e.guestProgress && typeof e.guestProgress === 'object' ? e.guestProgress : null;
+    const prevD = prev && typeof prev.diamonds === 'number' ? prev.diamonds : undefined;
+    const nextD = resolveAuthoritativeDiamonds(prevD, cleaned.diamonds);
+    e.guestProgress = Object.assign({}, prev || {}, cleaned);
+    if (typeof nextD === 'number') e.guestProgress.diamonds = nextD;
+    else if (prevD != null) e.guestProgress.diamonds = prevD;
+  }
+  await persistDeviceBind(id, e);
+  // Mirror to guest_progress table by friend code
+  try {
+    const code = e.guestProgress && e.guestProgress.friendCode
+      ? String(e.guestProgress.friendCode).toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 16)
+      : '';
+    if (code && store && typeof store.saveGuestProgress === 'function') {
+      await store.saveGuestProgress(code, e.guestProgress);
+    }
+  } catch (_) {}
+}
+
+async function getDeviceGuestProgress(deviceId) {
+  const e = await loadDeviceBindRecord(deviceId);
+  if (!e || !e.guestProgress) return null;
+  return sanitizeGuestProgress(e.guestProgress);
+}
+
+async function clearDeviceGuestMark(deviceId) {
+  const id = normalizeDeviceId(deviceId);
+  if (!id) return;
+  const e = await loadDeviceBindRecord(id);
+  if (!e) return;
+  if (Array.isArray(e.accountIds)) e.accountIds = e.accountIds.filter((x) => x !== DEVICE_GUEST_MARK);
+  if (!e.accountIds.length && !e.guestProgress) {
+    try {
+      if (store && typeof store.deleteDeviceBind === 'function') await store.deleteDeviceBind(id);
+    } catch (_) {}
+    return;
+  }
+  await persistDeviceBind(id, e);
+}
+
+async function bindDeviceGuest(deviceId, progress) {
+  const id = normalizeDeviceId(deviceId);
+  if (!id) return false;
+  if (await deviceHasRealAccount(id)) return false;
+  // Always stamp __guest__ + minimal progress IMMEDIATELY (not only after purchases)
+  let e = await loadDeviceBindRecord(id);
+  if (!e) e = { accountIds: [], guestProgress: null };
+  if (!Array.isArray(e.accountIds)) e.accountIds = [];
+  if (e.accountIds.indexOf(DEVICE_GUEST_MARK) === -1) e.accountIds.push(DEVICE_GUEST_MARK);
+  const cleaned = sanitizeGuestProgress(progress || {}) || { ts: Date.now() };
+  if (!cleaned.ts) cleaned.ts = Date.now();
+  // Keep existing progress fields if new payload is thinner
+  if (e.guestProgress && typeof e.guestProgress === 'object') {
+    e.guestProgress = Object.assign({}, e.guestProgress, cleaned);
+  } else {
+    e.guestProgress = cleaned;
+  }
+  const ok = await persistDeviceBind(id, e);
+  // Also mirror into guest_progress table by friend code when present
+  try {
+    const code = cleaned.friendCode
+      ? String(cleaned.friendCode).toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 16)
+      : '';
+    if (code && store && typeof store.saveGuestProgress === 'function') {
+      await store.saveGuestProgress(code, e.guestProgress);
+    }
+  } catch (_) {}
+  return !!ok;
+}
+
+async function unbindDeviceFully(deviceId) {
+  const id = normalizeDeviceId(deviceId);
+  if (!id || !store || typeof store.deleteDeviceBind !== 'function') return;
+  try {
+    await store.deleteDeviceBind(id);
+  } catch (_) {}
+}
+
+async function unbindAccountFromAllDevices(accountId) {
+  if (!accountId || !store || typeof store.unbindAccountFromDevices !== 'function') return;
+  try {
+    await store.unbindAccountFromDevices(String(accountId));
+  } catch (_) {}
+}
+
+
+/** Donation currency: never trust client 9999 to raise a stored balance. */
+function resolveAuthoritativeDiamonds(stored, incoming) {
+  const hasS = typeof stored === 'number' && isFinite(stored);
+  const hasI = typeof incoming === 'number' && isFinite(incoming);
+  if (!hasS && !hasI) return undefined;
+  if (!hasS) return Math.max(0, incoming | 0);
+  if (!hasI) return Math.max(0, stored | 0);
+  const s = Math.max(0, stored | 0);
+  const i = Math.max(0, incoming | 0);
+  // Client may spend (lower). Never allow jump up to classic starter 9999 if stored differs.
+  if (i === 9999 && s !== 9999) return s;
+  if (i < s) return i; // spent
+  return s; // ignore client increases
+}
+
 function sanitizeGuestProgress(raw) {
   if (!raw || typeof raw !== 'object') return null;
   const out = {};
@@ -197,6 +382,40 @@ function sanitizeGuestProgress(raw) {
     if (Array.isArray(raw.friends)) out.friends = raw.friends.slice(0, 200);
     if (Array.isArray(raw.history)) out.history = raw.history.slice(0, 30);
     if (raw.achievements && typeof raw.achievements === 'object') out.achievements = raw.achievements;
+    if (raw.botStars && typeof raw.botStars === 'object' && !Array.isArray(raw.botStars)) {
+      const stars = {};
+      const ids = Object.keys(raw.botStars).slice(0, 200);
+      for (const id of ids) {
+        const bid = String(id).slice(0, 32);
+        const st = raw.botStars[id];
+        if (!st || typeof st !== 'object') continue;
+        const entry = {};
+        if (st['60']) entry['60'] = true;
+        if (st['120']) entry['120'] = true;
+        if (st['180']) entry['180'] = true;
+        if (Object.keys(entry).length) stars[bid] = entry;
+      }
+      if (Object.keys(stars).length) out.botStars = stars;
+    }
+    if (raw.classicSave && typeof raw.classicSave === 'object') {
+      try {
+        const cs = raw.classicSave;
+        const grid = Array.isArray(cs.grid) ? cs.grid.slice(0, 12) : null;
+        if (grid && grid.length >= 8) {
+          out.classicSave = {
+            grid: grid.map((row) => Array.isArray(row) ? row.slice(0, 12).map((c) => (c == null ? null : String(c).slice(0, 24))) : []),
+            score: typeof cs.score === 'number' ? Math.max(0, cs.score | 0) : 0,
+            diamonds: typeof cs.diamonds === 'number' ? Math.max(0, cs.diamonds | 0) : undefined,
+            pieces: Array.isArray(cs.pieces) ? cs.pieces.slice(0, 6).map((p) => ({
+              shape: Array.isArray(p && p.shape) ? p.shape.slice(0, 16).map((c) => Array.isArray(c) ? [c[0]|0, c[1]|0] : c) : [],
+              color: p && p.color ? String(p.color).slice(0, 24) : '',
+              used: !!(p && p.used)
+            })) : [],
+            t: Date.now()
+          };
+        }
+      } catch (_) {}
+    }
     out.ts = Date.now();
   } catch (_) {}
   return out;
@@ -219,20 +438,14 @@ function mergeGuestProgressLayers() {
       out.trophies = Math.max(typeof out.trophies === 'number' ? out.trophies : 0, gp.trophies | 0);
     }
     if (typeof gp.diamonds === 'number' && isFinite(gp.diamonds)) {
-      // Fresh browser after wipe often sends starter 9999 with empty progress.
-      // Never let that overwrite real server-side guest balance.
-      const looksFreshStarter = (gp.diamonds | 0) === 9999
-        && !(gp.trophies > 0)
-        && !(gp.best > 0)
-        && !(Array.isArray(gp.ownedSkins) && gp.ownedSkins.length > 1);
-      if (looksFreshStarter && typeof out.diamonds === 'number' && out.diamonds !== 9999) {
-        // keep server diamonds
-      } else {
-        out.diamonds = Math.max(typeof out.diamonds === 'number' ? out.diamonds : 0, gp.diamonds | 0);
-      }
+      const resolved = resolveAuthoritativeDiamonds(out.diamonds, gp.diamonds);
+      if (typeof resolved === 'number') out.diamonds = resolved;
     }
     if (typeof gp.best === 'number' && isFinite(gp.best)) {
       out.best = Math.max(typeof out.best === 'number' ? out.best : 0, gp.best | 0);
+    }
+    if (gp.classicSave && typeof gp.classicSave === 'object' && Array.isArray(gp.classicSave.grid)) {
+      out.classicSave = gp.classicSave;
     }
     if (Array.isArray(gp.ownedSkins) && gp.ownedSkins.length) {
       const prev = Array.isArray(out.ownedSkins) ? out.ownedSkins : [];
@@ -265,76 +478,22 @@ function mergeGuestProgressLayers() {
     if (gp.achievements && typeof gp.achievements === 'object') {
       out.achievements = Object.assign({}, out.achievements || {}, gp.achievements);
     }
+    if (gp.botStars && typeof gp.botStars === 'object' && !Array.isArray(gp.botStars)) {
+      if (!out.botStars || typeof out.botStars !== 'object') out.botStars = {};
+      for (const id of Object.keys(gp.botStars).slice(0, 200)) {
+        const bid = String(id).slice(0, 32);
+        const st = gp.botStars[id];
+        if (!st || typeof st !== 'object') continue;
+        if (!out.botStars[bid]) out.botStars[bid] = {};
+        if (st['60']) out.botStars[bid]['60'] = true;
+        if (st['120']) out.botStars[bid]['120'] = true;
+        if (st['180']) out.botStars[bid]['180'] = true;
+      }
+    }
   }
   return out;
 }
 
-function setIpGuestProgress(ip, progress) {
-  if (!ip) return;
-  if (!_ipBinds[ip]) _ipBinds[ip] = { ids: [IP_GUEST_MARK], ts: Date.now() };
-  if (!_ipBinds[ip].ids) _ipBinds[ip].ids = [];
-  if (_ipBinds[ip].ids.indexOf(IP_GUEST_MARK) === -1) _ipBinds[ip].ids.push(IP_GUEST_MARK);
-  const cleaned = sanitizeGuestProgress(progress);
-  if (cleaned) _ipBinds[ip].guestProgress = cleaned;
-  _ipBinds[ip].ts = Date.now();
-  saveIpBinds();
-  // Durable server copy by friend code (same lifecycle as registered account data)
-  try {
-    const code = cleaned && cleaned.friendCode
-      ? String(cleaned.friendCode).toUpperCase().replace(/[^A-Z0-9]/g, '')
-      : '';
-    if (code && store && typeof store.saveGuestProgress === 'function') {
-      store.saveGuestProgress(code, cleaned).catch(() => {});
-    }
-  } catch (_) {}
-}
-function getIpGuestProgress(ip) {
-  const e = _ipBinds[ip];
-  if (!e || !e.guestProgress) return null;
-  return e.guestProgress;
-}
-function clearIpGuestProgress(ip) {
-  const e = _ipBinds[ip];
-  if (!e) return;
-  delete e.guestProgress;
-  if (Array.isArray(e.ids)) e.ids = e.ids.filter((x) => x !== IP_GUEST_MARK);
-  if (!e.ids.length && !e.guestProgress) delete _ipBinds[ip];
-  else e.ts = Date.now();
-  saveIpBinds();
-}
-/** Mark IP as having used guest mode (blocks further NEW guests after browser wipe). */
-function bindIpGuest(ip, progress) {
-  if (!ip) return false;
-  if (ipHasRealAccount(ip)) return false;
-  bindIpToAccount(ip, IP_GUEST_MARK);
-  if (progress) setIpGuestProgress(ip, progress);
-  return true;
-}
-function unbindIpFully(ip) {
-  if (!ip || !_ipBinds[ip]) return;
-  delete _ipBinds[ip];
-  saveIpBinds();
-}
-function unbindAccountFromIps(accountId) {
-  if (!accountId) return;
-  const id = String(accountId);
-  let changed = false;
-  for (const ip of Object.keys(_ipBinds)) {
-    const e = _ipBinds[ip];
-    if (!e || !Array.isArray(e.ids)) continue;
-    const next = e.ids.filter((x) => x !== id);
-    if (next.length !== e.ids.length) {
-      changed = true;
-      if (next.length === 0 && !e.guestProgress) delete _ipBinds[ip];
-      else {
-        e.ids = next;
-        e.ts = Date.now();
-      }
-    }
-  }
-  if (changed) saveIpBinds();
-}
-try { loadIpBinds(); } catch (_) {}
 
 
 function persistRoom(room) {
@@ -2249,17 +2408,208 @@ const server = http.createServer((req, res) => {
         (url === '/api/auth/guest-bind' && req.method === 'POST') ||
         (url === '/api/auth/guest-sync' && req.method === 'POST')
       );
-      if (!accountsApi && !isGuestIpApi) {
+      const isAdminApi = url.startsWith('/api/admin/');
+      if (!accountsApi && !isGuestIpApi && !isAdminApi) {
         sendJson(res, 503, { ok: false, error: 'accounts_unavailable', message: 'Сервис аккаунтов недоступен' });
         return;
       }
       (async () => {
         try {
+
+
+          // —— Local admin (view / wipe accounts) ——
+          if (url.startsWith('/api/admin/')) {
+            const adminKey = String(process.env.BP_ADMIN_KEY || 'localdev');
+            const q = (req.url || '').split('?')[1] || '';
+            const params = new URLSearchParams(q);
+            let key = params.get('key') || '';
+            // Read body ONCE (stream can only be consumed once)
+            let adminBody = {};
+            if (req.method !== 'GET') {
+              try { adminBody = await readJsonBody(req, 64 * 1024); } catch (_) { adminBody = {}; }
+              if (adminBody && adminBody.key) key = String(adminBody.key);
+            }
+            if (key !== adminKey) {
+              return sendJson(res, 403, { ok: false, error: 'forbidden', message: 'Неверный BP_ADMIN_KEY' });
+            }
+            const HAD = '__had_account__';
+
+            /**
+             * After account removal: detach account from devices.
+             * If device still has OTHER live accounts → guest stays forbidden.
+             * If no live accounts left → delete device bind so NEW guest is allowed.
+             */
+            async function markDevicesAfterAccountDelete(accountId, friendCode) {
+              if (!store || !store.pool) return;
+              try {
+                const { rows } = await store.pool.query(
+                  `SELECT device_id, account_ids, guest_progress FROM device_binds`
+                );
+                for (const r of (rows || [])) {
+                  let ids = Array.isArray(r.account_ids) ? r.account_ids.map(String) : [];
+                  if (!ids.some((x) => x === String(accountId))) continue;
+                  ids = ids.filter((x) => x && x !== String(accountId) && x !== '__guest__' && x !== HAD && x !== DEVICE_HAD_MARK);
+                  const stillLive = ids.some((x) => x && x !== DEVICE_GUEST_MARK && x !== HAD && x !== DEVICE_HAD_MARK);
+                  if (stillLive) {
+                    await store.pool.query(
+                      `UPDATE device_binds SET account_ids = $2::jsonb, guest_progress = NULL, updated_at = $3 WHERE device_id = $1`,
+                      [r.device_id, JSON.stringify(ids), Date.now()]
+                    );
+                  } else {
+                    // No remaining accounts on this device → free for a new guest
+                    await store.pool.query('DELETE FROM device_binds WHERE device_id = $1', [r.device_id]);
+                  }
+                }
+              } catch (e) {
+                try { console.warn('[admin] markDevicesAfterAccountDelete', e && e.message); } catch (_) {}
+              }
+              try {
+                if (friendCode && store.deleteGuestProgress) {
+                  await store.deleteGuestProgress(friendCode);
+                }
+              } catch (_) {}
+            }
+
+            if (url === '/api/admin/overview' && req.method === 'GET') {
+              let accounts = [];
+              let devices = [];
+              let guests = [];
+              try {
+                if (store && store.pool) {
+                  const a = await store.pool.query(
+                    `SELECT id, login, friend_code, nick, trophies, diamonds, best,
+                            avatar_id, status, skin_id, board_id, created_at, updated_at,
+                            jsonb_array_length(COALESCE(history, '[]'::jsonb)) AS history_len,
+                            bot_stars
+                     FROM accounts ORDER BY updated_at DESC NULLS LAST LIMIT 1000`
+                  );
+                  accounts = a.rows || [];
+                  const d = await store.pool.query(
+                    `SELECT device_id, account_ids, guest_progress, updated_at
+                     FROM device_binds ORDER BY updated_at DESC NULLS LAST LIMIT 1000`
+                  );
+                  devices = d.rows || [];
+                  const g = await store.pool.query(
+                    `SELECT friend_code, updated_at, data FROM guest_progress ORDER BY updated_at DESC LIMIT 500`
+                  );
+                  guests = g.rows || [];
+                }
+              } catch (e) {
+                return sendJson(res, 500, { ok: false, error: String(e && e.message || e) });
+              }
+              // Attach device ids to each account
+              const byAcc = {};
+              for (const d of devices) {
+                const ids = Array.isArray(d.account_ids) ? d.account_ids : [];
+                for (const aid of ids) {
+                  if (!aid || aid === '__guest__' || aid === HAD) continue;
+                  if (!byAcc[aid]) byAcc[aid] = [];
+                  byAcc[aid].push(d.device_id);
+                }
+              }
+              accounts = accounts.map((a) => Object.assign({}, a, {
+                device_ids: byAcc[a.id] || []
+              }));
+              return sendJson(res, 200, { ok: true, accounts, devices, guests });
+            }
+
+            if (url === '/api/admin/delete-account' && req.method === 'POST') {
+              const id = adminBody && adminBody.id ? String(adminBody.id) : '';
+              if (!id) return sendJson(res, 400, { ok: false, error: 'id_required' });
+              try {
+                if (!store || !store.pool) {
+                  return sendJson(res, 500, { ok: false, error: 'no_store' });
+                }
+                const { rows } = await store.pool.query(
+                  'SELECT id, friend_code FROM accounts WHERE id = $1',
+                  [id]
+                );
+                if (!rows[0]) {
+                  return sendJson(res, 404, { ok: false, error: 'not_found', message: 'Аккаунт не найден' });
+                }
+                const friendCode = rows[0].friend_code;
+                await store.pool.query('DELETE FROM sessions WHERE account_id = $1', [id]);
+                await store.pool.query('DELETE FROM accounts WHERE id = $1', [id]);
+                await markDevicesAfterAccountDelete(id, friendCode);
+                return sendJson(res, 200, { ok: true, deleted: id });
+              } catch (e) {
+                return sendJson(res, 500, { ok: false, error: String(e && e.message || e) });
+              }
+            }
+
+            if (url === '/api/admin/delete-all-accounts' && req.method === 'POST') {
+              try {
+                if (store && store.pool) {
+                  await store.pool.query('DELETE FROM sessions');
+                  await store.pool.query('DELETE FROM accounts');
+                  await store.pool.query('DELETE FROM device_binds');
+                  await store.pool.query('DELETE FROM guest_progress');
+                }
+              } catch (e) {
+                return sendJson(res, 500, { ok: false, error: String(e && e.message || e) });
+              }
+              return sendJson(res, 200, { ok: true, message: 'Все аккаунты и привязки устройств удалены — можно снова играть гостем' });
+            }
+
+            if (url === '/api/admin/delete-device' && req.method === 'POST') {
+              const did = adminBody && adminBody.deviceId ? String(adminBody.deviceId) : '';
+              if (!did) return sendJson(res, 400, { ok: false, error: 'deviceId_required' });
+              try {
+                if (store && store.pool) {
+                  // Load guest friend code before delete
+                  try {
+                    const { rows } = await store.pool.query(
+                      'SELECT guest_progress FROM device_binds WHERE device_id = $1', [did]
+                    );
+                    const gp = rows[0] && rows[0].guest_progress;
+                    const code = gp && gp.friendCode
+                      ? String(gp.friendCode).toUpperCase().replace(/[^A-Z0-9]/g, '')
+                      : '';
+                    if (code && store.deleteGuestProgress) await store.deleteGuestProgress(code);
+                  } catch (_) {}
+                  await store.pool.query('DELETE FROM device_binds WHERE device_id = $1', [did]);
+                }
+              } catch (e) {
+                return sendJson(res, 500, { ok: false, error: String(e && e.message || e) });
+              }
+              return sendJson(res, 200, { ok: true, message: 'Гостевая привязка и прогресс удалены' });
+            }
+
+            return sendJson(res, 404, { ok: false, error: 'unknown_admin_route' });
+          }
+
           if (url === '/api/auth/guest-allowed' && req.method === 'GET') {
-            const ip = normalizeClientIp(req);
-            const real = ipHasRealAccount(ip);
-            const canResume = ipCanResumeGuest(ip);
-            let guestProgress = canResume ? getIpGuestProgress(ip) : null;
+            const deviceId = extractDeviceId(req, null);
+            if (!deviceId) {
+              return sendJson(res, 400, {
+                ok: false,
+                error: 'device_id_required',
+                message: 'Нужен идентификатор устройства (X-Device-Id)'
+              });
+            }
+            // Auto-heal: leftover __had_account__ with no live account → free device
+            try {
+              const e0 = await loadDeviceBindRecord(deviceId);
+              if (e0 && Array.isArray(e0.accountIds)) {
+                const live = e0.accountIds.some(
+                  (id) => id && id !== DEVICE_GUEST_MARK && id !== DEVICE_HAD_MARK && id !== '__had_account__'
+                );
+                const onlyHad = !live && e0.accountIds.every(
+                  (id) => !id || id === DEVICE_HAD_MARK || id === '__had_account__'
+                );
+                if (onlyHad) {
+                  if (store && typeof store.deleteDeviceBind === 'function') {
+                    await store.deleteDeviceBind(deviceId);
+                  } else if (store && store.pool) {
+                    await store.pool.query('DELETE FROM device_binds WHERE device_id = $1', [deviceId]);
+                  }
+                }
+              }
+            } catch (_) {}
+            const real = await deviceHasRealAccount(deviceId);
+            const forbidsGuest = await deviceForbidsNewGuest(deviceId);
+            const canResume = await deviceCanResumeGuest(deviceId);
+            let guestProgress = canResume ? await getDeviceGuestProgress(deviceId) : null;
             // Fold cosmetics profile (live shop balance) into resume snapshot
             try {
               if (guestProgress && !real) {
@@ -2283,62 +2633,116 @@ const server = http.createServer((req, res) => {
                 }
               }
             } catch (_) {}
-            // New guest only if IP never used
-            const allowed = !ipHasBoundAccount(ip);
-            return sendJson(res, 200, {
-              ok: true,
-              guestAllowed: allowed,
-              canResumeGuest: canResume,
-              guestProgress: guestProgress,
-              bound: real
-            });
+            // New guest only if this device never used
+            const allowed = !(await deviceHasBoundAccount(deviceId));
+            {
+              const payload = {
+                ok: true,
+                guestAllowed: !forbidsGuest && allowed && !canResume,
+                canResumeGuest: !forbidsGuest && !!canResume,
+                guestProgress: (!forbidsGuest && canResume) ? guestProgress : null,
+                bound: !!forbidsGuest || !!real,
+                hasAccount: !!real,
+                hadAccount: !!forbidsGuest && !real,
+                deviceId: deviceId
+              };
+              const cookie = deviceIdSetCookieHeader(deviceId);
+              const body = JSON.stringify(payload);
+              const headers = {
+                'Content-Type': 'application/json; charset=utf-8',
+                'Cache-Control': 'no-store'
+              };
+              if (cookie) headers['Set-Cookie'] = cookie;
+              res.writeHead(200, headers);
+              res.end(body);
+              return;
+            }
           }
           // Claim guest slot for this IP — blocks another NEW guest after browser data wipe
           if (url === '/api/auth/guest-bind' && req.method === 'POST') {
-            const ip = normalizeClientIp(req);
             const body = await readJsonBody(req, 256 * 1024).catch(() => ({}));
-            if (ipHasRealAccount(ip)) {
-              return sendJson(res, 403, {
+            const deviceId = extractDeviceId(req, body);
+            if (!deviceId) {
+              return sendJson(res, 400, {
+                ok: false,
+                error: 'device_id_required',
+                message: 'Нужен идентификатор устройства (X-Device-Id)'
+              });
+            }
+            const sendBound = (status, payload) => {
+              const cookie = deviceIdSetCookieHeader(deviceId);
+              const headers = {
+                'Content-Type': 'application/json; charset=utf-8',
+                'Cache-Control': 'no-store'
+              };
+              if (cookie) headers['Set-Cookie'] = cookie;
+              res.writeHead(status, headers);
+              res.end(JSON.stringify(Object.assign({ deviceId }, payload)));
+            };
+            if (await deviceHasRealAccount(deviceId)) {
+              return sendBound(403, {
                 ok: false,
                 guestAllowed: false,
                 canResumeGuest: false,
                 bound: true,
+                hasAccount: true,
                 error: 'already_bound',
-                message: 'С этой сети уже был аккаунт'
+                message: 'С этого устройства уже был аккаунт — войдите или зарегистрируйтесь'
               });
             }
-            // Already has guest — treat as resume/update, not error
-            if (ipCanResumeGuest(ip) || ipHasBoundAccount(ip)) {
-              if (body && body.progress) setIpGuestProgress(ip, body.progress);
-              return sendJson(res, 200, {
+            // Already has guest — update progress, never create a second slot
+            if ((await deviceCanResumeGuest(deviceId)) || (await deviceHasBoundAccount(deviceId))) {
+              await bindDeviceGuest(deviceId, body && body.progress);
+              return sendBound(200, {
                 ok: true,
                 resumed: true,
                 guestAllowed: false,
                 canResumeGuest: true,
-                guestProgress: getIpGuestProgress(ip)
+                guestProgress: await getDeviceGuestProgress(deviceId)
               });
             }
-            bindIpGuest(ip, body && body.progress);
-            return sendJson(res, 200, { ok: true, guestAllowed: false, canResumeGuest: true, bound: false });
+            // First claim on this device — write device_binds row IMMEDIATELY
+            const boundOk = await bindDeviceGuest(deviceId, (body && body.progress) || { ts: Date.now() });
+            if (!boundOk) {
+              return sendBound(500, {
+                ok: false,
+                error: 'bind_failed',
+                message: 'Не удалось привязать устройство к базе'
+              });
+            }
+            return sendBound(200, {
+              ok: true,
+              guestAllowed: false,
+              canResumeGuest: true,
+              bound: false,
+              guestProgress: await getDeviceGuestProgress(deviceId)
+            });
           }
           // Sync guest progress while playing (IP-bound)
           if (url === '/api/auth/guest-sync' && req.method === 'POST') {
-            const ip = normalizeClientIp(req);
-            if (ipHasRealAccount(ip)) {
+            let body = {};
+            try { body = await readJsonBody(req, 512 * 1024); } catch (_) { body = {}; }
+            const deviceId = extractDeviceId(req, body);
+            if (!deviceId) {
+              return sendJson(res, 400, {
+                ok: false,
+                error: 'device_id_required',
+                message: 'Нужен идентификатор устройства (X-Device-Id)'
+              });
+            }
+            if (await deviceHasRealAccount(deviceId)) {
               return sendJson(res, 403, { ok: false, error: 'real_account', message: 'Войдите в аккаунт' });
             }
             // Always ensure guest mark exists so progress is resumable after browser wipe
-            if (!ipHasBoundAccount(ip)) {
-              bindIpGuest(ip);
-            } else if (!ipCanResumeGuest(ip)) {
-              bindIpToAccount(ip, IP_GUEST_MARK);
+            if (!(await deviceHasBoundAccount(deviceId))) {
+              await bindDeviceGuest(deviceId);
+            } else if (!(await deviceCanResumeGuest(deviceId))) {
+              await bindDeviceToAccount(deviceId, DEVICE_GUEST_MARK);
             }
-            let body = {};
-            try { body = await readJsonBody(req, 512 * 1024); } catch (_) { body = {}; }
             if (body && body.progress) {
-              setIpGuestProgress(ip, body.progress);
+              await setDeviceGuestProgress(deviceId, body.progress);
             }
-            const gp = getIpGuestProgress(ip);
+            const gp = await getDeviceGuestProgress(deviceId);
             return sendJson(res, 200, {
               ok: true,
               canResumeGuest: true,
@@ -2348,25 +2752,25 @@ const server = http.createServer((req, res) => {
           if (url === '/api/auth/register' && req.method === 'POST') {
             // Larger body: may include full guestProgress for migration
             const body = await readJsonBody(req, 512 * 1024);
-            const ip = normalizeClientIp(req);
-            // Server is the authority: merge stored guest progress (friendCode) + IP + client body
+            const deviceId = extractDeviceId(req, body);
+            // Server is the authority: merge stored guest progress (friendCode) + device + client body
             let guestProgress = null;
             try {
               let bodyGp = (body && body.guestProgress && typeof body.guestProgress === 'object')
                 ? body.guestProgress : null;
-              const ipGp = getIpGuestProgress(ip);
+              const deviceGp = deviceId ? await getDeviceGuestProgress(deviceId) : null;
               // After browser wipe the client has no guest session — body is local defaults
               // (often diamonds:9999). Prefer pure server layers in that case.
               const bodyHasCode = !!(bodyGp && bodyGp.friendCode);
-              const ipHasCode = !!(ipGp && ipGp.friendCode);
+              const deviceHasCode = !!(deviceGp && deviceGp.friendCode);
               const bodyCode = bodyHasCode
                 ? String(bodyGp.friendCode).toUpperCase().replace(/[^A-Z0-9]/g, '')
                 : '';
-              const ipCode = ipHasCode
-                ? String(ipGp.friendCode).toUpperCase().replace(/[^A-Z0-9]/g, '')
+              const deviceCode = deviceHasCode
+                ? String(deviceGp.friendCode).toUpperCase().replace(/[^A-Z0-9]/g, '')
                 : '';
-              if (bodyGp && (ipGp || ipCode) && !bodyCode) {
-                // Wiped client (no friendCode): strip starter defaults so they cannot clobber IP progress
+              if (bodyGp && (deviceGp || deviceCode) && !bodyCode) {
+                // Wiped client (no friendCode): strip starter defaults so they cannot clobber device progress
                 bodyGp = Object.assign({}, bodyGp);
                 delete bodyGp.diamonds;
                 delete bodyGp.trophies;
@@ -2379,21 +2783,21 @@ const server = http.createServer((req, res) => {
               const prefCode = String(
                 (body && body.preferredFriendCode) ||
                 bodyCode ||
-                ipCode ||
+                deviceCode ||
                 ''
               ).toUpperCase().replace(/[^A-Z0-9]/g, '');
               if (prefCode && store && typeof store.loadGuestProgress === 'function') {
                 try { storedGp = await store.loadGuestProgress(prefCode); } catch (_) { storedGp = null; }
               }
               // Also try IP friend code if different
-              if (ipCode && ipCode !== prefCode && store && typeof store.loadGuestProgress === 'function') {
+              if (deviceCode && deviceCode !== prefCode && store && typeof store.loadGuestProgress === 'function') {
                 try {
-                  const alt = await store.loadGuestProgress(ipCode);
+                  const alt = await store.loadGuestProgress(deviceCode);
                   storedGp = mergeGuestProgressLayers(storedGp, alt);
                 } catch (_) {}
               }
-              // Server layers first (store + IP), client body last
-              guestProgress = mergeGuestProgressLayers(storedGp, ipGp, bodyGp);
+              // Server layers first (store + device), client body last
+              guestProgress = mergeGuestProgressLayers(storedGp, deviceGp, bodyGp);
               // Active guest (body has friendCode): trust body currencies 1:1 — profile registration path
               if (bodyGp && bodyCode && typeof bodyGp.diamonds === 'number' && isFinite(bodyGp.diamonds)) {
                 if (!guestProgress) guestProgress = {};
@@ -2412,6 +2816,7 @@ const server = http.createServer((req, res) => {
                 if (Array.isArray(bodyGp.friends)) guestProgress.friends = bodyGp.friends.slice(0, 200);
                 if (Array.isArray(bodyGp.history)) guestProgress.history = bodyGp.history.slice(0, 30);
                 if (bodyGp.achievements) guestProgress.achievements = bodyGp.achievements;
+                if (bodyGp.botStars && typeof bodyGp.botStars === 'object') guestProgress.botStars = bodyGp.botStars;
                 if (typeof bodyGp.avatarId === 'string') guestProgress.avatarId = bodyGp.avatarId;
                 if (typeof bodyGp.avatarCustom === 'string') guestProgress.avatarCustom = bodyGp.avatarCustom;
                 if (typeof bodyGp.status === 'string') guestProgress.status = bodyGp.status;
@@ -2489,18 +2894,25 @@ const server = http.createServer((req, res) => {
               preferredFriendCode
             });
             if (!result.ok) return sendJson(res, 400, result);
-            // Ensure response account carries final migrated diamonds (after cosmetics fold)
+            // Account.diamonds is already authoritative after register migrate — do NOT Math.max with client 9999
             try {
-              if (result.account && guestProgress && typeof guestProgress.diamonds === 'number') {
-                const d = Math.max(0, result.account.diamonds | 0, guestProgress.diamonds | 0);
-                result.account.diamonds = d;
+              if (result.account && typeof result.account.diamonds === 'number') {
+                result.account.diamonds = Math.max(0, result.account.diamonds | 0);
               }
             } catch (_) {}
             try {
               const accId = result.account && (result.account.id || result.account.login);
-              if (accId) bindIpToAccount(ip, accId);
-              // Clear guest slot — progress already merged into account
-              clearIpGuestProgress(ip);
+              // Convert device bind: drop __guest__, keep only registered account id
+              if (deviceId && accId) {
+                let _e = await loadDeviceBindRecord(deviceId);
+                if (!_e) _e = { accountIds: [], guestProgress: null };
+                _e.guestProgress = null; // guest row becomes the account — no duplicate guest data
+                let ids = Array.isArray(_e.accountIds) ? _e.accountIds.map(String) : [];
+                ids = ids.filter((x) => x && x !== DEVICE_GUEST_MARK);
+                if (ids.indexOf(String(accId)) === -1) ids.push(String(accId));
+                _e.accountIds = ids;
+                await persistDeviceBind(deviceId, _e);
+              }
               try {
                 const delCode = (result.account && result.account.friendCode) ||
                   (guestProgress && guestProgress.friendCode) ||
@@ -2559,9 +2971,22 @@ const server = http.createServer((req, res) => {
             });
             if (!result.ok) return sendJson(res, 401, result);
             try {
-              const ip = normalizeClientIp(req);
+              // ADD this device → account. Never removes binds on other devices.
+              const deviceId = extractDeviceId(req, body);
               const accId = result.account && (result.account.id || result.account.login);
-              if (accId) bindIpToAccount(ip, accId);
+              if (accId && deviceId) {
+                await bindDeviceToAccount(deviceId, accId);
+                // Clear HAD mark on THIS device only (live account again)
+                try {
+                  const e = await loadDeviceBindRecord(deviceId);
+                  if (e && Array.isArray(e.accountIds)) {
+                    e.accountIds = e.accountIds.filter((x) => x !== DEVICE_HAD_MARK && x !== DEVICE_GUEST_MARK);
+                    if (e.accountIds.indexOf(String(accId)) === -1) e.accountIds.push(String(accId));
+                    e.guestProgress = null;
+                    await persistDeviceBind(deviceId, e);
+                  }
+                } catch (_) {}
+              }
             } catch (_) {}
             return sendJson(res, 200, result);
           }
@@ -2627,14 +3052,19 @@ const server = http.createServer((req, res) => {
                 }
               }
             } catch (_) {}
-            // Remove only this account from IP binds. Guest stays forbidden
-            // while ANY other real account remains on the same IP.
+            // Remove account from device binds but leave __had_account__ so guest is forbidden
             try {
-              if (result.id) unbindAccountFromIps(result.id);
-              const ip = normalizeClientIp(req);
-              // Clear leftover guest progress only when no real accounts left
-              if (ip && !ipHasRealAccount(ip)) {
-                try { clearIpGuestProgress(ip); } catch (_) {}
+              if (result.id) await unbindAccountFromAllDevices(result.id);
+              const deviceId = extractDeviceId(req, body);
+              if (deviceId) {
+                let _e = await loadDeviceBindRecord(deviceId);
+                if (!_e) _e = { accountIds: [], guestProgress: null };
+                _e.guestProgress = null;
+                let ids = Array.isArray(_e.accountIds) ? _e.accountIds.map(String) : [];
+                ids = ids.filter((x) => x && x !== DEVICE_GUEST_MARK);
+                if (ids.indexOf('__had_account__') === -1) ids.push('__had_account__');
+                _e.accountIds = ids;
+                await persistDeviceBind(deviceId, _e);
               }
             } catch (_) {}
             return sendJson(res, 200, result);
@@ -2816,6 +3246,10 @@ wss.on('connection', (ws) => {
         ws._os = String(data.os || 'unknown').slice(0, 24);
         ws._protocolVersion = (data.protocolVersion | 0) || 1;
         ws._clientBuild = data.build ? String(data.build).slice(0, 32) : '';
+        if (data.deviceId) {
+          const did = normalizeDeviceId(data.deviceId);
+          if (did) ws._deviceId = did;
+        }
         send(ws, {
           type: 'client_info_ok',
           crossplay: true,
@@ -3796,20 +4230,21 @@ wss.on('connection', (ws) => {
               gp = mergeGuestProgressLayers(gp || { friendCode: code }, patch);
               await store.saveGuestProgress(code, gp);
             }
-            // Mirror onto any IP bind that holds this guest code
+            // Mirror onto device bind for this WS (if any) when it holds this guest code
             try {
-              for (const ipKey of Object.keys(_ipBinds || {})) {
-                const e = _ipBinds[ipKey];
-                if (!e || !e.guestProgress) continue;
-                const fc = e.guestProgress.friendCode
-                  ? String(e.guestProgress.friendCode).toUpperCase().replace(/[^A-Z0-9]/g, '')
-                  : '';
-                if (fc === code) {
-                  e.guestProgress = mergeGuestProgressLayers(e.guestProgress, patch);
-                  e.ts = Date.now();
+              const did = normalizeDeviceId(ws._deviceId);
+              if (did) {
+                const e = await loadDeviceBindRecord(did);
+                if (e && e.guestProgress) {
+                  const fc = e.guestProgress.friendCode
+                    ? String(e.guestProgress.friendCode).toUpperCase().replace(/[^A-Z0-9]/g, '')
+                    : '';
+                  if (fc === code) {
+                    e.guestProgress = mergeGuestProgressLayers(e.guestProgress, patch);
+                    await persistDeviceBind(did, e);
+                  }
                 }
               }
-              saveIpBinds();
             } catch (_) {}
           } catch (_) {}
           send(ws, Object.assign({ type: 'cosmetics_buy_result', ok: true, kind, id }, cosmeticsStatePayload(result.profile)));
@@ -3948,9 +4383,9 @@ async function boot() {
     store = await createStore();
     accountsApi = createAccounts(store);
   } catch (e) {
-    log('warn', 'store init failed, using memory', { err: e && e.message });
-    store = await createStore(); // createStore already falls back
-    try { accountsApi = createAccounts(store); } catch (_) {}
+    log('error', 'store init failed — PostgreSQL is required', { err: e && e.message });
+    console.error('[boot] Set DATABASE_URL or run: docker compose up -d --build');
+    process.exit(1);
   }
 
   // Restore active rooms from persistence (rejoin after restart)
