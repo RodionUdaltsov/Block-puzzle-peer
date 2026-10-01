@@ -623,30 +623,42 @@ function playPurchaseFx(kind, id) {
 }
 
 
+/** @returns {'ok'|'funds'|'owned'|'busy'|'bad'} */
 function buyBoard(id) {
   const board = getBoardById(id);
-  if (!board || board.price <= 0) return false;
-  if (ownedBoards.includes(id)) return false;
-  if (diamonds < board.price) return false;
+  if (!board || board.price <= 0) return 'bad';
+  if (ownedBoards.includes(id)) return 'owned';
+  if (diamonds < board.price) return 'funds';
+  if (window._bpBuyInFlight) return 'busy';
+  const online = !!(typeof MatchClient !== 'undefined' && MatchClient.ws && MatchClient.ws.readyState === 1 && typeof MatchClient.cosmeticsBuy === 'function');
+  try { window._bpBuyInFlight = true; } catch (_) {}
+  try { showPurchaseLoading('board', board.name || id); } catch (_) {}
   diamonds -= board.price;
   try { localStorage.setItem('bp_diamonds', String(diamonds)); } catch (_) {}
   if (!ownedBoards.includes(id)) ownedBoards.push(id);
+  equippedBoardId = id;
+  try { applyEquippedBoard(); } catch (_) {}
   try { saveBoardsState(); } catch (_) {}
   try { updateMenuStats(); } catch (_) {}
-  try { playPurchaseFx('board', id); } catch (_) {}
-  try {
-    if (typeof MatchClient !== 'undefined' && MatchClient.ws && MatchClient.ws.readyState === 1 && typeof MatchClient.cosmeticsBuy === 'function') {
-      MatchClient.cosmeticsBuy('board', id);
-    } else if (typeof syncGuestProgressToServer === 'function' && !(typeof authToken !== 'undefined' && authToken)) {
-      syncGuestProgressToServer({ force: true }).catch(function () {});
+  if (online) {
+    try { MatchClient.cosmeticsBuy('board', id); } catch (_) {
+      try { hidePurchaseLoading(); } catch (_2) {}
     }
-  } catch (_) {}
-  try {
-    bumpAchStat('boardsBought', 1);
-    if (board.rarity === 'legendary') setAchStat('boardsLegendary', Math.max(1, getAchStat('boardsLegendary')));
-    checkNewAchievements();
-  } catch (_) {}
-  return true;
+  } else {
+    try {
+      if (typeof syncGuestProgressToServer === 'function' && !(typeof authToken !== 'undefined' && authToken)) {
+        syncGuestProgressToServer({ force: true }).catch(function () {});
+      }
+    } catch (_) {}
+    try {
+      bumpAchStat('boardsBought', 1);
+      if (board.rarity === 'legendary') setAchStat('boardsLegendary', Math.max(1, getAchStat('boardsLegendary')));
+      checkNewAchievements();
+    } catch (_) {}
+    try { hidePurchaseLoading(); } catch (_) {}
+    try { playPurchaseFx('board', id); } catch (_) {}
+  }
+  return 'ok';
 }
 function equipBoard(id) {
   if (!ownedBoards.includes(id)) return false;
@@ -736,27 +748,109 @@ function saveSkinsState() {
     localStorage.setItem('bp_skin_equipped', equippedSkinId);
   } catch (_) {}
 }
+/** Soft loading overlay while shop purchase is confirmed by the server. */
+let _purchaseLoadTimer = null;
+function showPurchaseLoading(kind, id) {
+  try {
+    let el = document.getElementById('bpPurchaseLoading');
+    if (!el) {
+      el = document.createElement('div');
+      el.id = 'bpPurchaseLoading';
+      el.setAttribute('aria-live', 'polite');
+      el.innerHTML =
+        '<div class="bp-buy-load-card">' +
+        '<div class="bp-buy-load-spin" aria-hidden="true"></div>' +
+        '<div class="bp-buy-load-title" id="bpBuyLoadTitle">Покупка…</div>' +
+        '<div class="bp-buy-load-sub" id="bpBuyLoadSub">Сохраняем на сервере</div>' +
+        '</div>';
+      document.body.appendChild(el);
+      if (!document.getElementById('bpPurchaseLoadingStyle')) {
+        const st = document.createElement('style');
+        st.id = 'bpPurchaseLoadingStyle';
+        st.textContent =
+          '#bpPurchaseLoading{position:fixed;inset:0;z-index:100060;display:flex;align-items:center;justify-content:center;' +
+          'background:rgba(4,12,10,.55);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);opacity:0;' +
+          'transition:opacity .22s ease;pointer-events:none}' +
+          '#bpPurchaseLoading.visible{opacity:1;pointer-events:auto}' +
+          '.bp-buy-load-card{display:flex;flex-direction:column;align-items:center;gap:12px;padding:26px 30px;border-radius:18px;' +
+          'background:linear-gradient(160deg,rgba(20,40,36,.97),rgba(10,22,20,.97));border:1px solid rgba(0,212,170,.3);' +
+          'box-shadow:0 18px 50px rgba(0,0,0,.5);min-width:220px}' +
+          '.bp-buy-load-spin{width:40px;height:40px;border-radius:50%;border:3px solid rgba(0,212,170,.18);border-top-color:#00d4aa;' +
+          'animation:bpBuySpin .7s linear infinite}' +
+          '@keyframes bpBuySpin{to{transform:rotate(360deg)}}' +
+          '.bp-buy-load-title{font-weight:800;font-size:1.02rem;color:#e8fff8;text-align:center}' +
+          '.bp-buy-load-sub{font-size:.78rem;opacity:.72;color:#b8e8d8;text-align:center}';
+        document.head.appendChild(st);
+      }
+    }
+    const title = document.getElementById('bpBuyLoadTitle');
+    const sub = document.getElementById('bpBuyLoadSub');
+    if (title) title.textContent = kind === 'board' ? 'Покупка поля…' : 'Покупка скина…';
+    if (sub) sub.textContent = id ? ('«' + String(id) + '» · синхронизация') : 'Сохраняем на сервере';
+    el.style.display = 'flex';
+    try { void el.offsetWidth; } catch (_) {}
+    el.classList.add('visible');
+    if (_purchaseLoadTimer) clearTimeout(_purchaseLoadTimer);
+    // Safety timeout so overlay never sticks forever (also clears _bpBuyInFlight)
+    _purchaseLoadTimer = setTimeout(function () { hidePurchaseLoading(); }, 5000);
+  } catch (_) {}
+}
+function hidePurchaseLoading() {
+  try {
+    if (_purchaseLoadTimer) { clearTimeout(_purchaseLoadTimer); _purchaseLoadTimer = null; }
+    try { window._bpBuyInFlight = false; } catch (_) {}
+    const el = document.getElementById('bpPurchaseLoading');
+    if (!el) return;
+    el.classList.remove('visible');
+    setTimeout(function () {
+      try { el.style.display = 'none'; } catch (_) {}
+    }, 180);
+  } catch (_) {}
+}
+try { window.showPurchaseLoading = showPurchaseLoading; window.hidePurchaseLoading = hidePurchaseLoading; } catch (_) {}
+
+/** @returns {'ok'|'funds'|'owned'|'busy'|'bad'} */
 function buySkin(id) {
   const skin = getSkinById(id);
-  if (!skin || skin.price <= 0) return false;
-  if (ownedSkins.includes(id)) return false;
-  if (diamonds < skin.price) return false;
+  if (!skin || skin.price <= 0) return 'bad';
+  if (ownedSkins.includes(id)) return 'owned';
+  if (diamonds < skin.price) return 'funds';
+  if (window._bpBuyInFlight) return 'busy';
+  const online = !!(typeof MatchClient !== 'undefined' && MatchClient.ws && MatchClient.ws.readyState === 1 && typeof MatchClient.cosmeticsBuy === 'function');
+  try { window._bpBuyInFlight = true; } catch (_) {}
+  try { showPurchaseLoading('skin', skin.name || id); } catch (_) {}
+  // Snapshot for possible rollback if server rejects
+  try {
+    window._bpBuySnapshot = {
+      diamonds: diamonds + skin.price,
+      ownedSkins: ownedSkins.slice(),
+      equippedSkinId: equippedSkinId
+    };
+  } catch (_) {}
+  // Optimistic UI; server cosmetics_buy_result is source of truth
   diamonds -= skin.price;
   try { localStorage.setItem('bp_diamonds', String(diamonds)); } catch (_) {}
   if (!ownedSkins.includes(id)) ownedSkins.push(id);
+  equippedSkinId = id;
+  try { applyEquippedSkin(); } catch (_) {}
   try { saveSkinsState(); } catch (_) {}
   try { updateMenuStats(); } catch (_) {}
-  try { playPurchaseFx('skin', id); } catch (_) {}
-  try {
-    if (typeof MatchClient !== 'undefined' && MatchClient.ws && MatchClient.ws.readyState === 1 && typeof MatchClient.cosmeticsBuy === 'function') {
-      MatchClient.cosmeticsBuy('skin', id);
-    } else if (typeof syncGuestProgressToServer === 'function' && !(typeof authToken !== 'undefined' && authToken)) {
-      syncGuestProgressToServer({ force: true }).catch(function () {});
+  if (online) {
+    try { MatchClient.cosmeticsBuy('skin', id); } catch (_) {
+      try { hidePurchaseLoading(); } catch (_2) {}
     }
-  } catch (_) {}
-  try { setAchStat('skinsOwned', ownedSkins.length); } catch (_) {}
-  try { bumpAchStat('skinsBought', 1); } catch (_) {}
-  return true;
+  } else {
+    try {
+      if (typeof syncGuestProgressToServer === 'function' && !(typeof authToken !== 'undefined' && authToken)) {
+        syncGuestProgressToServer({ force: true }).catch(function () {});
+      }
+    } catch (_) {}
+    try { setAchStat('skinsOwned', ownedSkins.length); } catch (_) {}
+    try { bumpAchStat('skinsBought', 1); } catch (_) {}
+    try { hidePurchaseLoading(); } catch (_) {}
+    try { playPurchaseFx('skin', id); } catch (_) {}
+  }
+  return 'ok';
 }
 function equipSkin(id) {
   if (!ownedSkins.includes(id)) return false;
@@ -767,7 +861,6 @@ function equipSkin(id) {
   } catch (_) {}
   equippedSkinId = id;
   applyEquippedSkin();
-  try { applyEquippedBoard(); } catch (_) {}
   saveSkinsState();
   // Retint ONLY local player tray — never opponent / bot pieces
   try {
@@ -948,16 +1041,21 @@ function renderShopGrid() {
       const id = btn.getAttribute('data-buy');
       confirmGuestShopPurchase().then(function (ok) {
         if (!ok) return;
-        if (buySkin(id)) {
+        const res = buySkin(id);
+        if (res === 'ok') {
           try { SFX.ui(); } catch (_) {}
-          equipSkin(id);
-          renderShopGrid();
-          renderInvGrid();
-        } else {
+          try { renderShopGrid(); } catch (_) {}
+          try { renderInvGrid(); } catch (_) {}
+        } else if (res === 'funds') {
           try {
             if (typeof showInfoToast === 'function') showInfoToast('Магазин', 'Не хватает алмазов', 'bad');
-            else alert('Не хватает алмазов');
-          } catch (_) { alert('Не хватает алмазов'); }
+          } catch (_) {}
+        } else if (res === 'owned') {
+          try {
+            if (typeof showInfoToast === 'function') showInfoToast('Магазин', 'Уже куплено', 'ok');
+          } catch (_) {}
+        } else if (res === 'busy') {
+          /* purchase in flight — ignore */
         }
       });
     });
@@ -977,16 +1075,19 @@ function renderShopGrid() {
       const id = btn.getAttribute('data-buy-board');
       confirmGuestShopPurchase().then(function (ok) {
         if (!ok) return;
-        if (buyBoard(id)) {
+        const res = buyBoard(id);
+        if (res === 'ok') {
           try { SFX.ui(); } catch (_) {}
-          equipBoard(id);
-          renderShopGrid();
-          renderInvGrid();
-        } else {
+          try { renderShopGrid(); } catch (_) {}
+          try { renderInvGrid(); } catch (_) {}
+        } else if (res === 'funds') {
           try {
             if (typeof showInfoToast === 'function') showInfoToast('Магазин', 'Не хватает алмазов', 'bad');
-            else alert('Не хватает алмазов');
-          } catch (_) { alert('Не хватает алмазов'); }
+          } catch (_) {}
+        } else if (res === 'owned') {
+          try {
+            if (typeof showInfoToast === 'function') showInfoToast('Магазин', 'Уже куплено', 'ok');
+          } catch (_) {}
         }
       });
     });
@@ -1114,10 +1215,14 @@ function closeSkinPreview() {
   if (skinPrevTimer) { clearTimeout(skinPrevTimer); skinPrevTimer = null; }
   const ov = document.getElementById('skinPreviewModal');
   if (ov) {
-    ov.classList.remove('visible', 'purchase-celebrate');
+    ov.classList.remove('visible', 'purchase-celebrate', 'bp-prev-enter');
     ov.setAttribute('aria-hidden', 'true');
     if (ov._restoreFx) { try { ov._restoreFx(); } catch (_) {} }
   }
+  try {
+    const combo = document.getElementById('skinPrevCombo');
+    setSkinPrevBoughtBadge(combo, false);
+  } catch (_) {}
   try { clearPreviewModalSkinFx(); } catch (_) {}
   document.body.classList.remove('skin-previewing');
   // Restore GAME body FX only after modal is closed — never while preview is open
@@ -1188,6 +1293,27 @@ function buildPreviewBoardGrid(boardEl) {
   return n;
 }
 
+/** Centered animated «Куплено» badge on the skin/board preview. */
+function setSkinPrevBoughtBadge(combo, celebrate) {
+  if (!combo) return;
+  try {
+    combo.classList.remove('show');
+    if (!celebrate) {
+      combo.innerHTML = '';
+      combo.setAttribute('aria-hidden', 'true');
+      return;
+    }
+    combo.innerHTML =
+      '<span class="bp-bought-check" aria-hidden="true">✓</span>' +
+      '<span class="bp-bought-text">Куплено</span>';
+    combo.setAttribute('aria-hidden', 'false');
+    // Retrigger CSS animation
+    try { void combo.offsetWidth; } catch (_) {}
+    combo.classList.add('show');
+  } catch (_) {
+    try { combo.textContent = celebrate ? '✓ Куплено' : ''; } catch (_2) {}
+  }
+}
 
 function openBoardPreview(boardId, opts) {
   opts = opts || {};
@@ -1208,7 +1334,7 @@ function openBoardPreview(boardId, opts) {
     meta.textContent = skinRarityLabel(board.rarity || 'common')
       + (board.price > 0 ? ' · 💎 ' + board.price : '');
   }
-  if (combo) combo.textContent = opts.celebrate ? '✓ Куплено!' : '';
+  setSkinPrevBoughtBadge(combo, !!opts.celebrate);
 
   // Always the requested board — same before and after purchase
   if (wrap) {
@@ -1284,12 +1410,13 @@ function openBoardPreview(boardId, opts) {
       btn.onclick = function () {
         confirmGuestShopPurchase().then(function (ok) {
           if (!ok) return;
-          if (buyBoard(board.id)) {
-            // Re-open same preview with celebrate (identical look)
-            try { equipBoard(board.id); } catch (_) {}
+          const res = buyBoard(board.id);
+          if (res === 'ok') {
+            // Server cosmetics_buy_result opens celebrate; just refresh lists
             try { renderShopGrid(); } catch (_) {}
             try { renderInvGrid(); } catch (_) {}
-            openBoardPreview(board.id, { celebrate: true });
+          } else if (res === 'funds' && typeof showInfoToast === 'function') {
+            showInfoToast('Магазин', 'Не хватает алмазов', 'bad');
           }
         });
       };
@@ -1324,7 +1451,7 @@ function openSkinPreview(skinId, opts) {
     meta.textContent = skinRarityLabel(skin.rarity || 'common')
       + (skin.price > 0 ? ' · 💎 ' + skin.price : '');
   }
-  if (combo) combo.textContent = opts.celebrate ? '✓ Куплено!' : '';
+  setSkinPrevBoughtBadge(combo, !!opts.celebrate);
 
   // Preview FX are isolated on the modal — do NOT change body (keeps game + other previews independent)
   const rar = skin.rarity || 'common';
@@ -1454,11 +1581,12 @@ function openSkinPreview(skinId, opts) {
       btn.onclick = function () {
         confirmGuestShopPurchase().then(function (ok) {
           if (!ok) return;
-          if (buySkin(skin.id)) {
-            try { equipSkin(skin.id); } catch (_) {}
+          const res = buySkin(skin.id);
+          if (res === 'ok') {
             try { renderShopGrid(); } catch (_) {}
             try { renderInvGrid(); } catch (_) {}
-            openSkinPreview(skin.id, { celebrate: true });
+          } else if (res === 'funds' && typeof showInfoToast === 'function') {
+            showInfoToast('Магазин', 'Не хватает алмазов', 'bad');
           }
         });
       };
@@ -1466,6 +1594,25 @@ function openSkinPreview(skinId, opts) {
   }
 
   try { setPreviewModalSkinFx(skin); } catch (_) {}
+  // Entrance animation (especially after purchase)
+  try {
+    ov.classList.remove('bp-prev-enter');
+    if (opts.celebrate) {
+      if (!document.getElementById('bpPreviewEnterStyle')) {
+        const st = document.createElement('style');
+        st.id = 'bpPreviewEnterStyle';
+        st.textContent =
+          '#skinPreviewModal.bp-prev-enter #skinPrevModalInner{' +
+          'animation:bpPrevPop .42s cubic-bezier(.22,1.2,.36,1) both}' +
+          '@keyframes bpPrevPop{0%{opacity:0;transform:scale(.86) translateY(18px)}' +
+          '70%{opacity:1;transform:scale(1.04) translateY(-2px)}' +
+          '100%{opacity:1;transform:scale(1) translateY(0)}}';
+        document.head.appendChild(st);
+      }
+      void ov.offsetWidth;
+      ov.classList.add('bp-prev-enter');
+    }
+  } catch (_) {}
   ov.classList.add('visible');
   ov.setAttribute('aria-hidden', 'false');
   if (opts.celebrate) ov.classList.add('purchase-celebrate');
@@ -1615,60 +1762,109 @@ const SHAPE_WEIGHTS = _R ? _R.SHAPE_WEIGHTS : SHAPES.map(s => {
 window._bpServerCosmetics = false;
 function applyCosmeticsStateFromServer(data) {
   if (!data || typeof data !== 'object') return;
+  // Explicit failure / unbound profile — do not wipe local ownership
+  if (data.ok === false || data.error === 'no_profile' || data.error === 'load_failed') return;
   try {
+    // Server is sole authority for diamonds / ownership / equip.
+    // Never prefer stale authAccount over a fresh cosmetics_* payload
+    // (that caused diamonds to jump back after purchase).
     if (typeof data.diamonds === 'number' && data.diamonds >= 0) {
-      // Cosmetics profile diamonds — but registered account is higher authority
-      let d = Math.max(0, data.diamonds | 0);
-      try {
-        if (typeof authToken !== 'undefined' && authToken && typeof authAccount !== 'undefined'
-            && authAccount && typeof authAccount.diamonds === 'number') {
-          const ad = Math.max(0, authAccount.diamonds | 0);
-          // Never let a stale profile default (9999) overwrite real account balance
-          if (d === 9999 && ad !== 9999) d = ad;
-          else if (ad >= 0 && ad !== d) {
-            // Prefer account row for logged-in users (donation currency lives on accounts)
-            d = ad;
-          }
-        }
-      } catch (_) {}
+      const d = Math.max(0, data.diamonds | 0);
       diamonds = d;
       try { localStorage.setItem('bp_diamonds', String(diamonds)); } catch (_) {}
       try {
-        const loggedIn = !!(typeof authToken !== 'undefined' && authToken);
-        if (!loggedIn && typeof syncGuestProgressToServer === 'function') {
-          syncGuestProgressToServer({ force: true }).catch(function () {});
+        if (typeof authAccount !== 'undefined' && authAccount && typeof authAccount === 'object') {
+          authAccount.diamonds = d;
         }
       } catch (_) {}
     }
-    if (Array.isArray(data.ownedSkins) && data.ownedSkins.length) {
-      // Union with local ownership so migration is not wiped
-      const set = new Set((Array.isArray(ownedSkins) ? ownedSkins : []).map(String));
-      data.ownedSkins.forEach((id) => { if (id) set.add(String(id)); });
-      ownedSkins = Array.from(set);
-      for (const free of FREE_SKIN_IDS) {
-        if (!ownedSkins.includes(free)) ownedSkins.push(free);
+    if (Array.isArray(data.ownedSkins)) {
+      const incoming = data.ownedSkins.map(String).filter(Boolean);
+      // Ignore empty/default-only payloads that would wipe purchases
+      // (race: cosmetics_get before friendCode is bound returns defaultProfile).
+      const paidIncoming = incoming.filter(function (id) {
+        return FREE_SKIN_IDS.indexOf(id) === -1;
+      });
+      const paidLocal = (ownedSkins || []).filter(function (id) {
+        return FREE_SKIN_IDS.indexOf(String(id)) === -1;
+      });
+      if (paidIncoming.length === 0 && paidLocal.length > 0) {
+        // Keep local ownership; only free/default arrived — do not overwrite
+      } else {
+        const set = new Set();
+        // Union: never lose items we already know about from /api/me or a prior buy
+        (ownedSkins || []).forEach(function (id) { if (id) set.add(String(id)); });
+        incoming.forEach(function (id) { if (id) set.add(String(id)); });
+        for (const free of FREE_SKIN_IDS) set.add(free);
+        ownedSkins = Array.from(set);
+        try { localStorage.setItem('bp_skins_owned', JSON.stringify(ownedSkins)); } catch (_) {}
+        try {
+          if (typeof authAccount !== 'undefined' && authAccount && typeof authAccount === 'object') {
+            authAccount.ownedSkins = ownedSkins.slice();
+          }
+        } catch (_) {}
       }
     }
-    if (Array.isArray(data.ownedBoards) && data.ownedBoards.length) {
-      const set = new Set((Array.isArray(ownedBoards) ? ownedBoards : []).map(String));
-      data.ownedBoards.forEach((id) => { if (id) set.add(String(id)); });
-      ownedBoards = Array.from(set);
-      for (const free of FREE_BOARD_IDS) {
-        if (!ownedBoards.includes(free)) ownedBoards.push(free);
+    if (Array.isArray(data.ownedBoards)) {
+      const incomingB = data.ownedBoards.map(String).filter(Boolean);
+      const paidIncomingB = incomingB.filter(function (id) {
+        return FREE_BOARD_IDS.indexOf(id) === -1;
+      });
+      const paidLocalB = (ownedBoards || []).filter(function (id) {
+        return FREE_BOARD_IDS.indexOf(String(id)) === -1;
+      });
+      if (paidIncomingB.length === 0 && paidLocalB.length > 0) {
+        // keep local
+      } else {
+        const set = new Set();
+        (ownedBoards || []).forEach(function (id) { if (id) set.add(String(id)); });
+        incomingB.forEach(function (id) { if (id) set.add(String(id)); });
+        for (const free of FREE_BOARD_IDS) set.add(free);
+        ownedBoards = Array.from(set);
+        try { localStorage.setItem('bp_boards_owned', JSON.stringify(ownedBoards)); } catch (_) {}
+        try {
+          if (typeof authAccount !== 'undefined' && authAccount && typeof authAccount === 'object') {
+            authAccount.ownedBoards = ownedBoards.slice();
+          }
+        } catch (_) {}
       }
     }
-    if (data.equippedSkin && ownedSkins.includes(String(data.equippedSkin))) {
-      equippedSkinId = String(data.equippedSkin);
-      try { applyEquippedSkin(); } catch (_) {}
+    // Skin and board equip are independent
+    if (data.equippedSkin != null && data.equippedSkin !== '') {
+      const sid = String(data.equippedSkin);
+      if (ownedSkins.includes(sid)) {
+        equippedSkinId = sid;
+        // Do not thrash body FX / close celebrate while purchase preview is open
+        let celebrateOpen = false;
+        try {
+          const ov = document.getElementById('skinPreviewModal');
+          celebrateOpen = !!(ov && ov.classList.contains('visible') && ov.classList.contains('purchase-celebrate'));
+        } catch (_) {}
+        if (!celebrateOpen && !window._bpSkipPreviewClose) {
+          try { applyEquippedSkin(); } catch (_) {}
+        }
+      }
     }
-    if (data.equippedBoard && ownedBoards.includes(String(data.equippedBoard))) {
-      equippedBoardId = String(data.equippedBoard);
-      try { applyEquippedBoard(); } catch (_) {}
+    if (data.equippedBoard != null && data.equippedBoard !== '') {
+      const bid = String(data.equippedBoard);
+      if (ownedBoards.includes(bid)) {
+        equippedBoardId = bid;
+        let celebrateOpen = false;
+        try {
+          const ov = document.getElementById('skinPreviewModal');
+          celebrateOpen = !!(ov && ov.classList.contains('visible') && ov.classList.contains('purchase-celebrate'));
+        } catch (_) {}
+        if (!celebrateOpen && !window._bpSkipPreviewClose) {
+          try { applyEquippedBoard(); } catch (_) {}
+        }
+      }
     }
     try { saveSkinsState(); } catch (_) {}
     try { saveBoardsState(); } catch (_) {}
     try { updateMenuStats(); } catch (_) {}
     try {
+      if (typeof renderShopGrid === 'function') renderShopGrid();
+      if (typeof renderInvGrid === 'function') renderInvGrid();
       if (typeof renderShop === 'function') renderShop();
       else if (typeof renderSkinShop === 'function') renderSkinShop();
     } catch (_) {}
@@ -1679,15 +1875,31 @@ function applyCosmeticsStateFromServer(data) {
 (function wireCosmeticsWs() {
   function onState(data) { applyCosmeticsStateFromServer(data); }
   function onBuy(data) {
+    try { window._bpBuyInFlight = false; } catch (_) {}
+    try { hidePurchaseLoading(); } catch (_) {}
     if (data && data.ok) {
-      applyCosmeticsStateFromServer(data);
-      try {
-        if (data.id) playPurchaseFx(data.kind === 'board' ? 'board' : 'skin', data.id);
-      } catch (_) {}
+      // Apply economy/owned WITHOUT closing the celebrate preview
+      try { window._bpSkipPreviewClose = true; } catch (_) {}
+      try { applyCosmeticsStateFromServer(data); } catch (_) {}
+      try { window._bpSkipPreviewClose = false; } catch (_) {}
       try {
         if (typeof renderShopGrid === 'function') renderShopGrid();
         if (typeof renderInvGrid === 'function') renderInvGrid();
       } catch (_) {}
+      // Wait for load overlay fade (~180ms) then pop celebrate with entrance anim
+      setTimeout(function () {
+        try {
+          if (data.id) {
+            if (data.kind === 'board' && typeof openBoardPreview === 'function') {
+              openBoardPreview(data.id, { celebrate: true });
+            } else if (typeof openSkinPreview === 'function') {
+              openSkinPreview(data.id, { celebrate: true });
+            } else {
+              playPurchaseFx(data.kind === 'board' ? 'board' : 'skin', data.id);
+            }
+          }
+        } catch (_) {}
+      }, 200);
       try {
         if (data.kind === 'board') {
           bumpAchStat('boardsBought', 1);
@@ -1700,14 +1912,43 @@ function applyCosmeticsStateFromServer(data) {
         }
       } catch (_) {}
     } else if (data) {
+      // Revert optimistic UI using server state
       applyCosmeticsStateFromServer(data);
       try {
         if (typeof renderShopGrid === 'function') renderShopGrid();
+        if (typeof renderInvGrid === 'function') renderInvGrid();
+      } catch (_) {}
+      try {
+        if (data.error === 'funds' && typeof showInfoToast === 'function') {
+          showInfoToast('Магазин', 'Недостаточно алмазов', 'bad');
+        } else if (data.error === 'owned' && typeof showInfoToast === 'function') {
+          showInfoToast('Магазин', 'Уже куплено', 'ok');
+        }
       } catch (_) {}
     }
   }
   function onEquip(data) {
     if (data) applyCosmeticsStateFromServer(data);
+  }
+  function requestCosmeticsFromServer() {
+    try {
+      // Prefer known friendCode — without it server returns defaultProfile and
+      // would wipe ownership if applied naively.
+      let fc = '';
+      try {
+        if (typeof myFriendCode !== 'undefined' && myFriendCode) fc = String(myFriendCode);
+        else if (MatchClient && MatchClient._lastPresence && MatchClient._lastPresence.friendCode) {
+          fc = String(MatchClient._lastPresence.friendCode);
+        }
+      } catch (_) {}
+      if (!fc) return;
+      if (typeof MatchClient !== 'undefined' && MatchClient.ws && MatchClient.ws.readyState === 1) {
+        if (typeof MatchClient.cosmeticsGet === 'function') MatchClient.cosmeticsGet();
+        else if (typeof MatchClient.send === 'function') {
+          MatchClient.send({ type: 'cosmetics_get', friendCode: fc });
+        }
+      }
+    } catch (_) {}
   }
   function tryWire() {
     if (typeof MatchClient === 'undefined' || typeof MatchClient.on !== 'function') {
@@ -1717,6 +1958,12 @@ function applyCosmeticsStateFromServer(data) {
     try { MatchClient.on('cosmetics_state', onState); } catch (_) {}
     try { MatchClient.on('cosmetics_buy_result', onBuy); } catch (_) {}
     try { MatchClient.on('cosmetics_equip_result', onEquip); } catch (_) {}
+    // After presence/login, pull authoritative inventory (survives reload)
+    try { MatchClient.on('presence_ok', function () { requestCosmeticsFromServer(); }); } catch (_) {}
+    // Delay hello/open pulls so presence_register has time to bind friendCode
+    try { MatchClient.on('hello', function () { setTimeout(requestCosmeticsFromServer, 600); }); } catch (_) {}
+    try { MatchClient.on('open', function () { setTimeout(requestCosmeticsFromServer, 900); }); } catch (_) {}
+    setTimeout(requestCosmeticsFromServer, 1200);
   }
   tryWire();
 })();

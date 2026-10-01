@@ -161,6 +161,26 @@
     </div>
   </div>
 
+  <!-- Guest → login: guest progress will be wiped -->
+  <div id="guestLoginWarnModal" class="auth-modal danger-modal" hidden aria-hidden="true" style="display:none">
+    <div class="auth-modal-backdrop" id="guestLoginWarnBackdrop"></div>
+    <div class="auth-modal-card" role="dialog" aria-labelledby="guestLoginWarnTitle" aria-modal="true">
+      <h2 id="guestLoginWarnTitle">Войти в аккаунт?</h2>
+      <p id="guestLoginWarnText" class="danger-modal-lead" style="margin-bottom:12px">
+        Весь прогресс гостевого аккаунта будет <strong>безвозвратно удалён</strong> с сервера
+        (алмазы, скины, друзья, история). Восстановить его будет нельзя.
+      </p>
+      <p style="margin:0 0 14px;font-size:0.88rem;opacity:0.85;line-height:1.4">
+        Рекомендуем <strong>зарегистрироваться</strong> — тогда гостевой прогресс перенесётся в новый аккаунт.
+      </p>
+      <div class="stuck-actions" style="gap:8px">
+        <button type="button" class="primary" id="guestLoginWarnRegister" style="width:100%;min-height:42px">Регистрация</button>
+        <button type="button" class="ghost" id="guestLoginWarnSkip" style="width:100%;min-height:38px">Понятно, войти</button>
+        <button type="button" class="ghost" id="guestLoginWarnCancel" style="width:100%;min-height:36px;opacity:0.75">Отмена</button>
+      </div>
+    </div>
+  </div>
+
   <div id="bootLoader" aria-busy="true" aria-label="Загрузка" data-i18n-aria="boot.loading">
     <div class="boot-bg" aria-hidden="true"></div>
     <div class="boot-orbs" aria-hidden="true"><i></i><i></i><i></i></div>
@@ -782,7 +802,7 @@
         </div>
       </div>
       <div class="friend-add-row">
-        <input id="friendCodeInput" maxlength="12" placeholder="Код друга (6+ символов)" data-i18n-placeholder="friends.code.ph" autocomplete="off" spellcheck="false" />
+        <input id="friendCodeInput" maxlength="12" placeholder="Код друга (8 символов)" data-i18n-placeholder="friends.code.ph" autocomplete="off" spellcheck="false" />
         <button class="primary" id="btnAddFriend" data-i18n="friends.add">Добавить</button>
       </div>
       <button type="button" class="ghost friend-find-nick-btn" id="btnFindByNick" style="width:100%;margin-top:8px">Найти по нику</button>

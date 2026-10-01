@@ -1973,8 +1973,8 @@ function cleanupOutgoingSearch() {
 function sendFriendRequestToCode(code, displayName, opts) {
   opts = opts || {};
   code = normalizeFriendCode(code);
-  if (!code || code.length < 6) {
-    setFriendAddStatus('Нужен код из 6 символов', 'err');
+  if (!code || code.length < 8) {
+    setFriendAddStatus('Нужен код из 8 символов', 'err');
     return;
   }
   if (code === myFriendCode) {
@@ -2077,25 +2077,25 @@ function sendFriendRequestToCode(code, displayName, opts) {
   });
 }
 
-/** Add friend by 6-char code (existence checked on server). Nickname search uses the modal. */
+/** Add friend by 8-char code (existence checked on server). Nickname search uses the modal. */
 function addFriendByCode(raw) {
   const input = document.getElementById('friendCodeInput');
   const typed = String(raw != null ? raw : (input && input.value) || '').trim();
   if (input) input.value = typed;
 
   if (!typed) {
-    setFriendAddStatus('Введи код друга из 6 символов', 'err');
+    setFriendAddStatus('Введи код друга из 8 символов', 'err');
     return;
   }
 
   const asCode = normalizeFriendCode(typed);
-  if (asCode.length >= 6) {
+  if (asCode.length >= 8) {
     sendFriendRequestToCode(asCode);
     return;
   }
 
   // Incomplete code — nick search is a separate button/modal
-  setFriendAddStatus('Нужен код из 6 символов. Поиск по нику — кнопка ниже.', 'err');
+  setFriendAddStatus('Нужен код из 8 символов. Поиск по нику — кнопка ниже.', 'err');
 }
 
 /** Last successful presence_search results (kept when input is cleared). */
@@ -3102,12 +3102,13 @@ function computeDeviceFingerprint() {
 
 function ensureMyFriendCode() {
   try {
-    if (typeof myFriendCode === 'string' && myFriendCode.length >= 4) return myFriendCode;
+    // Keep only full 8-char codes; short legacy codes get replaced on next assign
+    if (typeof myFriendCode === 'string' && myFriendCode.length === 8) return myFriendCode;
   } catch (_) {}
   try {
     const ls = localStorage.getItem('bp_my_code');
-    if (ls && String(ls).length >= 4) {
-      myFriendCode = String(ls).toUpperCase();
+    if (ls && String(ls).length === 8) {
+      myFriendCode = String(ls).toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 8);
       return myFriendCode;
     }
   } catch (_) {}
@@ -3116,7 +3117,7 @@ function ensureMyFriendCode() {
     const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
     for (let i = 0; i < 8; i++) code += alphabet[Math.floor(Math.random() * alphabet.length)];
   } catch (_) {
-    code = 'G' + String(Date.now()).slice(-7);
+    code = ('G' + String(Date.now()).slice(-7)).slice(0, 8);
   }
   myFriendCode = code;
   try { localStorage.setItem('bp_my_code', code); } catch (_) {}
@@ -3288,6 +3289,14 @@ function applyServerAccount(account) {
         if (typeof applyEquippedBoard === 'function') applyEquippedBoard();
       } catch (_) {}
     }
+    // Always refresh shop/inventory so owned skins survive reload/re-login
+    try {
+      if (typeof renderShopGrid === 'function') renderShopGrid();
+      if (typeof renderInvGrid === 'function') renderInvGrid();
+      if (typeof renderShop === 'function') renderShop();
+      else if (typeof renderSkinShop === 'function') renderSkinShop();
+      if (typeof updateMenuStats === 'function') updateMenuStats();
+    } catch (_) {}
   } catch (_) {}
   try {
     if (Array.isArray(account.friends) && account.friends.length) {
@@ -3717,7 +3726,13 @@ try { window.collectGuestProgressForRegister = collectGuestProgressForRegister; 
  * Generates a new friend code so the guest does not inherit the previous
  * account's server cosmetics / presence profile.
  */
-function discardGuestProgressFully() {
+/**
+ * Wipe local guest progress.
+ * @param {{ keepFriendCode?: boolean }} [opts]
+ *   keepFriendCode — do not blank myFriendCode (login flow already applied account code).
+ */
+function discardGuestProgressFully(opts) {
+  opts = opts || {};
   try {
     trophies = 0;
     diamonds = 9999;
@@ -3755,28 +3770,32 @@ function discardGuestProgressFully() {
     } catch (_) {}
     try { localStorage.removeItem('bp_avatar_custom'); myAvatarCustom = ''; } catch (_) {}
     try { myAvatarId = 'init'; localStorage.setItem('bp_avatar', 'init'); } catch (_) {}
-    // New local identity — do not keep previous account friend code / nick
+    // Always end guest mode flag so polls stop treating us as guest
     try {
-      if (typeof genCode === 'function') {
-        myFriendCode = genCode(6);
-      } else {
-        const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
-        let s = '';
-        for (let i = 0; i < 6; i++) s += chars[Math.floor(Math.random() * chars.length)];
-        myFriendCode = s;
+      localStorage.removeItem('bp_guest_ok');
+      if (typeof persistGuestOk === 'function') persistGuestOk(false);
+      else {
+        try { document.cookie = 'bp_guest_ok=; Max-Age=0; path=/; SameSite=Lax'; } catch (_2) {}
       }
-      localStorage.setItem('bp_my_code', myFriendCode);
     } catch (_) {}
-    try {
-      myNickname = 'Гость';
-      localStorage.setItem('bp_nickname', 'Гость');
-    } catch (_) {}
+    // Clear friend code only when not mid-login (blank code → alive:false → false "Аккаунт удалён")
+    if (!opts.keepFriendCode) {
+      try {
+        myFriendCode = '';
+        localStorage.removeItem('bp_my_code');
+      } catch (_) {}
+      try {
+        myNickname = 'Гость';
+        localStorage.setItem('bp_nickname', 'Гость');
+      } catch (_) {}
+    }
     try { localStorage.removeItem('bp_guest_shop_warned'); } catch (_) {}
     try { sessionStorage.removeItem('bp_guest_shop_warned'); } catch (_) {}
   } catch (_) {}
 }
 
 async function finishAuthSuccess(account, mode) {
+  try { window._bpAuthTransition = true; } catch (_) {}
   // If registering after browser wipe: restore IP guest progress into local state first
   // so snapshotGuestProgress() / migration carries diamonds, skins, etc.
   if (mode === 'register') {
@@ -3807,10 +3826,13 @@ async function finishAuthSuccess(account, mode) {
       }
     } catch (_) {}
     if (mode === 'login') {
-      // Full wipe of guest — nothing carries over on login
-      discardGuestProgressFully();
+      // Apply account identity FIRST so friend code / token never go blank mid-poll
+      applyServerAccount(account);
+      // Then strip leftover guest locals — keep the account friend code we just set
+      discardGuestProgressFully({ keepFriendCode: true });
+    } else {
+      applyServerAccount(account);
     }
-    applyServerAccount(account);
     if (mode === 'register') {
       // Prefer guest friend code if server kept it (or if account has it)
       try {
@@ -4071,6 +4093,10 @@ async function finishAuthSuccess(account, mode) {
     }
   } finally {
     hideAuthLoading();
+    // Keep transition flag longer so in-flight alive/WS events cannot flash delete UX
+    setTimeout(function () {
+      try { window._bpAuthTransition = false; } catch (_) {}
+    }, 8000);
   }
   try {
     if (typeof showInfoToast === 'function') {
@@ -4181,19 +4207,25 @@ function applyGuestProgressSnapshot(snap) {
     }
     if (Array.isArray(snap.ownedSkins) && snap.ownedSkins.length) {
       ownedSkins = snap.ownedSkins.slice();
-      try { localStorage.setItem('bp_owned_skins', JSON.stringify(ownedSkins)); } catch (_) {}
+      try { localStorage.setItem('bp_skins_owned', JSON.stringify(ownedSkins)); } catch (_) {}
     }
     if (Array.isArray(snap.ownedBoards) && snap.ownedBoards.length) {
       ownedBoards = snap.ownedBoards.slice();
-      try { localStorage.setItem('bp_owned_boards', JSON.stringify(ownedBoards)); } catch (_) {}
+      try { localStorage.setItem('bp_boards_owned', JSON.stringify(ownedBoards)); } catch (_) {}
     }
     if (snap.skinId) {
       equippedSkinId = snap.skinId;
-      try { localStorage.setItem('bp_skin', snap.skinId); } catch (_) {}
+      try {
+        localStorage.setItem('bp_skin_equipped', snap.skinId);
+        localStorage.setItem('bp_skin', snap.skinId);
+      } catch (_) {}
     }
     if (snap.boardId) {
       equippedBoardId = snap.boardId;
-      try { localStorage.setItem('bp_board', snap.boardId); } catch (_) {}
+      try {
+        localStorage.setItem('bp_board_equipped', snap.boardId);
+        localStorage.setItem('bp_board', snap.boardId);
+      } catch (_) {}
     }
     if (typeof snap.nick === 'string' && snap.nick) {
       myNickname = snap.nick;
@@ -4256,6 +4288,12 @@ function applyGuestProgressSnapshot(snap) {
         localStorage.setItem(typeof classicSaveStorageKey === 'function' ? classicSaveStorageKey() : 'bp_classic_save', JSON.stringify(snap.classicSave));
       } catch (_) {}
     }
+    try {
+      if (typeof renderShopGrid === 'function') renderShopGrid();
+      if (typeof renderInvGrid === 'function') renderInvGrid();
+      if (typeof renderShop === 'function') renderShop();
+      if (typeof updateMenuStats === 'function') updateMenuStats();
+    } catch (_) {}
   } catch (_) {}
 }
 /** Push current local guest progress to server (IP-bound). */
@@ -4280,6 +4318,9 @@ async function syncGuestProgressToServer(opts) {
   opts = opts || {};
   if (authToken) return false;
   try {
+    if (window._bpGuestSyncBlocked || window._bpAccountDeleted) return false;
+  } catch (_) {}
+  try {
     if (localStorage.getItem('bp_guest_ok') !== '1') return false;
   } catch (_) { return false; }
   if (_guestSyncInFlight && !opts.force) return false;
@@ -4299,6 +4340,11 @@ async function syncGuestProgressToServer(opts) {
         _ipGuestProgress = result.data.guestProgress;
       }
       return true;
+    }
+    // Deleted guest identity — clear quietly (no "Аккаунт удалён" flash on boot)
+    if (result && (result.status === 410 || (result.data && (result.data.error === 'account_deleted' || result.data.accountDeleted)))) {
+      try { softClearDeadGuest('guest_sync_410'); } catch (_) {}
+      return false;
     }
     // If not bound yet, claim guest slot with progress
     if (result && (result.status === 403 || result.status === 400)) {
@@ -4347,6 +4393,7 @@ function scheduleGuestProgressSync() {
     _guestSyncTimer = setInterval(function () {
       try {
         if (authToken) return;
+        if (window._bpGuestSyncBlocked || window._bpAccountDeleted) return;
         if (localStorage.getItem('bp_guest_ok') !== '1') return;
         syncGuestProgressToServer({ full: false }).catch(function () {});
       } catch (_) {}
@@ -4379,10 +4426,91 @@ try { window.scheduleGuestProgressSync = scheduleGuestProgressSync; } catch (_) 
  * - this IP is not bound on the server
  */
 function hasLocalGuestSession() {
+  try { if (window._bpAccountDeleted || window._bpGuestSyncBlocked) return false; } catch (_) {}
   try { if (localStorage.getItem('bp_guest_ok') === '1') return true; } catch (_) {}
   try { if (readGuestOkCookie()) return true; } catch (_) {}
   return false;
 }
+
+/** True when the player is currently in guest mode (not logged into a registered account). */
+function isPlayingAsGuest() {
+  try { if (authToken) return false; } catch (_) {}
+  try { if (authAccount) return false; } catch (_) {}
+  return hasLocalGuestSession() || !!(_ipCanResumeGuest && _ipGuestProgress);
+}
+
+/**
+ * Warn before login from guest: guest progress will be wiped.
+ * @returns {Promise<'register'|'continue'|'cancel'>}
+ */
+function confirmGuestLoginWipe() {
+  return new Promise(function (resolve) {
+    const modal = document.getElementById('guestLoginWarnModal');
+    if (!modal) {
+      // Fallback: binary confirm
+      const ok = window.confirm(
+        'Прогресс гостя будет безвозвратно удалён. Рекомендуем зарегистрироваться.\n\nOK — войти и удалить гостя\nОтмена — остаться'
+      );
+      resolve(ok ? 'continue' : 'cancel');
+      return;
+    }
+    const regBtn = document.getElementById('guestLoginWarnRegister');
+    const skipBtn = document.getElementById('guestLoginWarnSkip');
+    const cancelBtn = document.getElementById('guestLoginWarnCancel');
+    const backdrop = document.getElementById('guestLoginWarnBackdrop');
+
+    function cleanup(result) {
+      modal.classList.remove('visible');
+      modal.hidden = true;
+      modal.style.display = 'none';
+      modal.setAttribute('aria-hidden', 'true');
+      if (regBtn) regBtn.onclick = null;
+      if (skipBtn) skipBtn.onclick = null;
+      if (cancelBtn) cancelBtn.onclick = null;
+      if (backdrop) backdrop.onclick = null;
+      document.removeEventListener('keydown', onKey);
+      resolve(result);
+    }
+    function onKey(e) {
+      if (e.key === 'Escape') cleanup('cancel');
+    }
+    if (regBtn) regBtn.onclick = function () { cleanup('register'); };
+    if (skipBtn) skipBtn.onclick = function () { cleanup('continue'); };
+    if (cancelBtn) cancelBtn.onclick = function () { cleanup('cancel'); };
+    if (backdrop) backdrop.onclick = function () { cleanup('cancel'); };
+    document.addEventListener('keydown', onKey);
+    // Above entry-gate (z-index 100000) and auth form
+    try { document.body.appendChild(modal); } catch (_) {}
+    modal.hidden = false;
+    modal.style.display = 'flex';
+    modal.style.zIndex = '100060';
+    modal.classList.add('visible');
+    modal.setAttribute('aria-hidden', 'false');
+    try { setTimeout(function () { if (regBtn) regBtn.focus(); }, 40); } catch (_) {}
+  });
+}
+
+/** Current guest friend code to purge on login (if any). */
+function getActiveGuestFriendCode() {
+  try {
+    if (typeof myFriendCode === 'string' && myFriendCode) {
+      return String(myFriendCode).toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 16);
+    }
+  } catch (_) {}
+  try {
+    const c = localStorage.getItem('bp_my_code');
+    if (c) return String(c).toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 16);
+  } catch (_) {}
+  try {
+    if (_ipGuestProgress && _ipGuestProgress.friendCode) {
+      return String(_ipGuestProgress.friendCode).toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 16);
+    }
+  } catch (_) {}
+  return '';
+}
+
+try { window.confirmGuestLoginWipe = confirmGuestLoginWipe; } catch (_) {}
+try { window.isPlayingAsGuest = isPlayingAsGuest; } catch (_) {}
 function shouldAllowGuestButton() {
   try { if (authToken) return false; } catch (_) {}
   // Absolute rule: any real account bound to this IP → never offer guest
@@ -4551,12 +4679,93 @@ async function submitAuthForm(e) {
       return;
     }
   }
+  // Capture guest state BEFORE any auth (must not change until user confirms wipe)
+  const wasGuestOnLogin = (authMode === 'login' && isPlayingAsGuest());
+  const guestCodePending = wasGuestOnLogin ? getActiveGuestFriendCode() : '';
   if (submit) submit.disabled = true;
   showAuthLoading(
     authMode === 'register' ? 'Создаём аккаунт…' : 'Входим в аккаунт…',
     authMode === 'register' ? 'Регистрация на сервере…' : 'Проверка данных…'
   );
   try {
+    // ── Guest login: check credentials ONLY (no session / no wipe) ──
+    if (authMode === 'login' && wasGuestOnLogin) {
+      const check = await apiFetch('/api/auth/check-login', {
+        method: 'POST',
+        body: { login, password }
+      });
+      if (!check.ok || !check.data || !check.data.ok) {
+        hideAuthLoading();
+        let msg = (check.data && (check.data.message || check.data.error)) || null;
+        if (!msg) {
+          if (check.networkError || check.status === 0) msg = 'Нет связи с сервером';
+          else if (check.status === 401) msg = 'Неверный логин или пароль';
+          else msg = 'Ошибка (код ' + check.status + ')';
+        }
+        if (msg === 'bad_credentials') msg = 'Неверный логин или пароль';
+        if (err) { err.textContent = msg; err.hidden = false; }
+        return;
+      }
+      // Account exists — show warning. Server state is UNCHANGED (no session, no wipe).
+      hideAuthLoading();
+      const decision = await confirmGuestLoginWipe();
+      if (decision === 'cancel') return;
+      if (decision === 'register') {
+        try {
+          if (typeof openAuthModal === 'function') openAuthModal('register');
+          else if (typeof entryGateSetMode === 'function') entryGateSetMode('register');
+        } catch (_) {}
+        return;
+      }
+      // ONLY after "Понятно, войти": real login + wipe guest
+      try { window._bpAuthTransition = true; } catch (_) {}
+      try {
+        localStorage.removeItem('bp_guest_ok');
+        if (typeof persistGuestOk === 'function') persistGuestOk(false);
+        else { try { document.cookie = 'bp_guest_ok=; Max-Age=0; path=/; SameSite=Lax'; } catch (_2) {} }
+      } catch (_) {}
+      showAuthLoading('Входим в аккаунт…', 'Удаляем гостевой прогресс…');
+      const loginBody = {
+        login,
+        password,
+        wipeGuest: true,
+        guestFriendCode: guestCodePending || undefined
+      };
+      const { ok, data, status, networkError } = await apiFetch('/api/auth/login', {
+        method: 'POST',
+        body: loginBody
+      });
+      if (!ok || !data || !data.ok) {
+        hideAuthLoading();
+        try { window._bpAuthTransition = false; } catch (_) {}
+        let msg = (data && (data.message || data.error)) || 'Не удалось войти';
+        if (networkError || status === 0) msg = 'Нет связи с сервером';
+        if (msg === 'bad_credentials') msg = 'Неверный логин или пароль';
+        if (err) { err.textContent = msg; err.hidden = false; }
+        return;
+      }
+      authToken = data.token;
+      try { persistAuthToken(authToken); } catch (_) {}
+      try {
+        if (data.account && data.account.friendCode) {
+          myFriendCode = String(data.account.friendCode).toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 16);
+          localStorage.setItem('bp_my_code', myFriendCode);
+        }
+      } catch (_) {}
+      try {
+        if (guestCodePending) {
+          await apiFetch('/api/auth/wipe-guest', {
+            method: 'POST',
+            body: { guestFriendCode: guestCodePending }
+          });
+        }
+      } catch (_) {}
+      closeAuthModal();
+      await finishAuthSuccess(data.account, 'login');
+      return;
+    }
+
+    // ── Register or non-guest login ──
     const path = authMode === 'register' ? '/api/auth/register' : '/api/auth/login';
     const body = { login, password };
     if (authMode === 'register' && nick) body.nick = nick;
@@ -4571,9 +4780,13 @@ async function submitAuthForm(e) {
         if (prep.preferredFriendCode) body.preferredFriendCode = prep.preferredFriendCode;
       } catch (_) {}
     }
+    if (authMode === 'login') {
+      try { window._bpAuthTransition = true; } catch (_) {}
+    }
     const { ok, data, status, networkError, contentType } = await apiFetch(path, { method: 'POST', body });
     if (!ok || !data || !data.ok) {
       hideAuthLoading();
+      try { window._bpAuthTransition = false; } catch (_) {}
       let msg = (data && (data.message || data.error)) || null;
       if (!msg) {
         if (networkError || status === 0) {
@@ -4588,18 +4801,19 @@ async function submitAuthForm(e) {
           msg = 'Ошибка (код ' + status + ')';
         }
       }
-      // Humanize known error codes
       if (msg === 'accounts_unavailable') msg = 'Сервис аккаунтов недоступен';
       if (msg === 'server_error') msg = 'Ошибка сервера';
       if (msg === 'not_found') msg = 'API не найден — обновите страницу или перезапустите сервер';
+      if (msg === 'bad_credentials') msg = 'Неверный логин или пароль';
       if (err) { err.textContent = msg; err.hidden = false; }
       try { console.warn('[auth]', status, data, contentType); } catch (_) {}
       return;
     }
+
     authToken = data.token;
     try { persistAuthToken(authToken); } catch (_) {}
     try {
-      if (data.guestProgress) {
+      if (data.guestProgress && authMode === 'register') {
         _ipGuestProgress = data.guestProgress;
         applyGuestProgressSnapshot(data.guestProgress);
       }
@@ -4612,6 +4826,7 @@ async function submitAuthForm(e) {
     await finishAuthSuccess(data.account, authMode);
   } catch (ex) {
     hideAuthLoading();
+    try { window._bpAuthTransition = false; } catch (_) {}
     if (err) {
       err.textContent = 'Нет связи с сервером';
       err.hidden = false;
@@ -4622,6 +4837,8 @@ async function submitAuthForm(e) {
 }
 
 async function logoutAccount() {
+  // Block the alive/session poll from treating logout as "account deleted"
+  try { window._bpIntentionalLogout = true; } catch (_) {}
   try {
     if (typeof showAuthLoading === 'function') showAuthLoading('Выходим из аккаунта…');
   } catch (_) {}
@@ -4674,7 +4891,231 @@ async function logoutAccount() {
     entryGateSetMode('login');
     try { bindEntryGate(); } catch (_) {}
   } catch (_) {}
+  // Keep the flag a bit longer so in-flight alive polls cannot flash "Аккаунт удалён"
+  setTimeout(function () {
+    try { window._bpIntentionalLogout = false; } catch (_) {}
+  }, 5000);
 }
+
+
+/**
+ * Server (or session poll) says this account no longer exists / session revoked.
+ * Clear all local auth and force the entry gate — no soft continue as the old user.
+ */
+/**
+ * Guest identity gone from server — clear local guest quietly.
+ * Never show the dramatic "Аккаунт удалён" overlay (that is for registered accounts).
+ */
+/**
+ * Guest identity missing/expired on server.
+ * NEVER force the login gate while the player is already in the game —
+ * that was kicking users when opening Friends/Shop tabs.
+ */
+function softClearDeadGuest(reason) {
+  try {
+    if (authToken) return false; // registered — forceAuthRevoked handles
+  } catch (_) {}
+  try {
+    if (window._bpSoftGuestClearBusy) return true;
+    window._bpSoftGuestClearBusy = true;
+  } catch (_) {}
+  try {
+    // CRITICAL: never re-upload guest progress when the server says the identity is dead.
+    // The old path called scheduleGuestProgressSync() and resurrected deleted accounts.
+    try {
+      window._bpAccountDeleted = true;
+      window._bpGuestSyncBlocked = true;
+    } catch (_) {}
+    try { persistGuestOk(false); } catch (_) {}
+    try { localStorage.removeItem('bp_guest_ok'); } catch (_) {}
+    try {
+      _ipCanResumeGuest = false;
+      _ipGuestProgress = null;
+    } catch (_) {}
+    // Wipe local friend code + progress so presence_register cannot push the dead code back
+    try {
+      if (typeof discardGuestProgressFully === 'function') {
+        discardGuestProgressFully({ keepFriendCode: false });
+      } else {
+        try { myFriendCode = ''; localStorage.removeItem('bp_my_code'); } catch (_) {}
+      }
+    } catch (_) {}
+    // Force entry gate — identity is gone on every device path
+    try {
+      entryGateShowGuest = true;
+      entryGateDismissible = false;
+      if (typeof showEntryGate === 'function') {
+        showEntryGate({ dismissible: false, showGuest: true });
+      }
+      if (typeof entryGateSetMode === 'function') entryGateSetMode('login');
+    } catch (_) {}
+    try {
+      if (typeof showInfoToast === 'function' && reason !== 'boot') {
+        showInfoToast('Сессия', 'Гостевой прогресс сброшен', 'warn');
+      }
+    } catch (_) {}
+  } finally {
+    setTimeout(function () {
+      try { window._bpSoftGuestClearBusy = false; } catch (_) {}
+    }, 2000);
+  }
+  return true;
+}
+
+try { window.softClearDeadGuest = softClearDeadGuest; } catch (_) {}
+
+async function forceAuthRevoked(reason) {
+  reason = reason || 'account_deleted';
+  // Intentional logout / clean boot must never show "Аккаунт удалён"
+  try {
+    if (window._bpIntentionalLogout) return;
+    // Login/register in progress — ignore stale guest-code "not alive" kicks
+    if (window._bpAuthTransition) return;
+    // Boot / entry-gate loading — never flash delete over "Подготовка меню"
+    if (window._bpBooting) {
+      try { softClearDeadGuest('boot'); } catch (_) {}
+      return;
+    }
+  } catch (_) {}
+  // Guest-only identity death → hard local wipe + entry gate (no re-sync)
+  try {
+    if (!authToken && (reason === 'account_deleted' || reason === 'deleted')) {
+      try { softClearDeadGuest(reason); } catch (_) {}
+      return;
+    }
+  } catch (_) {}
+  // Session expiry is not account deletion — soft clear without delete UX
+  if (reason === 'session_expired' || reason === 'unauthorized') {
+    try {
+      authToken = null;
+      authAccount = null;
+      try { persistAuthToken(null); } catch (_) {}
+    } catch (_) {}
+    return;
+  }
+  // False alarm guard: if we still have a live session, do NOT show "Аккаунт удалён"
+  // (common race: wiped guest code polled while logged into a real account)
+  // Skip this guard when reason is explicit account_deleted — identity is gone.
+  if (reason !== 'account_deleted' && reason !== 'deleted') {
+    try {
+      if (authToken && typeof apiFetch === 'function') {
+        const tok = authToken;
+        const res = await apiFetch('/api/me', { method: 'GET' });
+        if (authToken === tok && res && res.ok && res.data && res.data.ok && res.data.account) {
+          // Session is valid — ignore the spurious revoke
+          try {
+            if (res.data.account.friendCode) {
+              myFriendCode = String(res.data.account.friendCode).toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 16);
+              localStorage.setItem('bp_my_code', myFriendCode);
+            }
+          } catch (_) {}
+          return;
+        }
+      }
+    } catch (_) {}
+  }
+  try {
+    if (window._bpAuthRevokedBusy) return;
+    window._bpAuthRevokedBusy = true;
+  } catch (_) {}
+  try {
+    // Block any further guest-sync / resume of the deleted identity
+    try {
+      window._bpAccountDeleted = true;
+      window._bpGuestSyncBlocked = true;
+    } catch (_) {}
+    authToken = null;
+    authAccount = null;
+    try { persistAuthToken(null); } catch (_) {}
+    try { localStorage.removeItem('bp_auth_token'); } catch (_) {}
+    try { localStorage.removeItem('bp_account'); } catch (_) {}
+    // Wipe in-memory + local guest resume so "Продолжить гостем" cannot appear
+    try {
+      _ipCanResumeGuest = false;
+      _ipGuestProgress = null;
+      _ipHasRealAccount = false;
+    } catch (_) {}
+    try {
+      localStorage.removeItem('bp_my_code');
+      localStorage.removeItem('bp_guest_ok');
+      try { if (typeof persistGuestOk === 'function') persistGuestOk(false); } catch (_) {}
+      try { document.cookie = 'bp_guest_ok=; Max-Age=0; path=/'; } catch (_) {}
+      localStorage.removeItem('bp_skins_owned');
+      localStorage.removeItem('bp_skin_equipped');
+      localStorage.removeItem('bp_boards_owned');
+      localStorage.removeItem('bp_board_equipped');
+      localStorage.removeItem('bp_skin');
+      localStorage.removeItem('bp_board');
+      localStorage.removeItem('bp_trophies');
+      localStorage.removeItem('bp_diamonds');
+      localStorage.removeItem('bp_best');
+      localStorage.removeItem('bp_friends');
+      localStorage.removeItem('bp_history');
+      localStorage.removeItem('bp_ach');
+      localStorage.removeItem('bp_bot_stars');
+      localStorage.removeItem('bp_status');
+      localStorage.removeItem('bp_avatar');
+      localStorage.removeItem('bp_avatar_custom');
+    } catch (_) {}
+    try { myFriendCode = ''; } catch (_) {}
+    try { trophies = 0; diamonds = 9999; best = 0; friends = []; matchHistory = []; } catch (_) {}
+    try {
+      if (typeof MatchClient !== 'undefined') {
+        try { MatchClient._lastPresence = null; } catch (_) {}
+        try { MatchClient._wantClose = true; } catch (_) {}
+        try { MatchClient._wantQueue = null; } catch (_) {}
+        try { if (typeof MatchClient.disconnect === 'function') MatchClient.disconnect(); } catch (_) {}
+      }
+    } catch (_) {}
+    try { if (typeof closeAccountDeleteModal === 'function') closeAccountDeleteModal(); } catch (_) {}
+    try { if (typeof navigateScreen === 'function') navigateScreen('menu'); } catch (_) {}
+    try {
+      if (typeof showAuthLoading === 'function') {
+        showAuthLoading(
+          reason === 'account_deleted' ? 'Аккаунт удалён' : 'Сессия завершена',
+          'Все данные стёрты'
+        );
+      }
+    } catch (_) {}
+    // Ask server — residual device guest progress should already be purged
+    try { await refreshGuestAllowedFromServer(); } catch (_) {}
+    // Force no resume regardless of laggy server response
+    try {
+      _ipCanResumeGuest = false;
+      _ipGuestProgress = null;
+    } catch (_) {}
+    await new Promise(function (r) { setTimeout(r, 400); });
+    try { if (typeof hideAuthLoading === 'function') hideAuthLoading(); } catch (_) {}
+    try {
+      // Only offer a FRESH guest slot if device is free — never "continue"
+      const canCreate = !_ipHasRealAccount
+        && !(typeof deviceHadBoundAccount === 'function' && deviceHadBoundAccount())
+        && !(typeof ipBlocksGuest === 'function' && ipBlocksGuest());
+      showEntryGate({ dismissible: false, showGuest: !!canCreate });
+      if (typeof entryGateSetMode === 'function') entryGateSetMode('login');
+      if (typeof bindEntryGate === 'function') bindEntryGate();
+      // Force guest plaque to "create" mode if visible
+      try {
+        const gb = document.getElementById('entryGateGuestBlock');
+        if (gb && !gb.hidden) {
+          gb.setAttribute('data-guest-mode', 'create');
+          const strong = gb.querySelector('.entry-gate-btn-text strong');
+          const small = gb.querySelector('.entry-gate-btn-text small');
+          if (strong) strong.textContent = 'Играть гостем';
+          if (small) small.textContent = 'Данные на сервере живут до 48 часов';
+        }
+      } catch (_) {}
+    } catch (_) {}
+    try {
+      if (typeof showInfoToast === 'function') {
+        showInfoToast('Аккаунт', 'Аккаунт удалён — все данные уничтожены', 'bad');
+      }
+    } catch (_) {}
+  } finally {
+    try { window._bpAuthRevokedBusy = false; } catch (_) {}
+  }
+}
+try { window.forceAuthRevoked = forceAuthRevoked; } catch (_) {}
 
 /** Open in-app modal to permanently delete server account (no native prompt/confirm). */
 function openAccountDeleteModal() {
@@ -5119,6 +5560,7 @@ function entryGateSetMode(mode) {
   const allowContinueGuest = !fromProfileAuth
     && !authToken
     && !_ipHasRealAccount
+    && !(window._bpAccountDeleted || window._bpGuestSyncBlocked)
     && (ipCanResumeGuest() || hasLocalGuestSession());
   // CREATE: only brand-new device, not when resume is available
   const allowCreateGuest = !fromProfileAuth
@@ -5325,8 +5767,28 @@ async function resumeGuestMode() {
     try { updateAccountUI(); } catch (_) {}
     try { if (typeof refreshProfileUI === 'function') refreshProfileUI(); } catch (_) {}
     try { if (typeof updateMenuStats === 'function') updateMenuStats(); } catch (_) {}
+    // Pull authoritative shop inventory after guest resume
+    try {
+      if (typeof MatchClient !== 'undefined' && MatchClient.cosmeticsGet) MatchClient.cosmeticsGet();
+    } catch (_) {}
+    try {
+      if (typeof renderShopGrid === 'function') renderShopGrid();
+      if (typeof renderInvGrid === 'function') renderInvGrid();
+      if (typeof renderShop === 'function') renderShop();
+    } catch (_) {}
     try { scheduleGuestProgressSync(); } catch (_) {}
     try { await syncGuestProgressToServer({ force: true, full: true }); } catch (_) {}
+    try {
+      setTimeout(function () {
+        try {
+          if (typeof MatchClient !== 'undefined' && MatchClient.cosmeticsGet) MatchClient.cosmeticsGet();
+        } catch (_) {}
+        try {
+          if (typeof renderShopGrid === 'function') renderShopGrid();
+          if (typeof renderInvGrid === 'function') renderInvGrid();
+        } catch (_) {}
+      }, 700);
+    } catch (_) {}
     hideEntryGate();
   } finally {
     try { hideAuthLoading(); } catch (_) {}
@@ -5335,9 +5797,18 @@ async function resumeGuestMode() {
 
 async function acceptGuestMode(opts) {
   opts = opts || {};
+  // After account deletion — never resume old identity
+  try {
+    if (window._bpAccountDeleted || window._bpGuestSyncBlocked) {
+      opts = Object.assign({}, opts, { resume: false });
+      try { localStorage.removeItem('bp_guest_ok'); } catch (_) {}
+      try { _ipCanResumeGuest = false; _ipGuestProgress = null; } catch (_) {}
+    }
+  } catch (_) {}
   // Resume path: local flag, server canResume, or explicit { resume: true }
   try {
-    if (opts.resume || localStorage.getItem('bp_guest_ok') === '1' || ipCanResumeGuest()) {
+    if (!window._bpAccountDeleted && !window._bpGuestSyncBlocked
+        && (opts.resume || localStorage.getItem('bp_guest_ok') === '1' || ipCanResumeGuest())) {
       try { await resumeGuestMode(); } catch (_) {
         hideEntryGate();
         try { updateAccountUI(); } catch (_) {}
@@ -5396,6 +5867,11 @@ async function acceptGuestMode(opts) {
         _ipGuestBlocked = true;
         _ipCanResumeGuest = true;
         if (data.guestProgress) _ipGuestProgress = data.guestProgress;
+        // Fresh guest after a deleted identity — allow normal play/sync again
+        try {
+          window._bpAccountDeleted = false;
+          window._bpGuestSyncBlocked = false;
+        } catch (_) {}
       } else if (data && (data.error === 'already_bound' || data.bound || data.hasAccount)) {
         if (data.canResumeGuest) {
           _ipCanResumeGuest = true;
@@ -5454,14 +5930,18 @@ async function acceptGuestMode(opts) {
  * Returning guest (bp_guest_ok) or valid token may enter the game.
  */
 async function maybeShowEntryGate() {
+  function endBoot() {
+    try { window._bpBooting = false; } catch (_) {}
+  }
   if (authToken) {
+    try { window._bpBooting = true; } catch (_) {}
     try { showAuthLoading('Загрузка аккаунта…'); } catch (_) {}
     try {
       const ok = await restoreSessionFromToken();
       if (ok) {
-        // Account loaded from server only at this moment
         await new Promise((r) => setTimeout(r, 600));
         hideEntryGate();
+        endBoot();
         return;
       }
     } finally {
@@ -5469,6 +5949,7 @@ async function maybeShowEntryGate() {
     }
   }
   // Always ask server first — admin may have deleted the account on this device
+  try { window._bpBooting = true; } catch (_) {}
   try { showAuthLoading('Загрузка…', 'Подготовка меню'); } catch (_) {}
   try {
     await refreshGuestAllowedFromServer();
@@ -5481,6 +5962,7 @@ async function maybeShowEntryGate() {
     try { hideAuthLoading(); } catch (_) {}
     showEntryGate({ dismissible: false, showGuest: false });
     try { entryGateSetMode(authMode || 'login'); } catch (_) {}
+    endBoot();
     return;
   }
   let guestOk = false;
@@ -5502,13 +5984,14 @@ async function maybeShowEntryGate() {
     } catch (_) {
       try { updateAccountUI(); } catch (_) {}
     }
+    // Keep booting flag briefly so in-flight alive polls cannot flash delete UX
+    setTimeout(endBoot, 2500);
     return;
   }
   if (guestOk && !ipCanResumeGuest() && !hasLocalGuestSession()) {
     try { persistGuestOk(false); } catch (_) {}
   }
   // Create OR continue guest — never if a real account is bound to this IP
-  // Show guest plaque for CREATE or CONTINUE
   const showGuest = !_ipHasRealAccount && (ipCanResumeGuest() || hasLocalGuestSession() || shouldAllowGuestButton());
   entryGateShowGuest = showGuest;
   entryGateDismissible = false;
@@ -5520,13 +6003,15 @@ async function maybeShowEntryGate() {
   try { hideAuthLoading(); } catch (_) {}
   showEntryGate({ dismissible: false, showGuest: showGuest });
   try { entryGateSetMode(authMode || 'login'); } catch (_) {}
-  // Re-apply after a tick so resume flag from server is reflected on the button
   try {
     setTimeout(function () {
       try { entryGateSetMode(authMode || 'login'); } catch (_) {}
     }, 100);
   } catch (_) {}
+  setTimeout(endBoot, 1500);
 }
+
+
 async function submitEntryAuthForm(e) {
   if (e) e.preventDefault();
   const loginEl = document.getElementById('entryAuthLogin');
@@ -5550,18 +6035,94 @@ async function submitEntryAuthForm(e) {
       return;
     }
   }
+  const wasGuestOnLogin = (authMode === 'login' && isPlayingAsGuest());
+  const guestCodePending = wasGuestOnLogin ? getActiveGuestFriendCode() : '';
   if (submit) submit.disabled = true;
-  // Show loading immediately on submit (covers network round-trip)
   showAuthLoading(
     authMode === 'register' ? 'Создаём аккаунт…' : 'Входим в аккаунт…',
     authMode === 'register' ? 'Регистрация на сервере…' : 'Проверка данных…'
   );
   try {
+    // ── Guest login: check credentials ONLY (no session / no wipe) ──
+    if (authMode === 'login' && wasGuestOnLogin) {
+      const check = await apiFetch('/api/auth/check-login', {
+        method: 'POST',
+        body: { login, password }
+      });
+      if (!check.ok || !check.data || !check.data.ok) {
+        hideAuthLoading();
+        let msg = (check.data && (check.data.message || check.data.error)) || null;
+        if (!msg) {
+          if (check.networkError || check.status === 0) msg = 'Нет связи с сервером';
+          else if (check.status === 401) msg = 'Неверный логин или пароль';
+          else msg = 'Ошибка (код ' + check.status + ')';
+        }
+        if (msg === 'bad_credentials') msg = 'Неверный логин или пароль';
+        if (err) { err.textContent = msg; err.hidden = false; }
+        return;
+      }
+      hideAuthLoading();
+      const decision = await confirmGuestLoginWipe();
+      if (decision === 'cancel') return;
+      if (decision === 'register') {
+        try {
+          if (typeof entryGateSetMode === 'function') entryGateSetMode('register');
+          else if (typeof openAuthModal === 'function') openAuthModal('register');
+        } catch (_) {}
+        return;
+      }
+      // ONLY after confirm: real login + wipe guest
+      try { window._bpAuthTransition = true; } catch (_) {}
+      try {
+        localStorage.removeItem('bp_guest_ok');
+        if (typeof persistGuestOk === 'function') persistGuestOk(false);
+        else { try { document.cookie = 'bp_guest_ok=; Max-Age=0; path=/; SameSite=Lax'; } catch (_2) {} }
+      } catch (_) {}
+      showAuthLoading('Входим в аккаунт…', 'Удаляем гостевой прогресс…');
+      const loginBody = {
+        login,
+        password,
+        wipeGuest: true,
+        guestFriendCode: guestCodePending || undefined
+      };
+      const { ok, data, status, networkError } = await apiFetch('/api/auth/login', {
+        method: 'POST',
+        body: loginBody
+      });
+      if (!ok || !data || !data.ok) {
+        hideAuthLoading();
+        try { window._bpAuthTransition = false; } catch (_) {}
+        let msg = (data && (data.message || data.error)) || 'Не удалось войти';
+        if (networkError || status === 0) msg = 'Нет связи с сервером';
+        if (msg === 'bad_credentials') msg = 'Неверный логин или пароль';
+        if (err) { err.textContent = msg; err.hidden = false; }
+        return;
+      }
+      authToken = data.token;
+      try { persistAuthToken(authToken); } catch (_) {}
+      try {
+        if (data.account && data.account.friendCode) {
+          myFriendCode = String(data.account.friendCode).toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 16);
+          localStorage.setItem('bp_my_code', myFriendCode);
+        }
+      } catch (_) {}
+      try {
+        if (guestCodePending) {
+          await apiFetch('/api/auth/wipe-guest', {
+            method: 'POST',
+            body: { guestFriendCode: guestCodePending }
+          });
+        }
+      } catch (_) {}
+      await finishAuthSuccess(data.account, 'login');
+      return;
+    }
+
+    // ── Register or non-guest login ──
     const path = authMode === 'register' ? '/api/auth/register' : '/api/auth/login';
     const body = { login, password };
     if (authMode === 'register' && nick) body.nick = nick;
     if (authMode === 'register') {
-      // Same path for entry-gate and profile «Войти / Регистрация» — 1:1 guest migrate
       try {
         const prep = await prepareRegisterGuestPayload();
         if (prep.guestProgress) {
@@ -5572,9 +6133,13 @@ async function submitEntryAuthForm(e) {
         if (prep.preferredFriendCode) body.preferredFriendCode = prep.preferredFriendCode;
       } catch (_) {}
     }
+    if (authMode === 'login') {
+      try { window._bpAuthTransition = true; } catch (_) {}
+    }
     const { ok, data, status, networkError } = await apiFetch(path, { method: 'POST', body });
     if (!ok || !data || !data.ok) {
       hideAuthLoading();
+      try { window._bpAuthTransition = false; } catch (_) {}
       let msg = (data && (data.message || data.error)) || null;
       if (!msg) {
         if (networkError || status === 0) msg = 'Нет связи с сервером';
@@ -5582,17 +6147,17 @@ async function submitEntryAuthForm(e) {
         else msg = 'Ошибка (код ' + status + ')';
       }
       if (msg === 'accounts_unavailable') msg = 'Сервис аккаунтов недоступен';
+      if (msg === 'bad_credentials') msg = 'Неверный логин или пароль';
       if (err) { err.textContent = msg; err.hidden = false; }
       return;
     }
     authToken = data.token;
     try { persistAuthToken(authToken); } catch (_) {}
     try {
-      if (data.guestProgress) {
+      if (data.guestProgress && authMode === 'register') {
         _ipGuestProgress = data.guestProgress;
         applyGuestProgressSnapshot(data.guestProgress);
       }
-      // Server-migrated account is truth for diamonds
       if (data.account && typeof data.account.diamonds === 'number') {
         diamonds = Math.max(0, data.account.diamonds | 0);
         try { localStorage.setItem('bp_diamonds', String(diamonds)); } catch (_) {}
@@ -5601,11 +6166,13 @@ async function submitEntryAuthForm(e) {
     await finishAuthSuccess(data.account, authMode);
   } catch (ex) {
     hideAuthLoading();
+    try { window._bpAuthTransition = false; } catch (_) {}
     if (err) { err.textContent = 'Нет связи с сервером'; err.hidden = false; }
   } finally {
     if (submit) submit.disabled = false;
   }
 }
+
 function bindEntryGate() {
   const guestBtn = document.getElementById('entryGateGuest');
   const confirmBtn = document.getElementById('entryGateGuestConfirm');
@@ -5785,4 +6352,133 @@ window.addEventListener('load', () => {
   btn.addEventListener('click', () => {
     setTimeout(() => { try { syncProfileToServer(); } catch (_) {} }, 50);
   });
+})();
+
+
+(function wireAuthRevokedWatcher() {
+  function onRevoked(data) {
+    try {
+      if (!(data && (data.type === 'auth_revoked' || data.reason === 'account_deleted'))) return;
+      // Guest / no session: soft path — never yank open tabs to login gate
+      try {
+        if (!authToken) {
+          softClearDeadGuest(data.reason === 'account_deleted' ? 'session_check' : (data.reason || 'session_check'));
+          return;
+        }
+      } catch (_) {}
+      forceAuthRevoked(data.reason || 'account_deleted');
+    } catch (_) {}
+  }
+  function tryWire() {
+    if (typeof MatchClient === 'undefined' || typeof MatchClient.on !== 'function') {
+      setTimeout(tryWire, 400);
+      return;
+    }
+    try { MatchClient.on('auth_revoked', onRevoked); } catch (_) {}
+    // Also catch generic messages if client routes by type field only
+    try {
+      MatchClient.on('message', function (msg) {
+        if (msg && msg.type === 'auth_revoked') onRevoked(msg);
+      });
+    } catch (_) {}
+  }
+  tryWire();
+
+  // Poll every 2.5s: account/guest gone from DB → force entry gate
+  setInterval(function () {
+    try {
+      if (window._bpAuthRevokedBusy) return;
+      if (window._bpIntentionalLogout) return;
+      if (window._bpAuthTransition) return;
+      if (window._bpBooting) return;
+      // Only poll while we actually have an active identity (session or guest)
+      let guestOk = false;
+      try { guestOk = localStorage.getItem('bp_guest_ok') === '1'; } catch (_) {}
+      const hasSession = !!(authToken || guestOk);
+      if (!hasSession) return;
+
+      // Prefer registered account friend code when logged in (never poll wiped guest code)
+      let code = '';
+      try {
+        if (authToken && authAccount && authAccount.friendCode) {
+          code = String(authAccount.friendCode).toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 16);
+        }
+      } catch (_) {}
+      if (!code && typeof myFriendCode !== 'undefined' && myFriendCode) {
+        code = String(myFriendCode).toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 16);
+      }
+
+      // Logged-in users: trust /api/me. Alive-by-code is only a guest safety net.
+      if (authToken && typeof apiFetch === 'function') {
+        const tok = authToken;
+        const polledCode = code;
+        apiFetch('/api/me', { method: 'GET' }).then(function (res) {
+          try {
+            if (window._bpIntentionalLogout || window._bpAuthTransition) return;
+            if (!authToken || authToken !== tok) return;
+            if (!res) return;
+            if (res.status === 401 || res.status === 403 || (res.data && res.data.error === 'unauthorized')) {
+              // Account row gone (deleted from DB) → full wipe + auto-logout everywhere
+              const deleted = !!(res.data && (res.data.accountDeleted || res.data.error === 'account_deleted'));
+              forceAuthRevoked(deleted ? 'account_deleted' : 'session_expired');
+            }
+          } catch (_) {}
+        }).catch(function () {});
+        // Optional: if we know account code, soft-check alive; ignore mismatches
+        if (polledCode && authAccount && authAccount.friendCode) {
+          const accCode = String(authAccount.friendCode).toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 16);
+          if (polledCode === accCode) {
+            apiFetch('/api/auth/alive?code=' + encodeURIComponent(polledCode), { method: 'GET' }).then(function (res) {
+              try {
+                if (window._bpIntentionalLogout || window._bpAuthTransition) return;
+                if (!authToken) return;
+                if (!res || !res.data) return;
+                // Only kick if server says account is gone (hasAccount false & not alive)
+                if (res.data.alive === false && res.data.hasAccount === false) {
+                  forceAuthRevoked('account_deleted');
+                }
+              } catch (_) {}
+            }).catch(function () {});
+          }
+        }
+      } else if (code && typeof apiFetch === 'function') {
+        // Guest-only alive check
+        apiFetch('/api/auth/alive?code=' + encodeURIComponent(code), { method: 'GET' }).then(function (res) {
+          try {
+            if (window._bpIntentionalLogout || window._bpAuthTransition) return;
+            if (authToken) return; // logged in mid-flight — ignore guest check
+            if (!res || !res.data) return;
+            if (res.data.alive === false) {
+              try { softClearDeadGuest('alive_poll'); } catch (_) {
+                forceAuthRevoked('account_deleted');
+              }
+            }
+          } catch (_) {}
+        }).catch(function () {});
+      }
+      try {
+        if (window._bpBooting) { /* skip session_check during boot */ }
+        else if (code && MatchClient && MatchClient.ws && MatchClient.ws.readyState === 1 && typeof MatchClient.send === 'function') {
+          MatchClient.send({ type: 'session_check', friendCode: code });
+        }
+      } catch (_) {}
+    } catch (_) {}
+  }, 2500);
+  // WS close 4001 → immediate kick
+  try {
+    if (typeof MatchClient !== 'undefined' && MatchClient.on) {
+      MatchClient.on('close', function (ev) {
+        try {
+          if (window._bpIntentionalLogout || window._bpAuthTransition) return;
+          if (ev && (ev.code === 4001 || ev.reason === 'account_deleted')) {
+            if (!authToken) {
+              softClearDeadGuest('session_check');
+              return;
+            }
+            forceAuthRevoked('account_deleted');
+          }
+        } catch (_) {}
+      });
+    }
+  } catch (_) {}
 })();

@@ -3066,6 +3066,15 @@ button:focus:not(:focus-visible),
   display: flex !important;
 }
 .auth-modal[hidden] { display: none !important; }
+/* Guest→login wipe warning must sit ABOVE entry-gate (100000) and auth form */
+#guestLoginWarnModal {
+  z-index: 100060 !important;
+}
+#guestLoginWarnModal .auth-modal-backdrop {
+  background: rgba(0, 0, 0, 0.72);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+}
 .auth-modal-backdrop {
   position: absolute;
   inset: 0;

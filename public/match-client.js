@@ -269,10 +269,17 @@
         }
         this._skipAutoRejoin = false;
       };
-      ws.onclose = () => {
+      ws.onclose = (ev) => {
         this.connected = false;
         if (this._pingIv) { clearInterval(this._pingIv); this._pingIv = null; }
-        this._emit('close', {});
+        const code = (ev && ev.code) | 0;
+        const reason = (ev && ev.reason) ? String(ev.reason) : '';
+        this._emit('close', { code, reason });
+        // Server forced logout (account deleted)
+        if (code === 4001 || reason === 'account_deleted') {
+          try { this._emit('auth_revoked', { type: 'auth_revoked', reason: 'account_deleted' }); } catch (_) {}
+          this._wantClose = true; // do not auto-reconnect as deleted user
+        }
         if (!this._wantClose) this._scheduleReconnect();
       };
       ws.onerror = () => {};
@@ -550,13 +557,39 @@
       return this.send(Object.assign({ type: 'presence_register' }, this._lastPresence));
     },
     cosmeticsGet() {
-      return this.send({ type: 'cosmetics_get' });
+      let fc = '';
+      try {
+        if (typeof myFriendCode !== 'undefined' && myFriendCode) fc = String(myFriendCode);
+        else if (this._lastPresence && this._lastPresence.friendCode) fc = String(this._lastPresence.friendCode);
+      } catch (_) {}
+      // Pass friendCode so inventory loads before presence_register binds the socket
+      return this.send({ type: 'cosmetics_get', friendCode: fc || undefined });
     },
     cosmeticsBuy(kind, id) {
-      return this.send({ type: 'cosmetics_buy', kind: kind === 'board' ? 'board' : 'skin', id: String(id || '') });
+      let fc = '';
+      try {
+        if (typeof myFriendCode !== 'undefined' && myFriendCode) fc = String(myFriendCode);
+        else if (this._lastPresence && this._lastPresence.friendCode) fc = String(this._lastPresence.friendCode);
+      } catch (_) {}
+      return this.send({
+        type: 'cosmetics_buy',
+        kind: kind === 'board' ? 'board' : 'skin',
+        id: String(id || ''),
+        friendCode: fc || undefined
+      });
     },
     cosmeticsEquip(kind, id) {
-      return this.send({ type: 'cosmetics_equip', kind: kind === 'board' ? 'board' : 'skin', id: String(id || '') });
+      let fc = '';
+      try {
+        if (typeof myFriendCode !== 'undefined' && myFriendCode) fc = String(myFriendCode);
+        else if (this._lastPresence && this._lastPresence.friendCode) fc = String(this._lastPresence.friendCode);
+      } catch (_) {}
+      return this.send({
+        type: 'cosmetics_equip',
+        kind: kind === 'board' ? 'board' : 'skin',
+        id: String(id || ''),
+        friendCode: fc || undefined
+      });
     },
     queryPresence(codes) {
       return this.send({ type: 'presence_query', codes: codes || [] });

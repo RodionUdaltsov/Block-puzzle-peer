@@ -1,7 +1,7 @@
 {
   "name": "block-puzzle-server",
-  "version": "3.10.0",
-  "description": "Block Puzzle — PostgreSQL-only player progress",
+  "version": "3.10.12",
+  "description": "Block Puzzle \u2014 PostgreSQL-only player progress",
   "license": "MIT",
   "main": "server.js",
   "scripts": {

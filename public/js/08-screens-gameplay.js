@@ -1678,6 +1678,26 @@ function startDrag(e, idx, areaEl) {
   _ghostCellKey = '';
   _dragLastTs = 0;
   _ghostNoGlideOn = false;
+  // Clear previous place/preview residue so the NEW piece shape never flashes
+  // over the last placement cells on the board.
+  try { clearPreview(); } catch (_) {}
+  lastPreview = null;
+  try {
+    // Force-clear ghost (hideGhost is a no-op while isDragging is already true)
+    if (ghost) {
+      ghost.innerHTML = '';
+      try { delete ghost.dataset.holdSig; } catch (_) {}
+      ghost.style.left = '0';
+      ghost.style.top = '0';
+      ghost.style.right = '';
+      ghost.style.bottom = '';
+      ghost.style.transform = 'translate3d(-9999px,-9999px,0)';
+      ghost.classList.remove('visible', 'cell-glide', 'no-glide');
+      ghost.style.display = 'none';
+      ghost.style.opacity = '0';
+      ghost.style.visibility = 'hidden';
+    }
+  } catch (_) {}
   SFX.pick();
   const xy0 = eventClientXY(e);
   pointerX = xy0.x; pointerY = xy0.y;
@@ -1687,29 +1707,55 @@ function startDrag(e, idx, areaEl) {
   // Ensure no other slot is stuck in lifting from a previous multi-touch
   clearAllLifting(areaEl);
   slot.classList.add('lifting');
+  // Ghost is position:fixed + transform only (left/top must stay 0).
+  // Tray slot is hidden via .lifting — ghost is the only visible piece.
   showGhost(dragPiece);
   try { startHoldVisibilityPin(); } catch (_) {}
   const slotRect = slot.getBoundingClientRect();
-  ghost.classList.add('no-glide');
-  invalidateBoardMetrics();
-  updateBoardMetrics();
-  moveGhost(slotRect.left + slotRect.width / 2, slotRect.top + slotRect.height / 2);
-  // Show ghost immediately — tray slot is already opacity:0 via .lifting
   try {
+    ghost.style.left = '0';
+    ghost.style.top = '0';
     ghost.style.display = 'block';
     ghost.style.visibility = 'visible';
-    ghost.classList.add('visible');
+    ghost.style.opacity = '1';
+    ghost.style.pointerEvents = 'none';
+    ghost.classList.add('visible', 'no-glide');
+    ghost.classList.remove('cell-glide');
+  } catch (_) {}
+  invalidateBoardMetrics();
+  updateBoardMetrics();
+  const startX = (typeof pointerX === 'number' && pointerX > 0)
+    ? pointerX
+    : (slotRect.left + slotRect.width / 2);
+  const startY = (typeof pointerY === 'number' && pointerY > 0)
+    ? pointerY
+    : (slotRect.top + slotRect.height / 2);
+  moveGhost(startX, startY);
+  // Delay board cell-snap slightly so the NEW shape does not flash on last place cells
+  try {
+    window._dragStartX = startX;
+    window._dragStartY = startY;
+    window._dragBoardSnapReady = false;
   } catch (_) {}
   requestAnimationFrame(() => {
     if (!isDragging) return;
-    ghost.classList.add('visible');
-    const aim = aimFromPointer(pointerX, pointerY);
-    updatePreview(aim.x, aim.y);
-    // First frame: jump to aim without lag (no-glide already on)
-    moveGhost(aim.x, aim.y);
+    try {
+      ghost.style.left = '0';
+      ghost.style.top = '0';
+      ghost.style.display = 'block';
+      ghost.style.visibility = 'visible';
+      ghost.style.opacity = '1';
+      ghost.classList.add('visible');
+    } catch (_) {}
+    moveGhost(pointerX || startX, pointerY || startY);
     requestAnimationFrame(() => {
-      // Keep no-glide until cell snap decides cell-glide in dragFrame
       _ghostCellKey = '';
+      // Allow cell snap after first frame if pointer already moved
+      try {
+        const dx = (pointerX || 0) - (window._dragStartX || 0);
+        const dy = (pointerY || 0) - (window._dragStartY || 0);
+        if (dx * dx + dy * dy >= 36) window._dragBoardSnapReady = true;
+      } catch (_) {}
       if (isDragging) dragFrame();
     });
   });
@@ -1882,15 +1928,21 @@ function startDrag(e, idx, areaEl) {
     const hideMs = placed
       ? (_isTouchUi() ? 140 : 160)
       : (_isTouchUi() ? 90 : 100);
+    // Always park ghost off-board as soon as place resolves so the NEXT piece
+    // shape cannot appear over the cells we just filled.
+    try {
+      ghost.classList.remove('visible', 'cell-glide');
+      ghost.style.opacity = '0';
+      ghost.style.left = '-9999px';
+      ghost.style.top = '-9999px';
+      ghost.dataset.holdSig = '';
+    } catch (_) {}
     if (_isTouchUi() && placed) {
-      // Delay opacity drop a frame so cells already started placeSoft
       requestAnimationFrame(() => {
-        try { ghost.classList.remove('visible'); } catch (_) {}
-        setTimeout(hideGhost, hideMs);
+        try { hideGhost(); } catch (_) {}
       });
     } else {
-      ghost.classList.remove('visible');
-      setTimeout(hideGhost, hideMs);
+      try { hideGhost(); } catch (_) {}
     }
     if (placed) markPieceUsed(idx, areaEl);
     else { SFX.bad(); slot.classList.remove('lifting'); slot.classList.add('show'); }
@@ -2070,8 +2122,30 @@ function dragFrame(ts) {
   rafId = 0; if (!isDragging) return;
   // Metrics only when dirty — never getBoundingClientRect every frame (kills 120/144Hz)
   if (_metricsDirty) ensureBoardMetrics();
+  // Do not board-snap until the pointer moved off the tray (~8px).
+  // Prevents the next piece silhouette from flashing over the just-placed cells.
+  try {
+    if (!window._dragBoardSnapReady) {
+      const dx = pointerX - (window._dragStartX || pointerX);
+      const dy = pointerY - (window._dragStartY || pointerY);
+      if (dx * dx + dy * dy >= 64) window._dragBoardSnapReady = true;
+    }
+  } catch (_) { window._dragBoardSnapReady = true; }
   const aim = aimFromPointer(pointerX, pointerY);
-  updatePreview(aim.x, aim.y);
+  if (window._dragBoardSnapReady) {
+    updatePreview(aim.x, aim.y);
+  } else {
+    // Free-follow finger; no board cell highlight / cell-center snap
+    try { clearPreview(); lastPreview = null; } catch (_) {}
+    try {
+      if (ghost) {
+        ghost.style.display = 'block';
+        ghost.style.visibility = 'visible';
+        ghost.style.opacity = '1';
+        ghost.classList.add('visible');
+      }
+    } catch (_) {}
+  }
   const touchUi = _isTouchUi();
 
   // Frame-time for rate-independent lerp (60Hz and 144Hz feel the same)
@@ -2270,7 +2344,11 @@ function showGhost(piece) {
   _ghostCellKey = '';
 }
 function moveGhost(x, y) {
-  // Single compositor write — avoid extra CSS vars (costly at 120/144Hz)
+  // Ghost uses position:fixed with left/top = 0; position is transform only.
+  try {
+    if (ghost.style.left !== '0px' && ghost.style.left !== '0') ghost.style.left = '0';
+    if (ghost.style.top !== '0px' && ghost.style.top !== '0') ghost.style.top = '0';
+  } catch (_) {}
   const scale = ghost.classList.contains('visible') ? 1 : 0.7;
   ghost.style.transform = 'translate3d(' + x + 'px,' + y + 'px,0) translate(-50%,-50%) scale(' + scale + ')';
 }

@@ -169,6 +169,8 @@ function tryBuy(profile, kind, id) {
     if (p.diamonds < price) return { ok: false, profile: p, error: 'funds' };
     p.diamonds -= price;
     p.ownedSkins.push(itemId);
+    // Auto-equip purchased skin; board stays independent
+    p.equippedSkin = itemId;
     p.updatedAt = Date.now();
     return { ok: true, profile: p, error: null };
   }
@@ -182,6 +184,8 @@ function tryBuy(profile, kind, id) {
     if (p.diamonds < price) return { ok: false, profile: p, error: 'funds' };
     p.diamonds -= price;
     p.ownedBoards.push(itemId);
+    // Auto-equip purchased board; skin stays independent
+    p.equippedBoard = itemId;
     p.updatedAt = Date.now();
     return { ok: true, profile: p, error: null };
   }
@@ -220,22 +224,21 @@ function tryEquip(profile, kind, id) {
 function migrateFromClient(serverProfile, clientHint) {
   const p = normalizeProfile(serverProfile);
   if (p.migrated) return p;
+  // One-shot flag only. Diamonds / paid ownership are NEVER taken from the client.
+  // Free defaults + already-owned free items only; equip only if already owned on server.
   const hint = clientHint && typeof clientHint === 'object' ? clientHint : {};
-  let diamonds = parseInt(hint.diamonds, 10);
-  if (Number.isFinite(diamonds) && diamonds > p.diamonds) {
-    // Allow generous local test values once; still cap
-    p.diamonds = Math.min(999999, Math.max(0, diamonds));
-  }
+  // Diamonds: ignore client entirely (server default / prior grants only)
   if (Array.isArray(hint.ownedSkins)) {
     for (let i = 0; i < hint.ownedSkins.length; i++) {
       const id = String(hint.ownedSkins[i]);
-      if (isKnownSkin(id) && p.ownedSkins.indexOf(id) === -1) p.ownedSkins.push(id);
+      // Only free skins may be "claimed" from client hint during migration
+      if (isFreeSkin(id) && p.ownedSkins.indexOf(id) === -1) p.ownedSkins.push(id);
     }
   }
   if (Array.isArray(hint.ownedBoards)) {
     for (let i = 0; i < hint.ownedBoards.length; i++) {
       const id = String(hint.ownedBoards[i]);
-      if (isKnownBoard(id) && p.ownedBoards.indexOf(id) === -1) p.ownedBoards.push(id);
+      if (isFreeBoard(id) && p.ownedBoards.indexOf(id) === -1) p.ownedBoards.push(id);
     }
   }
   if (hint.equippedSkin && isKnownSkin(hint.equippedSkin) && p.ownedSkins.indexOf(String(hint.equippedSkin)) !== -1) {

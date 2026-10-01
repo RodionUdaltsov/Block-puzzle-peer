@@ -104,4 +104,14 @@ CREATE TABLE IF NOT EXISTS device_binds (
 );
 CREATE INDEX IF NOT EXISTS idx_device_binds_updated ON device_binds (updated_at);
 
+
+-- Tombstones for deleted friend codes (prevents guest/account resurrection)
+CREATE TABLE IF NOT EXISTS deleted_codes (
+  friend_code   TEXT PRIMARY KEY,
+  reason        TEXT NOT NULL DEFAULT 'account_deleted',
+  deleted_at    BIGINT NOT NULL,
+  exp           BIGINT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_deleted_codes_exp ON deleted_codes (exp);
+
 COMMIT;

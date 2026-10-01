@@ -1518,7 +1518,7 @@ function endVersus(opts) {
         ? `<span style="color:var(--trophy)">Новая звезда! ${starRow}</span><br><span class="muted" style="font-size:0.78rem">${n}/3 · ${currentBot.name}</span>`
         : `<span style="color:var(--text-dim)">${starRow}</span><br><span class="muted" style="font-size:0.78rem">${n}/3 · тренировка</span>`;
     } else {
-      deltaEl.innerHTML = `<span class="muted">Тренировка · без трофеев</span>`;
+      deltaEl.innerHTML = `<span class="muted">Тренировочный бой</span>`;
     }
   } else if (!isRankedOnline) {
     deltaEl.innerHTML = `<span class="muted">Товарищеский матч · без трофеев</span>`;
