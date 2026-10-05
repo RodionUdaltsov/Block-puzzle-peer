@@ -62,4 +62,8 @@ Server replies with snapshots / `place_reject` / result events.
 | POST | `/api/auth/delete` | Bearer + `{ password }` |
 | GET/PATCH | `/api/me` | Bearer |
 | GET | `/health` | JSON liveness |
-| GET | `/metrics` | Prometheus text |
+| POST | `/api/auth/check-login` | `{ login, password }` — verify credentials only |
+| GET/POST | `/api/admin/*` | Header `X-Admin-Key`; disabled in production unless `BP_ADMIN_KEY` is set |
+
+Auth endpoints (`login`, `check-login`, `register`, `delete`) answer **429** with a `Retry-After`
+header after too many failed attempts, and **503** `busy` when the password-hashing queue is full.

@@ -331,6 +331,8 @@ function saveAch() {
     if (typeof authToken !== 'undefined' && authToken && typeof syncProfileToServer === 'function') {
       if (window._achSyncTimer) clearTimeout(window._achSyncTimer);
       window._achSyncTimer = setTimeout(function () {
+        window._achSyncTimer = null;
+        if (typeof authToken === 'undefined' || !authToken) return; // logged out meanwhile
         try { syncProfileToServer({ achievements: achProgress }); } catch (_) {}
       }, 1200);
     }

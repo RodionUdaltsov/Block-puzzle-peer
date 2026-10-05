@@ -1,8 +1,8 @@
 {
   "version": "3.10.12",
-  "hash": "87477fb944df",
+  "hash": "452377ada2f1",
   "minified": true,
-  "generatedAt": "2026-10-01T01:52:18.943Z",
+  "generatedAt": "2026-10-05T19:48:40.312Z",
   "modules": [
     "public/shared/rules.js",
     "public/match-client.js",
@@ -70,79 +70,79 @@
     {
       "file": "public/js/03-audio.js",
       "startLine": 4969,
-      "endLine": 5473,
-      "bytes": 17983
+      "endLine": 5475,
+      "bytes": 18112
     },
     {
       "file": "public/js/04-profile-friends.js",
-      "startLine": 5474,
-      "endLine": 11959,
-      "bytes": 264467
+      "startLine": 5476,
+      "endLine": 12077,
+      "bytes": 270474
     },
     {
       "file": "public/js/05-soft-render.js",
-      "startLine": 11960,
-      "endLine": 13920,
+      "startLine": 12078,
+      "endLine": 14038,
       "bytes": 73647
     },
     {
       "file": "public/js/06-match-liveness.js",
-      "startLine": 13921,
-      "endLine": 15983,
+      "startLine": 14039,
+      "endLine": 16101,
       "bytes": 74940
     },
     {
       "file": "public/js/07-match-flow-ui.js",
-      "startLine": 15984,
-      "endLine": 17941,
+      "startLine": 16102,
+      "endLine": 18059,
       "bytes": 75891
     },
     {
       "file": "public/js/08-screens-gameplay.js",
-      "startLine": 17942,
-      "endLine": 21146,
-      "bytes": 128827
+      "startLine": 18060,
+      "endLine": 21272,
+      "bytes": 129223
     },
     {
       "file": "public/js/09-offline-and-ranked.js",
-      "startLine": 21147,
-      "endLine": 21758,
+      "startLine": 21273,
+      "endLine": 21884,
       "bytes": 24315
     },
     {
       "file": "public/js/10-match-handlers.js",
-      "startLine": 21759,
-      "endLine": 23590,
+      "startLine": 21885,
+      "endLine": 23716,
       "bytes": 78383
     },
     {
       "file": "public/js/11-private-rooms-ui.js",
-      "startLine": 23591,
-      "endLine": 27815,
-      "bytes": 169078
+      "startLine": 23717,
+      "endLine": 27943,
+      "bytes": 169270
     },
     {
       "file": "public/js/12-boot.js",
-      "startLine": 27816,
-      "endLine": 27967,
+      "startLine": 27944,
+      "endLine": 28095,
       "bytes": 5958
     },
     {
       "file": "public/js/13-performance.js",
-      "startLine": 27968,
-      "endLine": 28119,
+      "startLine": 28096,
+      "endLine": 28247,
       "bytes": 5372
     },
     {
       "file": "public/js/14-settings-ui.js",
-      "startLine": 28120,
-      "endLine": 28215,
+      "startLine": 28248,
+      "endLine": 28343,
       "bytes": 3616
     }
   ],
   "bytes": {
-    "classic": 1214741,
-    "esm": 1214785,
-    "classicRaw": 1237494
+    "classic": 1221132,
+    "esm": 1221176,
+    "classicRaw": 1244218
   }
 }

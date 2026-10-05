@@ -1394,6 +1394,8 @@ function endVersus(opts) {
     if (my > rankedBest) {
       rankedBest = my;
       try { localStorage.setItem('bp_ranked_best', String(rankedBest)); } catch (_) {}
+      // Persist the record in the account (achievements.ranked_best_score) — it used to be device-only
+      try { achProgress.ranked_best_score = rankedBest | 0; saveAch(); } catch (_) {}
     }
     updateMenuStats();
   } else {

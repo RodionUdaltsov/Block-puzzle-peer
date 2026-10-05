@@ -2,9 +2,10 @@ FROM node:20-bookworm-slim
 
 WORKDIR /app
 
-COPY package.json ./
-# Install production deps (pg for PostgreSQL store; optional at runtime)
-RUN npm install --omit=dev --no-audit --no-fund || true
+COPY package.json package-lock.json ./
+# Reproducible install from the lockfile; a failed install must fail the build
+# (the server cannot start without the pg driver).
+RUN npm ci --omit=dev --no-audit --no-fund
 
 COPY server.js ./
 COPY shared ./shared
@@ -23,8 +24,7 @@ ENV PORT=9000
 # Player progress source of truth: PostgreSQL
 # ENV BP_STORE=postgres
 # ENV DATABASE_URL=postgres://bp:bp@postgres:5432/blockpuzzle
-# Optional ephemeral: REDIS_URL=redis://redis:6379
-# Dev-only fallback: BP_STORE=file
+# Production: also set BP_ADMIN_KEY, BP_TRUST_PROXY and BP_WS_ORIGINS (see README)
 
 # Non-root user
 RUN groupadd --system --gid 1001 bp \

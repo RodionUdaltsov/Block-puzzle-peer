@@ -14,11 +14,17 @@ test('canonical rules are byte-identical on server and client', () => {
 });
 
 test('server never uses client shape or color for authoritative placement', () => {
-  const s = fs.readFileSync(path.join(root, 'server.js'), 'utf8');
-  assert.equal(/data\.shape/.test(s), false);
-  assert.equal(/data\.color/.test(s), false);
-  assert.match(s, /const shape = normalizeShape\(handPiece\.shape\)/);
-  assert.match(s, /const color = handPiece\.color \|\| DEFAULT_COLORS\[0\]/);
+  // Placement logic lives in lib/match-room.js since the 3.10.5 refactor; scan
+  // every server-side module so a future move cannot silently dodge the check.
+  const files = ['server.js', ...fs.readdirSync(path.join(root, 'lib')).filter((f) => f.endsWith('.js')).map((f) => 'lib/' + f)];
+  for (const rel of files) {
+    const s = fs.readFileSync(path.join(root, rel), 'utf8');
+    assert.equal(/data\.shape/.test(s), false, rel + ' reads data.shape');
+    assert.equal(/data\.color/.test(s), false, rel + ' reads data.color');
+  }
+  const room = fs.readFileSync(path.join(root, 'lib/match-room.js'), 'utf8');
+  assert.match(room, /const shape = normalizeShape\(handPiece\.shape\)/);
+  assert.match(room, /const color = handPiece\.color \|\| DEFAULT_COLORS\[0\]/);
 });
 
 test('legacy peer-liveness filename is gone from active loader/docs', () => {

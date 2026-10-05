@@ -2,11 +2,8 @@
 #
 #   docker compose up -d --build
 #
-# Optional Redis (hot ephemeral data: rooms / queue / tokens):
-#   docker compose --profile redis up -d --build
-#
-# Local file store only (dev, no DB):
-#   BP_STORE=file docker compose up -d --build app
+# Set BP_ADMIN_KEY (admin API is disabled without it), BP_TRUST_PROXY (=1 behind
+# nginx/Caddy) and BP_WS_ORIGINS for a real deployment.
 #
 services:
   app:
@@ -18,8 +15,9 @@ services:
       NODE_ENV: ${NODE_ENV:-production}
       BP_STORE: ${BP_STORE:-postgres}
       DATABASE_URL: ${DATABASE_URL:-postgres://bp:bp@postgres:5432/blockpuzzle}
-      REDIS_URL: ${REDIS_URL:-}
       BP_WS_ORIGINS: ${BP_WS_ORIGINS:-}
+      BP_ADMIN_KEY: ${BP_ADMIN_KEY:-}
+      BP_TRUST_PROXY: ${BP_TRUST_PROXY:-0}
       BP_LOG: ${BP_LOG:-info}
     volumes:
       - bp-data:/app/data
@@ -44,14 +42,7 @@ services:
       timeout: 5s
       retries: 12
 
-  redis:
-    image: redis:7-alpine
-    profiles: ["redis"]
-    restart: unless-stopped
-    volumes:
-      - bp-redis:/data
 
 volumes:
   bp-data:
   bp-postgres:
-  bp-redis:

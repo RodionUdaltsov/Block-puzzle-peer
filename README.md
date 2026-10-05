@@ -4,7 +4,7 @@ Server-authoritative multiplayer block puzzle (Node.js HTTP + WebSocket).
 
 **Version:** see `package.json`  
 **Node:** >= 18  
-**Dependencies:** none (vendor WebSocket, optional Redis via mini client)  
+**Dependencies:** `pg` (PostgreSQL driver); the WebSocket library is vendored in `vendor/ws`  
 **License:** MIT
 
 ## Quick start
@@ -35,15 +35,24 @@ Windows: double-click `start-server.bat` (auto-builds bundle if missing).
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `PORT` | `9000` | HTTP + WS port |
-| `BP_STORE` / `STORE` | `postgres` | `postgres` (default) \| `memory` (tests only) |
+| `BP_STORE` / `STORE` | `postgres` | `postgres` (default) \| `memory` (tests only; any other value falls back to `postgres`) |
 | `DATABASE_URL` | — | **Required.** Postgres URL, e.g. `postgres://bp:bp@127.0.0.1:5432/blockpuzzle` |
-| `BP_WS_ORIGINS` | (any) | Comma-separated allowed Origin values; empty = allow all |
+| `BP_WS_ORIGINS` | (any) | Comma-separated allowed Origin values for WebSocket **and** CORS on `/api`; empty = allow all (set it in production) |
 | `BP_MAX_WS_MSG` | `65536` | Max WebSocket message size (bytes) |
 | `BP_LOG` | `info` | Log level: `debug` \| `info` \| `warn` \| `error` (JSON lines) |
 | `BP_WS_CONN_LIMIT` | `40` | Max new WS connections per IP per window |
 | `BP_WS_CONN_WINDOW` | `10000` | Connection rate window (ms) |
 | `BP_WS_MSG_LIMIT` | `60` | Max WS messages per socket per window |
 | `BP_WS_MSG_WINDOW` | `1000` | Message rate window (ms) |
+| `BP_ADMIN_KEY` | — | Secret for `/api/admin/*`, sent as `X-Admin-Key` header. **Unset in production = admin API disabled.** In development the built-in key `localdev` works from `127.0.0.1` only |
+| `BP_TRUST_PROXY` | `0` | Number of reverse proxies in front of the app (`1` for a single nginx/Caddy). Needed so rate limits see the real player IP; with `0` forwarded headers are ignored (anti-spoofing) |
+| `BP_AUTH_LIMITS` | `0` (off) | Login / registration throttling. **Off by default while testing**; set `1` to enable all `BP_AUTH_*` / `BP_REGISTER_*` limits below (admin-key guard is always on) |
+| `BP_AUTH_IP_FAILS` / `BP_AUTH_IP_WINDOW` | `30` / `600000` | Failed login attempts per IP per window (ms) |
+| `BP_AUTH_PAIR_FAILS` | `8` | Failures per IP + login per `BP_AUTH_LOGIN_WINDOW` (default 15 min) |
+| `BP_AUTH_LOGIN_FAILS` | `100` | Failures per login from all IPs per `BP_AUTH_LOGIN_WINDOW` |
+| `BP_AUTH_DEVICE_FAILS` | `15` | Failures per **device id** per `BP_AUTH_IP_WINDOW` (device+login pairs use `BP_AUTH_PAIR_FAILS`) |
+| `BP_REGISTER_LIMIT` / `BP_REGISTER_DEVICE_LIMIT` | `20` / `5` | Registrations per IP / per device id per hour |
+| `BP_SCRYPT_PARALLEL` / `BP_SCRYPT_QUEUE` | `2` / `64` | Concurrent password hashes / waiting queue (overflow → HTTP 503) |
 
 ## Architecture
 
@@ -52,8 +61,8 @@ Windows: double-click `start-server.bat` (auto-builds bundle if missing).
 - **`shared/skins.js`** — piece color palettes (server deals from this)
 - **`lib/store.js`** + **`lib/postgres-store.js`** — PostgreSQL only (memory for tests)
 - **`lib/logger.js`** — structured JSON logger (`BP_LOG`)
-- **`lib/rate-limit.js`** — WS connection + message rate limits
-- **`lib/security.js`** — HTTP security headers + Origin allowlist
+- **`lib/rate-limit.js`** — WS connection + message rate limits, HTTP login/registration throttling
+- **`lib/security.js`** — HTTP security headers, Origin allowlist/CORS, trusted-proxy client IP, admin-key policy
 - **`public/js/*`** — client modules → `public/dist/client.bundle.js`
 - **`public/css/*`** — modular CSS sources (production bundle is `public/styles.css`)
 - **`public/js/00-i18n.js`** — lightweight ru/en i18n (`t()`, `data-i18n`, settings language chips)
@@ -69,7 +78,7 @@ Windows: double-click `start-server.bat` (auto-builds bundle if missing).
 - social inbox, presence snapshots  
 
 Set `DATABASE_URL` and `BP_STORE=postgres` (Docker defaults do this).  
-`file` / `memory` are **dev-only** fallbacks. Optional **Redis** can still hold short-lived match rooms / ranked queue / rejoin tokens.
+`memory` is a throwaway store for automated tests only. The old file and Redis stores were removed.
 
 ## Cosmetics (server-authoritative)
 
@@ -86,29 +95,32 @@ docker build -t block-puzzle .
 docker run -p 9000:9000 -e BP_STORE=postgres -v bp-data:/app/data block-puzzle
 ```
 
-Or with Compose (app only by default; Redis optional):
+Or with Compose (app + PostgreSQL):
 
 ```bash
 docker compose up -d --build
-# With Redis:
-BP_STORE=redis REDIS_URL=redis://redis:6379 docker compose --profile redis up -d --build
 
-# With PostgreSQL:
-BP_STORE=postgres DATABASE_URL=postgres://bp:bp@postgres:5432/blockpuzzle \
-  docker compose --profile postgres up -d --build
+# Production example (change the default DB password and set the admin key):
+POSTGRES_PASSWORD=change-me \
+DATABASE_URL=postgres://bp:change-me@postgres:5432/blockpuzzle \
+BP_ADMIN_KEY=$(openssl rand -hex 24) BP_TRUST_PROXY=1 \
+BP_WS_ORIGINS=https://your.domain \
+  docker compose up -d --build
 ```
 
 - Image runs as non-root user (`bp`).
 - Healthcheck: `GET /health`.
-- Volume `/app/data` for file-store persistence.
+- Volume `/app/data` is only used by the one-shot `npm run migrate:postgres` import of legacy data.
 - CSS/JS bundles: `npm run build` (or `build:css` / `build:dev`).
 
 ### Production tips
 
 - Put a reverse proxy (nginx / Caddy) in front for TLS and WebSocket upgrade.
 - Set `BP_WS_ORIGINS` to your real origin(s) in production.
-- **Player progress:** use **PostgreSQL** (`BP_STORE=postgres` + `DATABASE_URL`). Required for multi-instance and production.
-- `BP_STORE=postgres` is local/dev only. `BP_STORE=memory` is throwaway. Optional Redis for hot match/queue state.
+- Set `BP_TRUST_PROXY=1` (number of proxies) so per-IP limits use the real client address; leave it `0` if the app is exposed directly.
+- Set `BP_ADMIN_KEY` to a long random value to use `/admin.html`; without it the admin API is off in production. The key is sent in the `X-Admin-Key` header, never in the URL.
+- **Player progress:** use **PostgreSQL** (`DATABASE_URL`). Required for production. `BP_STORE=memory` is throwaway (tests).
+- Change the default `bp`/`bp` database credentials from `docker-compose.yml`.
 
 Example nginx location:
 
@@ -164,6 +176,13 @@ Double-click `start-server.bat`:
 4. Runs `node server.js` on port 9000 and opens the browser
 
 Set `DATABASE_URL` beforehand if Postgres is not the default `postgres://bp:bp@127.0.0.1:5432/blockpuzzle`.
+
+## Abuse limits: device id first, IP as backstop
+
+Login / registration throttling is tracked **per device id** and **per IP**. The device id is
+created by the browser (`localStorage` + cookie) and sent as `X-Device-Id`, so it identifies one
+browser profile, not the physical machine, and a client can mint a new one. That is why the IP
+limits stay on as well: they stop an attacker who keeps rotating device ids.
 
 ## Device binding (not IP)
 

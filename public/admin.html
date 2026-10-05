@@ -33,7 +33,7 @@
 <body>
   <header>
     <h1>Admin · PostgreSQL</h1>
-    <label class="muted">Ключ <input id="key" type="password" value="localdev" size="12" autocomplete="off" /></label>
+    <label class="muted">Ключ <input id="key" type="password" value="" placeholder="BP_ADMIN_KEY" size="14" autocomplete="off" /></label>
     <button type="button" class="primary" id="btnLoad">Обновить</button>
     <button type="button" class="danger" id="btnWipe">Удалить все аккаунты</button>
     <span id="status" class="muted"></span>
@@ -49,18 +49,29 @@
     </section>
     <section class="card">
       <div class="tools">
-        <strong>Устройства без живого аккаунта</strong>
+        <strong>Устройства без аккаунта и без гостя</strong>
         <span id="devCount" class="muted"></span>
-        <span class="muted">(гость / после удаления аккаунта)</span>
+        <span class="muted">(остались после удаления аккаунта)</span>
       </div>
       <div id="devices"></div>
+    </section>
+    <section class="card">
+      <div class="tools">
+        <strong>Гости</strong>
+        <span id="guestCount" class="muted"></span>
+        <span class="muted">(гостевой прогресс на сервере)</span>
+      </div>
+      <div id="guests"></div>
     </section>
   </main>
   <script>
     const $ = (id) => document.getElementById(id);
     let _accounts = [];
     let _devices = [];
-    function key() { return ($('key').value || 'localdev').trim(); }
+    let _guests = [];
+    function key() { return ($('key').value || '').trim(); }
+    // Local dev convenience only: the dev key works from loopback and is pre-filled there.
+    if (location.hostname === '127.0.0.1' || location.hostname === 'localhost') $('key').value = 'localdev';
     function setStatus(msg, ok) {
       const el = $('status');
       el.textContent = msg || '';
@@ -69,11 +80,11 @@
     async function api(path, opts) {
       opts = opts || {};
       const k = key();
-      const url = path + (path.includes('?') ? '&' : '?') + 'key=' + encodeURIComponent(k);
-      const res = await fetch(url, {
+      // Key goes in a header, never in the URL (URLs are written to access logs).
+      const res = await fetch(path, {
         method: opts.method || 'GET',
-        headers: { 'Content-Type': 'application/json' },
-        body: opts.body ? JSON.stringify(Object.assign({ key: k }, opts.body)) : undefined,
+        headers: { 'Content-Type': 'application/json', 'X-Admin-Key': k },
+        body: opts.body ? JSON.stringify(opts.body) : undefined,
         credentials: 'same-origin'
       });
       let data = {};
@@ -127,11 +138,27 @@
       } catch (_) {}
       return '';
     }
+    function deviceHasReal(d) {
+      const ids = Array.isArray(d.account_ids) ? d.account_ids : [];
+      return ids.some((x) => x && x !== '__guest__' && x !== '__had_account__');
+    }
+    function deviceHasGuest(d) {
+      const ids = Array.isArray(d.account_ids) ? d.account_ids : [];
+      return ids.indexOf('__guest__') !== -1 || !!(d.guest_progress && typeof d.guest_progress === 'object');
+    }
+    // Devices with neither a live account nor a guest (only leftover marks)
+    function isGuestDevice(d) {
+      const ids = Array.isArray(d.account_ids) ? d.account_ids : [];
+      const hasReal = ids.some((x) => x && x !== '__guest__' && x !== '__had_account__');
+      if (hasReal) return false;
+      return ids.indexOf('__guest__') !== -1 || !!(d.guest_progress && typeof d.guest_progress === 'object');
+    }
+    // Devices without a live account that are NOT a guest (e.g. only "had account" mark)
     function renderOrphanDevices(devices) {
       const orphans = (devices || []).filter((d) => {
         const ids = Array.isArray(d.account_ids) ? d.account_ids : [];
         const hasReal = ids.some((x) => x && x !== '__guest__' && x !== '__had_account__');
-        return !hasReal;
+        return !hasReal && !isGuestDevice(d);
       });
       $('devCount').textContent = '(' + orphans.length + ')';
       if (!orphans.length) {
@@ -139,28 +166,61 @@
         return;
       }
       $('devices').innerHTML =
-        '<table><thead><tr><th>device id</th><th>код друга</th><th>ник</th><th>💎</th><th>метки</th><th>updated</th><th></th></tr></thead><tbody>' +
+        '<table><thead><tr><th>device id</th><th>метки</th><th>updated</th><th></th></tr></thead><tbody>' +
         orphans.map((d) => {
           const ids = Array.isArray(d.account_ids) ? d.account_ids : [];
-          const gp = d.guest_progress && typeof d.guest_progress === 'object' ? d.guest_progress : null;
-          const code = guestCodeFrom(d);
-          const nick = guestNickFrom(d);
-          const dia = gp && typeof gp.diamonds === 'number' ? (gp.diamonds|0) : '—';
-          const searchBlob = [d.device_id, code, nick, JSON.stringify(ids)].join(' ').toLowerCase();
+          const searchBlob = [d.device_id, JSON.stringify(ids)].join(' ').toLowerCase();
           return '<tr data-search="' + esc(searchBlob) + '">' +
             '<td><code>' + esc(d.device_id) + '</code></td>' +
-            '<td><code>' + esc(code || '—') + '</code></td>' +
-            '<td>' + esc(nick || '—') + '</td>' +
-            '<td>' + dia + '</td>' +
             '<td><code>' + esc(JSON.stringify(ids)) + '</code></td>' +
             '<td class="muted">' + (d.updated_at ? new Date(Number(d.updated_at)).toLocaleString() : '') + '</td>' +
-            '<td><button type="button" class="danger" data-del-dev="' + esc(d.device_id) + '">Удалить гостя</button></td>' +
+            '<td><button type="button" class="danger" data-del-dev="' + esc(d.device_id) + '">Освободить устройство</button></td>' +
+            '</tr>';
+        }).join('') + '</tbody></table>';
+    }
+    // One row per guest: guest devices (device_binds) + guest_progress rows not tied to a device
+    function renderGuests(guests, devices) {
+      const rows = [];
+      const seen = new Set();
+      (devices || []).filter(isGuestDevice).forEach((d) => {
+        const gp = d.guest_progress && typeof d.guest_progress === 'object' ? d.guest_progress : {};
+        const code = guestCodeFrom(d);
+        if (code) seen.add(code);
+        rows.push({
+          device: d.device_id, code: code, nick: gp.nick || '',
+          trophies: gp.trophies, diamonds: gp.diamonds, updated: d.updated_at
+        });
+      });
+      (guests || []).forEach((g) => {
+        const code = g && g.friend_code ? String(g.friend_code).toUpperCase() : '';
+        if (!code || seen.has(code)) return;
+        const dt = g.data && typeof g.data === 'object' ? g.data : {};
+        rows.push({ device: '', code: code, nick: dt.nick || '', trophies: dt.trophies, diamonds: dt.diamonds, updated: g.updated_at });
+      });
+      $('guestCount').textContent = '(' + rows.length + ')';
+      if (!rows.length) { $('guests').innerHTML = '<p class="muted">Нет</p>'; return; }
+      const num = (v) => (typeof v === 'number' ? (v | 0) : '—');
+      $('guests').innerHTML =
+        '<table><thead><tr><th>код друга</th><th>ник</th><th>device id</th><th>🏆</th><th>💎</th><th>updated</th><th></th></tr></thead><tbody>' +
+        rows.map((r) => {
+          const blob = [r.code, r.nick, r.device].join(' ').toLowerCase();
+          const btn = r.device
+            ? '<button type="button" class="danger" data-del-dev="' + esc(r.device) + '">Удалить гостя</button>'
+            : '<button type="button" class="danger" data-del-guest="' + esc(r.code) + '">Удалить гостя</button>';
+          return '<tr data-search="' + esc(blob) + '">' +
+            '<td><code>' + esc(r.code || '—') + '</code></td>' +
+            '<td>' + esc(r.nick || '—') + '</td>' +
+            '<td><code>' + esc(r.device || '—') + '</code></td>' +
+            '<td>' + num(r.trophies) + '</td>' +
+            '<td>' + num(r.diamonds) + '</td>' +
+            '<td class="muted">' + (r.updated ? new Date(Number(r.updated)).toLocaleString() : '') + '</td>' +
+            '<td>' + btn + '</td>' +
             '</tr>';
         }).join('') + '</tbody></table>';
     }
     function applySearch() {
       const q = String(($('search').value || '')).trim().toLowerCase();
-      document.querySelectorAll('#accounts tbody tr, #devices tbody tr').forEach((tr) => {
+      document.querySelectorAll('#accounts tbody tr, #devices tbody tr, #guests tbody tr').forEach((tr) => {
         const blob = tr.getAttribute('data-search') || '';
         tr.classList.toggle('hidden', !!(q && blob.indexOf(q) === -1));
       });
@@ -174,8 +234,10 @@
       }
       _accounts = data.accounts || [];
       _devices = data.devices || [];
+      _guests = data.guests || [];
       renderAccounts(_accounts);
       renderOrphanDevices(_devices);
+      renderGuests(_guests, _devices);
       applySearch();
       setStatus('OK · ' + new Date().toLocaleTimeString(), true);
     }
@@ -212,11 +274,23 @@
           t.disabled = false;
         }
       }
+      const gst = t.getAttribute('data-del-guest');
       if (dev) {
         e.preventDefault();
-        if (!confirm('Удалить гостя устройства?\nПосле этого можно снова создать гостя.')) return;
+        if (!confirm('Удалить гостя (устройство)?\nГость будет стёрт полностью (прогресс, профиль, друзья), у игрока его выкинет.')) return;
         t.disabled = true;
-        await api('/api/admin/delete-device', { method: 'POST', body: { deviceId: dev } });
+        const { res, data } = await api('/api/admin/delete-device', { method: 'POST', body: { deviceId: dev } });
+        if (!res.ok || !data.ok) { setStatus((data && (data.message || data.error)) || ('Ошибка ' + res.status), false); t.disabled = false; return; }
+        setStatus(data.message || 'Гость удалён', true);
+        await load();
+      }
+      if (gst) {
+        e.preventDefault();
+        if (!confirm('Удалить гостя ' + gst + '?\nГость будет стёрт полностью, у игрока его выкинет.')) return;
+        t.disabled = true;
+        const { res, data } = await api('/api/admin/delete-guest', { method: 'POST', body: { friendCode: gst } });
+        if (!res.ok || !data.ok) { setStatus((data && (data.message || data.error)) || ('Ошибка ' + res.status), false); t.disabled = false; return; }
+        setStatus(data.message || 'Гость удалён', true);
         await load();
       }
     });

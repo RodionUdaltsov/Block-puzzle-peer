@@ -9,6 +9,8 @@ const jsFiles = [
   'shared/rules.js',
   'public/shared/rules.js',
   'public/match-client.js',
+  ...fs.readdirSync(path.join(root, 'lib')).filter(f => f.endsWith('.js')).sort().map(f => path.join('lib', f)),
+  ...fs.readdirSync(path.join(root, 'scripts')).filter(f => f.endsWith('.js')).sort().map(f => path.join('scripts', f)),
   ...fs.readdirSync(path.join(root, 'public/js'))
     .filter(f => f.endsWith('.js'))
     .sort()
@@ -24,8 +26,11 @@ const b = fs.readFileSync(path.join(root, 'public/shared/rules.js'));
 if (!a.equals(b)) throw new Error('shared/rules.js and public/shared/rules.js differ');
 
 const server = fs.readFileSync(path.join(root, 'server.js'), 'utf8');
-if (/data\.shape/.test(server)) throw new Error('server.js still trusts client-supplied shape data');
-if (/data\.color/.test(server)) throw new Error('server.js still trusts client-supplied color data');
+for (const rel of ['server.js', ...fs.readdirSync(path.join(root, 'lib')).filter(f => f.endsWith('.js')).map(f => 'lib/' + f)]) {
+  const src = fs.readFileSync(path.join(root, rel), 'utf8');
+  if (/data\.shape/.test(src)) throw new Error(rel + ' still trusts client-supplied shape data');
+  if (/data\.color/.test(src)) throw new Error(rel + ' still trusts client-supplied color data');
+}
 if (!server.includes("shared/skins")) {
   throw new Error('server.js must load shared/skins for palettes');
 }

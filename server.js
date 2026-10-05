@@ -18,7 +18,7 @@ const { SKIN_PALETTES, paletteForSkin } = require('./shared/skins');
 const Cosmetics = require('./shared/cosmetics');
 const { log, PKG_VERSION } = require('./lib/logger');
 const { allowWsConnection, allowWsMessage } = require('./lib/rate-limit');
-const { WS_ORIGINS, applySecurityHeaders, isOriginAllowed } = require('./lib/security');
+const { WS_ORIGINS, applySecurityHeaders, isOriginAllowed, getClientIp, startupWarnings } = require('./lib/security');
 const { createAccounts } = require('./lib/accounts');
 const { createMatchRoomClass } = require('./lib/match-room');
 const { createHttpRequestListener } = require('./lib/http-api');
@@ -727,6 +727,7 @@ wss.on('error', (err) => {
   try { log('error', 'wss error', { message: err && err.message, code: err && err.code }); } catch (_) {}
 });
 httpHooks.wss = wss;
+httpHooks.send = (ws, msg) => send(ws, msg);
 wireHttpHooks();
 identityHooks.wss = wss;
 if (typeof send === 'function') identityHooks.send = send;
@@ -746,13 +747,15 @@ server.on('upgrade', (req, socket, head) => {
           return;
         }
       }
-      const ip = (req.socket && req.socket.remoteAddress) || '';
+      const ip = getClientIp(req);
       if (!allowWsConnection(ip)) {
         socket.write('HTTP/1.1 429 Too Many Requests\r\nConnection: close\r\n\r\n');
         socket.destroy();
         return;
       }
       wss.handleUpgrade(req, socket, head, (ws) => {
+        // Remember which device owns this socket so admin can kick it by device id
+        try { ws._deviceId = deviceApi.extractDeviceId(req, null) || ''; } catch (_) { ws._deviceId = ''; }
         wss.emit('connection', ws, req);
       });
     } else {
@@ -1004,6 +1007,7 @@ async function boot() {
     } catch (_) {}
   }, 6 * 3600 * 1000); // every 6 hours
 
+  startupWarnings({ warn: (m) => log('warn', m) });
   server.listen(PORT, '0.0.0.0', () => {
     log('info', 'server listening', {
       port: PORT,

@@ -3318,6 +3318,15 @@ function applyServerAccount(account) {
       try {
         achProgress = Object.assign({}, account.achievements);
         localStorage.setItem('bp_ach', JSON.stringify(achProgress));
+        // Ranked score record lives in the account (achievements.ranked_best_score), never in the device
+        try {
+          let rb = Math.max(0, Number(achProgress.ranked_best_score) | 0);
+          (Array.isArray(account.history) ? account.history : []).forEach(function (h) {
+            if (h && h.mode === 'online' && typeof h.my === 'number' && h.my > rb) rb = h.my | 0;
+          });
+          rankedBest = rb;
+          localStorage.setItem('bp_ranked_best', String(rb));
+        } catch (_) {}
         if (typeof checkNewAchievements === 'function') checkNewAchievements();
         if (typeof updateAchievementsButton === 'function') updateAchievementsButton();
         if (typeof renderAchievements === 'function') renderAchievements();
@@ -3343,6 +3352,8 @@ function applyServerAccount(account) {
       else try { localStorage.setItem('bp_bot_stars', JSON.stringify(botStars)); } catch (_) {}
     } catch (_) {}
   } catch (_) {}
+  // Server state is now in memory — only from here on is it safe to PATCH it back
+  try { window._bpAccountLoaded = true; } catch (_) {}
   try { if (typeof refreshProfileUI === 'function') refreshProfileUI(); } catch (_) {}
   try { if (typeof updateMenuStats === 'function') updateMenuStats(); } catch (_) {}
   try { if (typeof updateVersusNameLabels === 'function') updateVersusNameLabels(); } catch (_) {}
@@ -3396,6 +3407,7 @@ function scheduleHistorySync() {
   if (window._historySyncTimer) clearTimeout(window._historySyncTimer);
   window._historySyncTimer = setTimeout(() => {
     window._historySyncTimer = null;
+    if (!authToken) return; // logged out meanwhile — must not fall through to the guest path
     try {
       syncProfileToServer({
         history: (typeof matchHistory !== 'undefined' && Array.isArray(matchHistory))
@@ -3791,6 +3803,30 @@ function discardGuestProgressFully(opts) {
     }
     try { localStorage.removeItem('bp_guest_shop_warned'); } catch (_) {}
     try { sessionStorage.removeItem('bp_guest_shop_warned'); } catch (_) {}
+    // Ranked score record, classic board saves (account / guest / legacy keys),
+    // pending friend requests and rejoin tokens belong to the identity being discarded.
+    try { rankedBest = 0; localStorage.setItem('bp_ranked_best', '0'); } catch (_) {}
+    try { clearAllLocalClassicSaves(); } catch (_) {}
+    try { localStorage.removeItem('bp_fr_out'); } catch (_) {}
+    try { if (typeof frOutgoingPending !== 'undefined') frOutgoingPending = []; } catch (_) {}
+    try {
+      ['bp_match_id', 'bp_match_token', 'bp_match_seat'].forEach(function (k) {
+        try { localStorage.removeItem(k); } catch (_) {}
+        try { sessionStorage.removeItem(k); } catch (_) {}
+      });
+    } catch (_) {}
+  } catch (_) {}
+}
+
+/** Remove EVERY locally cached classic board (per-account, per-guest-code, legacy). */
+function clearAllLocalClassicSaves() {
+  try {
+    const dead = [];
+    for (let i = 0; i < localStorage.length; i++) {
+      const k = localStorage.key(i);
+      if (k && k.indexOf('bp_classic_save') === 0) dead.push(k);
+    }
+    dead.forEach(function (k) { try { localStorage.removeItem(k); } catch (_) {} });
   } catch (_) {}
 }
 
@@ -3826,10 +3862,13 @@ async function finishAuthSuccess(account, mode) {
       }
     } catch (_) {}
     if (mode === 'login') {
-      // Apply account identity FIRST so friend code / token never go blank mid-poll
-      applyServerAccount(account);
-      // Then strip leftover guest locals — keep the account friend code we just set
+      // Strip leftover locals FIRST (previous guest / previous account), THEN load the account.
+      // The old order (apply → discard) zeroed the freshly loaded account in memory and the
+      // full PATCH below then overwrote friends / history / achievements / bot stars on the
+      // server with empty data. Never discard after applyServerAccount.
+      try { window._bpAccountLoaded = false; } catch (_) {}
       discardGuestProgressFully({ keepFriendCode: true });
+      applyServerAccount(account);
     } else {
       applyServerAccount(account);
     }
@@ -4836,9 +4875,60 @@ async function submitAuthForm(e) {
   }
 }
 
+/**
+ * Push EVERYTHING the account owns to the server right now (used before logout).
+ * Cancels debounced syncs first so nothing fires later under a different identity.
+ * @returns {Promise<boolean>} true when the server confirmed the save
+ */
+async function flushAccountProgressToServer() {
+  if (!authToken) return true;
+  if (!window._bpAccountLoaded) return true; // nothing was loaded → nothing of ours to push
+  try { if (window._achSyncTimer) { clearTimeout(window._achSyncTimer); window._achSyncTimer = null; } } catch (_) {}
+  try { if (window._historySyncTimer) { clearTimeout(window._historySyncTimer); window._historySyncTimer = null; } } catch (_) {}
+  try {
+    const ach = Object.assign({}, achProgress || {});
+    if (typeof rankedBest === 'number' && rankedBest > (Number(ach.ranked_best_score) | 0)) ach.ranked_best_score = rankedBest | 0;
+    const acc = await syncProfileToServer({
+      history: Array.isArray(matchHistory) ? matchHistory.slice(0, 30) : [],
+      achievements: ach,
+      botStars: botStars || {},
+      friends: Array.isArray(friends) ? friends.slice(0, 200) : [],
+      best: typeof best === 'number' ? best : 0
+    });
+    return !!acc;
+  } catch (_) {
+    return false;
+  }
+}
+try { window.flushAccountProgressToServer = flushAccountProgressToServer; } catch (_) {}
+
 async function logoutAccount() {
   // Block the alive/session poll from treating logout as "account deleted"
   try { window._bpIntentionalLogout = true; } catch (_) {}
+  try {
+    if (typeof showAuthLoading === 'function') showAuthLoading('Сохраняем прогресс…');
+  } catch (_) {}
+  // 1) Save first. If the server cannot be reached, stay logged in: logging out now would
+  //    erase the only copy of the unsynced progress (the local cache is wiped below).
+  if (authToken) {
+    let saved = false;
+    try {
+      saved = await Promise.race([
+        flushAccountProgressToServer(),
+        new Promise(function (r) { setTimeout(function () { r(false); }, 8000); })
+      ]);
+    } catch (_) { saved = false; }
+    if (!saved) {
+      try { if (typeof hideAuthLoading === 'function') hideAuthLoading(); } catch (_) {}
+      try { window._bpIntentionalLogout = false; } catch (_) {}
+      try {
+        if (typeof showInfoToast === 'function') {
+          showInfoToast('Выход отменён', 'Нет связи с сервером — прогресс ещё не сохранён. Попробуйте позже.', 'warn');
+        }
+      } catch (_) {}
+      return;
+    }
+  }
   try {
     if (typeof showAuthLoading === 'function') showAuthLoading('Выходим из аккаунта…');
   } catch (_) {}
@@ -4847,6 +4937,18 @@ async function logoutAccount() {
   } catch (_) {}
   authToken = null;
   authAccount = null;
+  try { window._bpAccountLoaded = false; } catch (_) {}
+  // Pending debounced syncs must not run under the logged-out (guest) identity
+  try { if (window._achSyncTimer) { clearTimeout(window._achSyncTimer); window._achSyncTimer = null; } } catch (_) {}
+  try { if (window._historySyncTimer) { clearTimeout(window._historySyncTimer); window._historySyncTimer = null; } } catch (_) {}
+  // Drop the live socket: it is still registered under the old friend code (presence / cosmetics)
+  try {
+    if (typeof MatchClient !== 'undefined') {
+      try { MatchClient._lastPresence = null; } catch (_) {}
+      try { MatchClient._wantQueue = null; } catch (_) {}
+      try { if (typeof MatchClient.disconnect === 'function') MatchClient.disconnect(); } catch (_) {}
+    }
+  } catch (_) {}
   try { persistAuthToken(null); } catch (_) {}
   try { persistGuestOk(false); } catch (_) {}
   try { sessionStorage.removeItem('bp_guest_shop_warned'); } catch (_) {}
@@ -5059,6 +5161,9 @@ async function forceAuthRevoked(reason) {
     } catch (_) {}
     try { myFriendCode = ''; } catch (_) {}
     try { trophies = 0; diamonds = 9999; best = 0; friends = []; matchHistory = []; } catch (_) {}
+    try { achProgress = {}; botStars = {}; rankedBest = 0; } catch (_) {}
+    try { clearAllLocalClassicSaves(); localStorage.removeItem('bp_ranked_best'); localStorage.removeItem('bp_fr_out'); } catch (_) {}
+    try { window._bpAccountLoaded = false; } catch (_) {}
     try {
       if (typeof MatchClient !== 'undefined') {
         try { MatchClient._lastPresence = null; } catch (_) {}
@@ -5413,6 +5518,17 @@ async function syncProfileToServer(extra) {
   if (!authToken) {
     // Guest: persist progress on server by IP so it survives browser wipe
     try { await syncGuestProgressToServer(); } catch (_) {}
+    return null;
+  }
+  // Never PATCH before the account has been loaded from the server: the in-memory state would be
+  // device defaults, and the server replaces friends / history / achievements / bot stars wholesale.
+  if (!window._bpAccountLoaded) {
+    try {
+      if (!window._bpRestoreRetry) {
+        window._bpRestoreRetry = true;
+        restoreSessionFromToken().finally(function () { window._bpRestoreRetry = false; });
+      }
+    } catch (_) { window._bpRestoreRetry = false; }
     return null;
   }
   try {

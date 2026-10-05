@@ -1110,6 +1110,14 @@ function saveClassicState() {
 }
 function clearClassicSave() {
   try { localStorage.removeItem(classicSaveStorageKey()); } catch (_) {}
+  // The finished / abandoned board must also disappear from the account on the server,
+  // otherwise the next login (or another device) resurrects a game that is already over.
+  try {
+    if (typeof authToken !== 'undefined' && authToken && window._bpAccountLoaded
+        && typeof syncProfileToServer === 'function') {
+      syncProfileToServer({ classicSave: null });
+    }
+  } catch (_) {}
 }
 function loadClassicState() {
   try {
