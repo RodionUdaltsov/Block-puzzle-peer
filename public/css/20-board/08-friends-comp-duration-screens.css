@@ -1,0 +1,451 @@
+/* css/20-board/08-friends-comp-duration-screens.css — Friend codes, competition type and duration screens. */
+.player-panel.opp { position: relative; }
+
+    #btnForfeit {
+      opacity: 0.85;
+    }
+    /* Compact friends panel */
+    .fr-panel {
+      width: 100%;
+      max-width: 420px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 12px;
+      margin: 0 0 10px;
+    }
+    .fr-code-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      margin-bottom: 10px;
+      flex-wrap: wrap;
+    }
+    .fr-code-meta {
+      display: flex;
+      flex-direction: column;
+      align-items: flex-start;
+      gap: 2px;
+      min-width: 0;
+    }
+    .fr-code-label {
+      font-size: 0.68rem;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: var(--text-dim);
+      font-weight: 700;
+    }
+    .fr-code-meta .code {
+      font-size: 1.25rem;
+      font-weight: 800;
+      letter-spacing: 0.14em;
+      color: var(--accent);
+      font-variant-numeric: tabular-nums;
+      line-height: 1.2;
+    }
+    .fr-code-btns {
+      display: flex;
+      gap: 6px;
+      flex-shrink: 0;
+    }
+    .fr-code-btns button {
+      min-height: 34px;
+      padding: 6px 10px;
+      font-size: 0.75rem;
+    }
+    .fr-panel .friend-add-row {
+      margin: 0;
+      max-width: none;
+    }
+    .fr-panel .friend-add-status {
+      display: none !important;
+      margin: 0;
+      min-height: 0;
+      height: 0;
+      overflow: hidden;
+      text-align: left;
+    }
+    .fr-mp-status {
+      margin-top: 8px;
+      font-size: 0.8rem;
+      color: var(--text-dim);
+      text-align: center;
+      max-width: 420px;
+      min-height: 0;
+    }
+    .duration-row-modern .dur-btn {
+      width: 100%;
+      padding: 16px 8px;
+      border-radius: 16px;
+    }
+    /* Competition screen */
+    #screenCompType {
+      justify-content: flex-start;
+      padding-top: max(12px, env(safe-area-inset-top, 0px));
+      padding-bottom: max(24px, env(safe-area-inset-bottom, 0px));
+      gap: 0;
+      overflow-y: auto;
+      position: relative;
+      overflow-x: hidden;
+      background:
+        radial-gradient(ellipse 120% 65% at 50% -18%, var(--glow-b), transparent 72%),
+        radial-gradient(ellipse 80% 50% at 100% 40%, color-mix(in srgb, var(--trophy) 12%, transparent), transparent 68%),
+        radial-gradient(ellipse 70% 45% at 0% 80%, var(--glow-a), transparent 70%),
+        transparent;
+    }
+    #screenCompType::before {
+      content: '';
+      position: absolute;
+      top: -100px; left: 50%;
+      width: min(480px, 120vw); height: 340px;
+      transform: translateX(-50%);
+      background: radial-gradient(circle, var(--glow-b), transparent 70%);
+      filter: blur(32px);
+      opacity: 0.7;
+      pointer-events: none;
+      z-index: 0;
+    }
+    #screenCompType > * { position: relative; z-index: 1; }
+    .comp-hero {
+      width: 100%;
+      max-width: 440px;
+      text-align: left;
+      padding: 4px 4px 20px;
+    }
+    .comp-hero-top {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 16px;
+      gap: 10px;
+    }
+    .comp-back {
+      min-height: 36px !important;
+      padding: 8px 14px !important;
+      font-size: 0.85rem !important;
+      border-radius: 12px !important;
+      background: color-mix(in srgb, var(--surface) 88%, var(--accent2) 12%) !important;
+      border: 1px solid var(--accent2-border) !important;
+      color: var(--text) !important;
+    }
+    .comp-badge {
+      font-size: 0.68rem;
+      font-weight: 800;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: var(--accent2);
+      background: var(--accent2-soft);
+      border: 1px solid var(--accent2-border);
+      border-radius: 999px;
+      padding: 6px 12px;
+      box-shadow: 0 4px 14px var(--glow-b);
+    }
+    .comp-hero h1 {
+      font-size: clamp(1.6rem, 6.2vw, 2.1rem);
+      font-weight: 800;
+      letter-spacing: -0.03em;
+      margin-bottom: 8px;
+      background: linear-gradient(135deg, #fff 15%, var(--accent2) 55%, var(--accent) 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+      filter: drop-shadow(0 4px 20px var(--glow-b));
+    }
+    .comp-hero p {
+      color: var(--text-dim);
+      font-size: 0.9rem;
+      line-height: 1.45;
+      max-width: 340px;
+    }
+    .comp-cards {
+      width: 100%;
+      max-width: 440px;
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+      padding: 0 2px;
+    }
+    .comp-card {
+      position: relative;
+      overflow: hidden;
+      border-radius: 22px;
+      padding: 18px 18px 16px;
+      text-align: left;
+      cursor: pointer;
+      border: 1px solid var(--border);
+      background: linear-gradient(165deg,
+        color-mix(in srgb, var(--surface2) 88%, #fff 6%) 0%,
+        var(--surface) 45%,
+        var(--surface2) 100%);
+      transition: transform 0.18s ease, border-color 0.18s, box-shadow 0.2s;
+      box-shadow:
+        0 1px 0 rgba(255,255,255,0.1) inset,
+        0 -3px 8px rgba(0,0,0,0.18) inset,
+        0 12px 28px rgba(0,0,0,0.3),
+        0 4px 10px rgba(0,0,0,0.18);
+      /* Entrance only via .screen-enter */
+    }
+    .comp-card:active {
+      transform: translateY(2px) scale(0.985);
+      box-shadow:
+        0 1px 0 rgba(255,255,255,0.06) inset,
+        0 3px 8px rgba(0,0,0,0.28) inset,
+        0 4px 12px rgba(0,0,0,0.28);
+    }
+    .comp-card.ranked {
+      border-color: color-mix(in srgb, var(--trophy) 40%, transparent);
+      background: linear-gradient(155deg, color-mix(in srgb, var(--trophy) 14%, var(--surface)) 0%, var(--surface) 45%, var(--surface2) 100%);
+    }
+    .comp-card.bots {
+      border-color: var(--accent2-border);
+      background: linear-gradient(155deg, color-mix(in srgb, var(--accent2) 14%, var(--surface)) 0%, var(--surface) 45%, var(--surface2) 100%);
+    }
+    .comp-card:hover {
+      box-shadow: 0 16px 40px rgba(0,0,0,0.35), 0 0 36px var(--glow-a);
+    }
+    .comp-card.ranked:hover {
+      border-color: color-mix(in srgb, var(--trophy) 60%, transparent);
+      box-shadow: 0 16px 40px rgba(0,0,0,0.35), 0 0 40px color-mix(in srgb, var(--trophy) 22%, transparent);
+    }
+    .comp-card.bots:hover {
+      border-color: color-mix(in srgb, var(--accent2) 60%, transparent);
+      box-shadow: 0 16px 40px rgba(0,0,0,0.35), 0 0 40px var(--glow-b);
+    }
+    .comp-card-glow {
+      position: absolute;
+      width: 160px; height: 160px;
+      border-radius: 50%;
+      filter: blur(44px);
+      opacity: 0.4;
+      pointer-events: none;
+      top: -48px; right: -36px;
+    }
+    .comp-card.ranked .comp-card-glow {
+      background: color-mix(in srgb, var(--trophy) 55%, transparent);
+    }
+    .comp-card.bots .comp-card-glow {
+      background: var(--accent2-soft);
+    }
+    .comp-card-top {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 12px;
+      position: relative;
+      z-index: 1;
+    }
+    .comp-card-icon {
+      width: 52px; height: 52px;
+      border-radius: 16px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 1.45rem;
+      background: color-mix(in srgb, var(--surface2) 70%, transparent);
+      border: 1px solid rgba(255,255,255,0.1);
+      box-shadow: 0 6px 16px rgba(0,0,0,0.2), inset 0 1px 0 rgba(255,255,255,0.08);
+    }
+    .comp-card.ranked .comp-card-icon {
+      background: color-mix(in srgb, var(--trophy) 18%, transparent);
+      border-color: color-mix(in srgb, var(--trophy) 40%, transparent);
+    }
+    .comp-card.bots .comp-card-icon {
+      background: var(--accent2-soft);
+      border-color: var(--accent2-border);
+    }
+    .comp-card-chip {
+      font-size: 0.68rem;
+      font-weight: 800;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      padding: 5px 11px;
+      border-radius: 999px;
+      color: var(--trophy);
+      background: color-mix(in srgb, var(--trophy) 14%, transparent);
+      border: 1px solid color-mix(in srgb, var(--trophy) 38%, transparent);
+    }
+    .comp-card-chip.alt {
+      color: var(--accent2);
+      background: var(--accent2-soft);
+      border-color: var(--accent2-border);
+    }
+    .comp-card h3 {
+      font-size: 1.18rem;
+      font-weight: 800;
+      margin-bottom: 6px;
+      position: relative;
+      z-index: 1;
+      letter-spacing: -0.02em;
+      background: linear-gradient(120deg, #ffffff 0%, #f5f7fa 40%, color-mix(in srgb, var(--text) 60%, var(--accent) 40%) 100%);
+      -webkit-background-clip: text;
+      background-clip: text;
+      -webkit-text-fill-color: transparent;
+      color: transparent;
+      filter: drop-shadow(0 1px 8px var(--glow-a));
+    }
+    .comp-card.ranked h3 {
+      background: linear-gradient(120deg, #ffffff 0%, #fff6d6 28%, var(--trophy) 75%, #ffb347 100%);
+      -webkit-background-clip: text;
+      background-clip: text;
+      -webkit-text-fill-color: transparent;
+      filter: drop-shadow(0 1px 10px color-mix(in srgb, var(--trophy) 40%, transparent));
+    }
+    .comp-card.bots h3 {
+      background: linear-gradient(120deg, #ffffff 0%, #eee8ff 30%, var(--accent2) 78%, #a78bff 100%);
+      -webkit-background-clip: text;
+      background-clip: text;
+      -webkit-text-fill-color: transparent;
+      filter: drop-shadow(0 1px 10px var(--glow-b));
+    }
+    .comp-card p {
+      font-size: 0.82rem;
+      color: var(--text-dim);
+      line-height: 1.4;
+      margin: 0 0 14px;
+      position: relative;
+      z-index: 1;
+    }
+    .comp-card-stat {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      padding: 11px 13px;
+      border-radius: 14px;
+      background: color-mix(in srgb, var(--bg) 55%, transparent);
+      border: 1px solid color-mix(in srgb, var(--border) 80%, transparent);
+      position: relative;
+      z-index: 1;
+    }
+    .comp-card-stat.muted .comp-stat-value { color: color-mix(in srgb, var(--text) 75%, var(--accent2)); }
+    .comp-stat-label {
+      font-size: 0.72rem;
+      font-weight: 600;
+      color: var(--text-dim);
+    }
+    .comp-stat-value {
+      font-size: 1.05rem;
+      font-weight: 800;
+      color: var(--trophy);
+      font-variant-numeric: tabular-nums;
+    }
+
+    /* Duration screen */
+    #screenDuration {
+      justify-content: flex-start;
+      padding-top: max(12px, env(safe-area-inset-top, 0px));
+      padding-bottom: max(24px, env(safe-area-inset-bottom, 0px));
+      gap: 0;
+      overflow-y: auto;
+      position: relative;
+      overflow-x: hidden;
+      background:
+        radial-gradient(ellipse 110% 60% at 50% -15%, var(--glow-a), transparent 72%),
+        radial-gradient(ellipse 70% 45% at 90% 60%, var(--glow-b), transparent 70%),
+        transparent;
+    }
+    #screenDuration > * { position: relative; z-index: 1; }
+    .dur-hero {
+      width: 100%;
+      max-width: 440px;
+      text-align: left;
+      padding: 4px 4px 18px;
+    }
+    .dur-hero h1 {
+      font-size: clamp(1.5rem, 5.5vw, 1.9rem);
+      font-weight: 800;
+      letter-spacing: -0.03em;
+      margin: 12px 0 6px;
+      background: linear-gradient(135deg, #fff 20%, var(--accent));
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+    .dur-hero p {
+      color: var(--text-dim);
+      font-size: 0.88rem;
+      line-height: 1.4;
+    }
+    .dur-grid {
+      width: 100%;
+      max-width: 440px;
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 10px;
+      padding: 0 2px;
+    }
+    .dur-card {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 2px;
+      padding: 18px 8px 14px;
+      border-radius: 20px;
+      border: 1px solid color-mix(in srgb, var(--border) 85%, var(--accent) 15%);
+      background: linear-gradient(165deg,
+        color-mix(in srgb, var(--surface2) 86%, #fff 8%) 0%,
+        color-mix(in srgb, var(--surface2) 90%, var(--accent) 10%) 50%,
+        var(--surface) 100%);
+      color: var(--text);
+      cursor: pointer;
+      transition: transform 0.15s, border-color 0.15s, background 0.15s, box-shadow 0.15s;
+      min-height: 120px;
+      box-shadow:
+        0 1px 0 rgba(255,255,255,0.1) inset,
+        0 -2px 6px rgba(0,0,0,0.2) inset,
+        0 10px 22px rgba(0,0,0,0.28),
+        0 3px 8px rgba(0,0,0,0.18);
+    }
+    .dur-card:active {
+      transform: translateY(2px) scale(0.97);
+      box-shadow: 0 2px 6px rgba(0,0,0,0.3) inset, 0 2px 6px rgba(0,0,0,0.25);
+    }
+    .dur-card-time {
+      font-size: 1.9rem;
+      font-weight: 800;
+      line-height: 1;
+      letter-spacing: -0.03em;
+      background: linear-gradient(160deg, #ffffff 15%, color-mix(in srgb, var(--text) 55%, var(--accent) 45%) 100%);
+      -webkit-background-clip: text;
+      background-clip: text;
+      -webkit-text-fill-color: transparent;
+      color: transparent;
+      filter: drop-shadow(0 2px 6px rgba(0,0,0,0.35));
+    }
+    .dur-card-unit {
+      font-size: 0.78rem;
+      font-weight: 700;
+      color: var(--text-dim);
+      margin-bottom: 6px;
+    }
+    .dur-card-hint {
+      font-size: 0.68rem;
+      font-weight: 600;
+      color: var(--text-dim);
+      opacity: 0.9;
+      text-align: center;
+    }
+    .dur-card.selected {
+      border-color: color-mix(in srgb, var(--accent) 55%, transparent);
+      background: linear-gradient(165deg, var(--accent-soft), var(--surface));
+      box-shadow: 0 0 0 1px var(--accent-border), 0 12px 28px var(--glow-a);
+    }
+    .dur-card.selected .dur-card-time {
+      background: linear-gradient(160deg, #ffffff 10%, var(--accent) 80%);
+      -webkit-background-clip: text;
+      background-clip: text;
+      -webkit-text-fill-color: transparent;
+      color: transparent;
+      filter: drop-shadow(0 0 10px var(--glow-a));
+    }
+    .dur-card.selected .dur-card-hint { color: var(--accent); opacity: 1; }
+    .dur-start-btn {
+      width: 100%;
+      max-width: 440px;
+      margin-top: 22px;
+      min-height: 50px;
+      font-size: 1rem;
+      border-radius: 16px;
+      box-shadow: 0 8px 24px var(--glow-a);
+    }
+
+    

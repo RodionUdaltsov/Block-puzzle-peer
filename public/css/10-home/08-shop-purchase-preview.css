@@ -1,0 +1,179 @@
+/* css/10-home/08-shop-purchase-preview.css — Shop purchase celebration and preview modal. */
+/* —— Shop purchase celebration —— */
+.skin-item.purchase-fx {
+  animation: shopPurchasePop 0.85s cubic-bezier(0.22, 1.2, 0.36, 1);
+  box-shadow: 0 0 0 2px rgba(110, 232, 255, 0.85), 0 12px 40px rgba(0, 200, 255, 0.35);
+  z-index: 2;
+}
+@keyframes shopPurchasePop {
+  0%   { transform: scale(1); filter: brightness(1); }
+  30%  { transform: scale(1.06); filter: brightness(1.25); }
+  55%  { transform: scale(0.98); filter: brightness(1.1); }
+  100% { transform: scale(1); filter: brightness(1); }
+}
+.skin-item-stage[data-preview],
+.skin-item-stage[data-preview-board] {
+  cursor: pointer;
+}
+.board-preview-lg {
+  width: min(72vw, 280px);
+  height: min(72vw, 280px);
+  margin: 0 auto;
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  gap: 3px;
+  border-radius: 12px;
+  padding: 8px;
+}
+
+/* (orphaned keyframe stops removed: they swallowed the #skinPrevCombo rule below) */
+#skinPrevCombo {
+  text-align: center;
+  font-weight: 800;
+  color: #7dffb3;
+  min-height: 1.2em;
+}
+
+
+/* Preview modal uses real board DOM */
+#skinPrevWrap.board-wrap {
+  width: min(72vw, 300px);
+  margin: 12px auto;
+  position: relative;
+}
+#skinPrevWrap .board.skin-prev-board {
+  width: 100%;
+  aspect-ratio: 1;
+  display: grid;
+  grid-template-columns: repeat(8, 1fr);
+  grid-template-rows: repeat(8, 1fr);
+  gap: var(--board-gap, 2px);
+}
+#skinPreviewModal.purchase-celebrate .modal {
+  animation: shopCelebrateIn 0.55s cubic-bezier(0.22, 1.15, 0.36, 1);
+  box-shadow: 0 0 0 2px rgba(110, 232, 255, 0.7), 0 20px 60px rgba(0, 180, 255, 0.35);
+}
+@keyframes shopCelebrateIn {
+  0% { transform: scale(0.86); opacity: 0; }
+  60% { transform: scale(1.04); opacity: 1; }
+  100% { transform: scale(1); opacity: 1; }
+}
+#skinPrevCombo {
+  text-align: center;
+  font-weight: 800;
+  color: #7dffb3;
+  min-height: 1.2em;
+  margin-top: 6px;
+}
+
+
+/* ===== PREVIEW_MODAL_ISOLATED_FX: FX live on #skinPreviewModal, not body ===== */
+#skinPreviewModal.skin-fx-matte #skinPrevBoard .cell.filled {
+  position: relative;
+  overflow: hidden;
+  isolation: isolate;
+  box-shadow:
+    inset 0 1.5px 0 rgba(255,255,255,0.24),
+    inset 0 -1.5px 3px rgba(0,0,0,0.12),
+    inset 0 0 0 1px rgba(0,0,0,0.05),
+    0 0.5px 1px rgba(0,0,0,0.06) !important;
+  filter: none;
+}
+#skinPreviewModal.skin-fx-rare #skinPrevBoard .cell.filled {
+  position: relative;
+  overflow: hidden;
+  isolation: isolate;
+  box-shadow:
+    inset 0 1.5px 0 rgba(255,255,255,0.3),
+    inset 0 -1.5px 3px rgba(0,0,0,0.14),
+    inset 0 0 0 1px rgba(0,0,0,0.06),
+    0 0 8px color-mix(in srgb, var(--cell-glow, var(--cell-base, #5ee7ff)) 22%, transparent),
+    0 0.5px 1.5px rgba(0,0,0,0.08) !important;
+}
+#skinPreviewModal.skin-fx-gloss #skinPrevBoard .cell.filled {
+  position: relative;
+  overflow: hidden;
+  isolation: isolate;
+  background: var(--cell-base) !important;
+  background-color: var(--cell-base) !important;
+  box-shadow:
+    inset 0 2px 0 rgba(255,255,255,0.45),
+    inset 0 -2.5px 5px rgba(0,0,0,0.28),
+    0 0 0 1px color-mix(in srgb, var(--cell-base) 40%, #fff),
+    0 0 10px color-mix(in srgb, var(--cell-glow, var(--cell-base)) 35%, transparent) !important;
+}
+#skinPreviewModal.skin-fx-gloss #skinPrevBoard .cell.filled::before {
+  content: '';
+  position: absolute;
+  top: -20%;
+  left: -60%;
+  width: 55%;
+  height: 140%;
+  border-radius: inherit;
+  background: linear-gradient(
+    105deg,
+    transparent 0%,
+    color-mix(in srgb, var(--cell-base) 20%, transparent) 35%,
+    color-mix(in srgb, var(--cell-base) 55%, transparent) 50%,
+    color-mix(in srgb, var(--cell-glow, var(--cell-base)) 35%, transparent) 58%,
+    transparent 78%
+  );
+  animation: epicSheen 2.6s ease-in-out infinite;
+  pointer-events: none;
+  opacity: 0.55;
+  z-index: 0;
+}
+#skinPreviewModal.skin-fx-prism #skinPrevBoard .cell.filled {
+  position: relative;
+  background: var(--cell-base) !important;
+  background-color: var(--cell-base) !important;
+  background-image: none !important;
+  filter: none !important;
+  animation: none !important;
+  box-shadow:
+    inset 0 2.5px 0 rgba(255,255,255,0.58),
+    inset 0 1px 2px rgba(255,255,255,0.2),
+    inset 0 -3.5px 7px rgba(0,0,0,0.45),
+    0 0 0 1.3px color-mix(in srgb, var(--cell-base) 65%, #fff),
+    0 0 14px color-mix(in srgb, var(--cell-glow, var(--cell-base)) 80%, transparent),
+    0 0 28px color-mix(in srgb, var(--cell-glow, var(--cell-base)) 45%, transparent),
+    0 2px 5px rgba(0,0,0,0.25) !important;
+  overflow: hidden;
+  isolation: isolate;
+}
+#skinPreviewModal.skin-fx-prism #skinPrevBoard .cell.filled::before {
+  content: '';
+  position: absolute;
+  inset: -55%;
+  border-radius: inherit;
+  background: conic-gradient(
+    from 0deg,
+    color-mix(in srgb, var(--cell-base) 25%, #000) 0%,
+    color-mix(in srgb, var(--cell-base) 70%, #fff) 8%,
+    var(--cell-glow, var(--cell-base)) 16%,
+    color-mix(in srgb, var(--cell-base) 20%, #000) 28%,
+    color-mix(in srgb, var(--cell-base) 75%, #fff) 40%,
+    var(--cell-base) 52%,
+    color-mix(in srgb, var(--cell-base) 30%, #000) 64%,
+    color-mix(in srgb, var(--cell-glow, var(--cell-base)) 60%, #fff) 76%,
+    color-mix(in srgb, var(--cell-base) 25%, #000) 88%,
+    color-mix(in srgb, var(--cell-base) 25%, #000) 100%
+  );
+  animation: legendHoloSpin 5.2s linear infinite;
+  pointer-events: none;
+  mix-blend-mode: soft-light;
+  opacity: 0.9;
+  z-index: 1;
+}
+#skinPreviewModal.skin-fx-prism #skinPrevBoard .cell.filled::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background:
+    linear-gradient(160deg, rgba(255,255,255,0.5) 0%, rgba(255,255,255,0.1) 30%, transparent 55%),
+    linear-gradient(320deg, transparent 55%, rgba(0,0,0,0.2) 100%);
+  pointer-events: none;
+  z-index: 2;
+  opacity: 0.88;
+}

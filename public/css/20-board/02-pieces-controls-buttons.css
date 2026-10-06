@@ -1,0 +1,402 @@
+/* css/20-board/02-pieces-controls-buttons.css — Piece trays, controls, buttons, responsive media. */
+@media (prefers-reduced-motion: reduce) {
+      .cell.clearing, .cell[class*="clearing-"], .clear-beam, .clear-debris {
+        animation-duration: 0.05s !important;
+      }
+    }
+
+    .pieces-area {
+      margin-top: 12px; width: 100%; max-width: 420px; display: flex; justify-content: center;
+      align-items: center; gap: 12px; min-height: 96px;
+    }
+    .opp-pieces-label {
+      font-size: 0.68rem; color: var(--text-dim); text-transform: uppercase;
+      letter-spacing: 0.06em; margin-top: 8px; font-weight: 600;
+    }
+    .pieces-area.opp-pieces {
+      margin-top: 6px; min-height: 72px; gap: 8px; max-width: 280px;
+    }
+    .pieces-area.opp-pieces .piece-slot {
+      width: 64px; height: 64px; min-width: 64px; border-radius: 10px;
+      cursor: default; pointer-events: none;
+    }
+    .pieces-area.opp-pieces .piece-cell { width: 11px; height: 11px; }
+    .pieces-area.opp-pieces .piece-slot.lifting {
+      opacity: 0 !important; transform: scale(0.75);
+      pointer-events: none;
+    }
+    .piece-slot {
+      background: var(--surface); border: 1px solid var(--border); border-radius: 12px;
+      width: 100px; height: 100px; min-width: 100px; display: flex; align-items: center; justify-content: center;
+      cursor: grab; position: relative; touch-action: none; opacity: 0; transform: scale(0.6) translateY(12px);
+      overflow: hidden;
+      transition: width 0.36s cubic-bezier(0.22,1.05,0.36,1), min-width 0.36s cubic-bezier(0.22,1.05,0.36,1),
+        max-width 0.36s cubic-bezier(0.22,1.05,0.36,1), height 0.36s cubic-bezier(0.22,1.05,0.36,1),
+        opacity 0.25s ease, transform 0.3s cubic-bezier(0.22,1.1,0.36,1), margin 0.36s cubic-bezier(0.22,1.05,0.36,1),
+        padding 0.3s ease, border-width 0.3s;
+    }
+    .piece-slot.show { opacity: 1; transform: scale(1) translateY(0); }
+
+    /* Quiet hand updates (rejoin / multiplayer) — no pop/jump, except deal-in */
+    body.quiet-hands .piece-slot:not(.deal-in),
+    #screenVersus .piece-slot.show:not(.deal-in) {
+      transition: none !important;
+      animation: none !important;
+    }
+    #screenVersus .piece-slot.show:not(.deal-in) {
+      opacity: 1;
+      transform: none;
+    }
+    /* Short smooth appearance of cubes in hand on new deal */
+    .piece-slot.deal-in {
+      transition:
+        opacity 0.28s cubic-bezier(0.22, 1, 0.36, 1),
+        transform 0.28s cubic-bezier(0.22, 1.15, 0.36, 1) !important;
+      will-change: opacity, transform;
+    }
+    @keyframes pieceDealIn {
+      from { opacity: 0; transform: scale(0.72) translateY(10px); }
+      to   { opacity: 1; transform: scale(1) translateY(0); }
+    }
+
+    /* While dragging: tray copy must fully disappear (ghost is the only visible piece) */
+    .piece-slot.lifting {
+      opacity: 0 !important;
+      transform: scale(0.82) translateY(-6px);
+      pointer-events: none !important;
+      visibility: hidden;
+    }
+    .piece-slot.lifting .piece-grid,
+    .piece-slot.lifting .piece-cell {
+      opacity: 0 !important;
+      visibility: hidden !important;
+    }
+    .piece-slot.used {
+      width: 0 !important;
+      min-width: 0 !important;
+      max-width: 0 !important;
+      height: 0 !important;
+      min-height: 0 !important;
+      opacity: 0 !important;
+      margin: 0 !important;
+      padding: 0 !important;
+      border: none !important;
+      border-width: 0 !important;
+      background: transparent !important;
+      box-shadow: none !important;
+      transform: scale(0) !important;
+      pointer-events: none !important;
+      overflow: hidden !important;
+    }
+    /* Versus slots use border:!important — must beat that or used slots leave thin lines */
+    #screenVersus .piece-slot.used,
+    #screenVersus .pieces-area.opp-pieces .piece-slot.used,
+    #screenClassic .piece-slot.used {
+      border: none !important;
+      border-width: 0 !important;
+      background: transparent !important;
+      box-shadow: none !important;
+      width: 0 !important;
+      min-width: 0 !important;
+      max-width: 0 !important;
+      height: 0 !important;
+      opacity: 0 !important;
+      margin: 0 !important;
+      padding: 0 !important;
+    }
+    .piece-grid { display: grid; gap: 1.5px; }
+    .piece-cell {
+      width: 16px; height: 16px; border-radius: 4px;
+      position: relative; overflow: hidden;
+      isolation: isolate;
+      box-shadow:
+        inset 0 1.5px 0 rgba(255,255,255,0.24),
+        inset 0 -1.5px 3px rgba(0,0,0,0.12),
+        inset 0 0 0 1px rgba(0,0,0,0.05),
+        0 0.5px 1px rgba(0,0,0,0.06);
+    }
+    #screenVersus .piece-grid { gap: 1px; }
+    #screenClassic .piece-grid { gap: 1.5px; }
+
+    .controls {
+      margin-top: 10px; display: flex; gap: 8px; flex-wrap: wrap; justify-content: center;
+      width: 100%; max-width: 420px; padding: 0 4px;
+      position: relative; z-index: 10; pointer-events: auto;
+    }
+    button {
+      background:
+        linear-gradient(180deg, color-mix(in srgb, var(--surface2) 88%, #fff 12%) 0%, var(--surface2) 42%, color-mix(in srgb, var(--surface2) 82%, #000 18%) 100%);
+      color: color-mix(in srgb, var(--text) 92%, var(--accent) 8%);
+      border: 1px solid color-mix(in srgb, var(--border) 70%, #fff 12%);
+      border-radius: 13px;
+      padding: 10px 14px;
+      font-size: 0.85rem;
+      font-weight: 750;
+      letter-spacing: 0.01em;
+      cursor: pointer;
+      transition: background 0.15s, transform 0.12s, opacity 0.15s, box-shadow 0.15s, border-color 0.15s, filter 0.15s;
+      min-height: 42px;
+      pointer-events: auto;
+      touch-action: manipulation;
+      box-shadow:
+        0 1px 0 rgba(255,255,255,0.1) inset,
+        0 -2px 4px rgba(0,0,0,0.22) inset,
+        0 4px 12px rgba(0,0,0,0.28),
+        0 1px 2px rgba(0,0,0,0.18);
+      text-shadow: 0 1px 0 rgba(0,0,0,0.25);
+      -webkit-tap-highlight-color: transparent;
+    }
+    button:hover {
+      background:
+        linear-gradient(180deg, color-mix(in srgb, var(--surface2) 78%, #fff 18%) 0%, color-mix(in srgb, var(--surface2) 92%, var(--accent) 8%) 50%, color-mix(in srgb, var(--surface2) 80%, #000 12%) 100%);
+      border-color: color-mix(in srgb, var(--border) 55%, var(--accent) 30%);
+      filter: brightness(1.04);
+    }
+    button:active {
+      transform: translateY(1px) scale(0.98);
+      box-shadow:
+        0 1px 0 rgba(255,255,255,0.06) inset,
+        0 2px 4px rgba(0,0,0,0.35) inset,
+        0 1px 3px rgba(0,0,0,0.25);
+      filter: brightness(0.98);
+    }
+    button.primary {
+      background: linear-gradient(180deg,
+        color-mix(in srgb, var(--accent) 88%, #fff 12%) 0%,
+        var(--accent) 38%,
+        color-mix(in srgb, var(--accent) 72%, #000 28%) 100%);
+      color: #04120e;
+      border: 1px solid color-mix(in srgb, var(--accent) 55%, #fff 25%);
+      font-weight: 800;
+      letter-spacing: 0.015em;
+      text-shadow: 0 1px 0 rgba(255,255,255,0.28);
+      box-shadow:
+        0 1px 0 rgba(255,255,255,0.35) inset,
+        0 -2px 5px rgba(0,0,0,0.18) inset,
+        0 6px 16px var(--glow-a),
+        0 3px 8px rgba(0,0,0,0.28);
+    }
+    button.primary:hover {
+      background: linear-gradient(180deg,
+        color-mix(in srgb, var(--accent) 78%, #fff 22%) 0%,
+        color-mix(in srgb, var(--accent) 92%, #fff 8%) 40%,
+        color-mix(in srgb, var(--accent) 68%, #000 22%) 100%);
+      filter: brightness(1.05);
+      box-shadow:
+        0 1px 0 rgba(255,255,255,0.4) inset,
+        0 -2px 5px rgba(0,0,0,0.15) inset,
+        0 8px 22px var(--glow-a),
+        0 4px 10px rgba(0,0,0,0.28);
+    }
+    button.primary:active {
+      box-shadow:
+        0 1px 0 rgba(255,255,255,0.2) inset,
+        0 3px 6px rgba(0,0,0,0.25) inset,
+        0 2px 6px var(--glow-a);
+    }
+    button.diamond-btn {
+      background: linear-gradient(180deg,
+        color-mix(in srgb, var(--diamond) 22%, var(--surface2)) 0%,
+        color-mix(in srgb, var(--diamond) 10%, var(--surface)) 100%);
+      border: 1px solid color-mix(in srgb, var(--diamond) 48%, transparent);
+      color: color-mix(in srgb, var(--diamond) 85%, #fff 15%);
+      font-weight: 800;
+      text-shadow: 0 0 12px color-mix(in srgb, var(--diamond) 35%, transparent), 0 1px 0 rgba(0,0,0,0.3);
+      box-shadow:
+        0 1px 0 rgba(255,255,255,0.12) inset,
+        0 -2px 4px rgba(0,0,0,0.2) inset,
+        0 5px 14px color-mix(in srgb, var(--diamond) 18%, transparent),
+        0 2px 6px rgba(0,0,0,0.25);
+    }
+    button.diamond-btn:hover {
+      border-color: color-mix(in srgb, var(--diamond) 65%, transparent);
+      filter: brightness(1.06);
+    }
+    button.diamond-btn:disabled { opacity: 0.4; cursor: not-allowed; filter: none; box-shadow: none; }
+    button.ghost {
+      background: linear-gradient(180deg,
+        color-mix(in srgb, var(--surface2) 70%, transparent) 0%,
+        color-mix(in srgb, var(--surface) 85%, transparent) 100%);
+      border: 1px solid color-mix(in srgb, var(--border) 75%, var(--text-dim) 15%);
+      color: color-mix(in srgb, var(--text) 88%, var(--accent) 12%);
+      font-weight: 700;
+      text-shadow: 0 1px 0 rgba(0,0,0,0.35);
+      box-shadow:
+        0 1px 0 rgba(255,255,255,0.08) inset,
+        0 -1px 3px rgba(0,0,0,0.2) inset,
+        0 3px 10px rgba(0,0,0,0.22);
+    }
+    button.ghost:hover {
+      border-color: color-mix(in srgb, var(--border) 50%, var(--accent) 35%);
+      color: color-mix(in srgb, var(--text) 75%, var(--accent) 25%);
+      filter: brightness(1.05);
+    }
+    .footer {
+      margin-top: 8px; margin-bottom: 4px;
+      font-size: 0.65rem; color: var(--text-dim); text-align: center; line-height: 1.35;
+      max-width: 420px; padding: 0 8px;
+    }
+
+    .status-banner {
+      width: 100%;
+      max-width: min(92vw, 360px);
+      margin: 6px auto 0;
+      padding: 8px 12px;
+      border-radius: 12px;
+      font-size: 0.8rem;
+      font-weight: 600;
+      text-align: center;
+      line-height: 1.3;
+    }
+    .status-banner.status-danger {
+      background: rgba(255,92,122,0.12);
+      border: 1px solid rgba(255,92,122,0.35);
+      color: #ff8a9a;
+    }
+    .status-banner.status-info {
+      background: rgba(124,92,255,0.12);
+      border: 1px solid rgba(124,92,255,0.4);
+      color: #b9a6ff;
+    }
+    .pieces-area {
+      justify-content: center;
+      max-width: 100%;
+      padding: 0 4px;
+    }
+
+    /* Short phones / landscape-ish tall content */
+    @media (max-height: 720px) {
+      .menu-logo { margin-top: 6px; font-size: 1.35rem; }
+      .piece-slot { width: 84px; height: 84px; min-width: 84px; }
+      .header { margin-bottom: 4px; }
+      .player-label { font-size: 0.68rem; }
+    }
+    @media (max-height: 640px) {
+      .logo span { display: none; }
+      .footer { display: none; }
+      .opp-pieces-label { font-size: 0.65rem; margin-top: 2px; }
+    }
+    @media (min-width: 700px) {
+      /* PC: same vertical stack as phone — opponent top, you bottom — larger & centered */
+      #screenVersus {
+        max-width: 520px;
+        margin-left: auto;
+        margin-right: auto;
+        justify-content: flex-start;
+        padding-top: 10px;
+        padding-bottom: 20px;
+        overflow-y: auto;
+      }
+      #screenVersus .header {
+        max-width: 100%;
+        width: 100%;
+        margin-bottom: 8px;
+        padding: 10px 14px;
+        border-radius: 16px;
+      }
+      #screenVersus .versus-layout {
+        flex-direction: column !important;
+        flex-wrap: nowrap !important;
+        max-width: 100% !important;
+        width: 100%;
+        gap: 12px !important;
+        justify-content: flex-start !important;
+        align-items: center !important;
+        flex: 0 0 auto !important;
+      }
+      #screenVersus .player-panel {
+        flex: 0 0 auto !important;
+        width: auto !important;
+        max-width: 100% !important;
+        align-items: center;
+        gap: 6px !important;
+      }
+      #screenVersus .player-panel .board-wrap {
+        padding: 8px !important;
+        border-radius: 16px;
+      }
+      #screenVersus .player-label {
+        font-size: 0.82rem;
+        padding: 0 4px !important;
+      }
+      #screenVersus .player-label .score-live {
+        font-size: 1rem;
+      }
+      #screenVersus .opp-pieces-label {
+        font-size: 0.7rem;
+        margin-top: 2px;
+      }
+      #screenVersus .pieces-area.opp-pieces {
+        max-width: 100%;
+        gap: 10px;
+        margin-top: 4px;
+      }
+      #screenVersus > .opp-pieces-label {
+        margin-top: 10px;
+        font-size: 0.75rem;
+        width: 100%;
+        text-align: center;
+      }
+      #screenVersus > .pieces-area {
+        margin-top: 8px;
+        max-width: min(420px, 92vw);
+        gap: 14px;
+      }
+      #screenVersus .status-banner {
+        max-width: min(400px, 92vw);
+        margin-top: 8px;
+        font-size: 0.85rem;
+      }
+      #screenClassic {
+        max-width: 480px;
+      }
+      #screenClassic .board-wrap {
+        padding: 12px;
+      }
+      #screenMenu, #screenCompType, #screenDifficulty, #screenShop, #screenInventory {
+        max-width: 560px;
+      }
+      #screenDifficulty .bot-list {
+        grid-template-columns: repeat(5, minmax(0, 1fr));
+        gap: 10px;
+      }
+      .bot-card {
+        padding: 10px 8px 11px;
+      }
+      .bot-card .bot-icon {
+        width: 48px; height: 48px;
+      }
+      .bot-card .bot-name {
+        font-size: 0.78rem;
+      }
+    }
+
+    @media (min-width: 1000px) {
+      #screenVersus {
+        max-width: 560px;
+      }
+      #screenDifficulty .bot-list {
+        grid-template-columns: repeat(6, minmax(0, 1fr));
+      }
+      #screenMenu, #screenCompType, #screenShop, #screenInventory {
+        max-width: 600px;
+      }
+    }
+
+    @media (hover: hover) and (pointer: fine) {
+      .home-mode:hover,
+      .comp-card:hover,
+      .bot-card:hover,
+      .skin-card:hover,
+      .history-item:hover {
+        cursor: pointer;
+      }
+      #screenVersus .piece-slot:not(.used):hover,
+      #screenClassic .piece-slot:not(.used):hover {
+        border-color: var(--accent-border);
+        box-shadow: 0 4px 14px var(--glow-a);
+      }
+    }
+
+
+    

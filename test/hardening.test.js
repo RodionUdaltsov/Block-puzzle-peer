@@ -14,15 +14,17 @@ test('canonical rules are byte-identical on server and client', () => {
 });
 
 test('server never uses client shape or color for authoritative placement', () => {
-  // Placement logic lives in lib/match-room.js since the 3.10.5 refactor; scan
-  // every server-side module so a future move cannot silently dodge the check.
-  const files = ['server.js', ...fs.readdirSync(path.join(root, 'lib')).filter((f) => f.endsWith('.js')).map((f) => 'lib/' + f)];
+  // Placement logic lives in lib/match-room/moves.js; scan every server-side module
+  // (recursively) so a future move cannot silently dodge the check.
+  const walk = (d) => fs.readdirSync(path.join(root, d), { withFileTypes: true }).flatMap((e) =>
+    e.isDirectory() ? walk(d + '/' + e.name) : (e.name.endsWith('.js') ? [d + '/' + e.name] : []));
+  const files = ['server.js', ...walk('lib')];
   for (const rel of files) {
     const s = fs.readFileSync(path.join(root, rel), 'utf8');
     assert.equal(/data\.shape/.test(s), false, rel + ' reads data.shape');
     assert.equal(/data\.color/.test(s), false, rel + ' reads data.color');
   }
-  const room = fs.readFileSync(path.join(root, 'lib/match-room.js'), 'utf8');
+  const room = fs.readFileSync(path.join(root, 'lib/match-room/moves.js'), 'utf8');
   assert.match(room, /const shape = normalizeShape\(handPiece\.shape\)/);
   assert.match(room, /const color = handPiece\.color \|\| DEFAULT_COLORS\[0\]/);
 });
@@ -47,20 +49,20 @@ test('shared skins module exists and server loads it', () => {
 });
 
 test('performance module is in the client bundle pipeline', () => {
-  const bundler = fs.readFileSync(path.join(root, 'scripts/bundle-client.js'), 'utf8');
-  assert.match(bundler, /13-performance\.js/);
+  const { MODULES } = require(path.join(root, 'scripts/bundle-client.js'));
+  assert.ok(MODULES.includes('public/js/13-performance.js'));
 });
 
 test('settings UI module is in the client bundle pipeline', () => {
-  const bundler = fs.readFileSync(path.join(root, 'scripts/bundle-client.js'), 'utf8');
-  assert.match(bundler, /14-settings-ui\.js/);
+  const { MODULES } = require(path.join(root, 'scripts/bundle-client.js'));
+  assert.ok(MODULES.includes('public/js/14-settings-ui.js'));
   assert.equal(fs.existsSync(path.join(root, 'public/js/14-settings-ui.js')), true);
 });
 
 test('all project JavaScript passes node --check', () => {
   const files = [
     'server.js', 'shared/rules.js', 'public/shared/rules.js', 'public/match-client.js',
-    ...fs.readdirSync(path.join(root, 'public/js')).filter(f => f.endsWith('.js')).map(f => path.join('public/js', f))
+    ...require(path.join(root, 'scripts/bundle-client.js')).MODULES.filter(f => f.startsWith('public/js/'))
   ];
   for (const rel of files) cp.execFileSync(process.execPath, ['--check', path.join(root, rel)], { stdio: 'pipe' });
 });

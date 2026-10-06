@@ -1,0 +1,583 @@
+/* css/30-match/05-versus-screen-overrides.css — Versus screen and per-screen mobile shells. */
+/* ========== Unified polish: Versus + secondary screens ========== */
+
+    /* --- Versus battlefield --- */
+    #screenVersus {
+      position: relative;
+      overflow: hidden;
+      background:
+        radial-gradient(ellipse 100% 50% at 50% -10%, var(--glow-b), transparent 70%),
+        radial-gradient(ellipse 70% 40% at 10% 60%, var(--glow-a), transparent 68%),
+        radial-gradient(ellipse 60% 35% at 95% 80%, color-mix(in srgb, var(--trophy) 10%, transparent), transparent 65%),
+        transparent;
+    }
+    #screenVersus::before {
+      content: '';
+      position: absolute;
+      top: 8%; left: 50%;
+      width: min(420px, 95vw);
+      height: min(420px, 95vw);
+      transform: translateX(-50%);
+      background: radial-gradient(circle, var(--glow-mid), transparent 70%);
+      filter: blur(40px);
+      opacity: 0.4;
+      pointer-events: none;
+      z-index: 0;
+    }
+    #screenVersus > * { position: relative; z-index: 1; }
+    #screenVersus .header {
+      width: 100%;
+      max-width: min(96vw, 400px);
+      margin: 0 auto 4px;
+      padding: 6px 10px !important;
+      border-radius: 14px;
+      background: linear-gradient(160deg, color-mix(in srgb, var(--surface) 90%, var(--accent2) 10%), var(--surface));
+      border: 1px solid var(--accent2-border);
+      box-shadow: 0 6px 18px rgba(0,0,0,0.22), inset 0 1px 0 rgba(255,255,255,0.05);
+      backdrop-filter: blur(8px);
+      -webkit-backdrop-filter: blur(8px);
+    }
+    #screenVersus .logo span {
+      -webkit-text-fill-color: color-mix(in srgb, var(--accent2) 75%, var(--text-dim));
+    }
+    #screenVersus .timer {
+      text-shadow: 0 0 16px var(--glow-a);
+    }
+    #screenVersus .trophies {
+      background: color-mix(in srgb, var(--trophy) 12%, transparent);
+      border-color: color-mix(in srgb, var(--trophy) 35%, transparent);
+    }
+    /* Versus: keep layout padding only — field theme (board-fx-*) owns border/bg/shadow */
+    #screenVersus .player-panel .board-wrap {
+      border-radius: 14px !important;
+      padding: 4px 5px 5px !important;
+    }
+    /* Default frames only when no field theme is equipped */
+    #screenVersus .player-panel:not(.opp) .board-wrap.board-fx-none {
+      border: 1px solid var(--accent-border) !important;
+      background: linear-gradient(165deg, color-mix(in srgb, var(--surface) 88%, var(--accent) 12%), var(--surface)) !important;
+      box-shadow:
+        0 10px 28px rgba(0,0,0,0.32),
+        0 0 28px var(--glow-a),
+        inset 0 1px 0 rgba(255,255,255,0.06) !important;
+    }
+    #screenVersus .player-panel.opp .board-wrap.board-fx-none {
+      border: 1px solid var(--accent2-border) !important;
+      background: linear-gradient(165deg, color-mix(in srgb, var(--surface) 86%, var(--accent2) 14%), var(--surface)) !important;
+      box-shadow:
+        0 10px 28px rgba(0,0,0,0.32),
+        0 0 28px var(--glow-b),
+        inset 0 1px 0 rgba(255,255,255,0.06) !important;
+    }
+    #screenVersus .player-label .score-live {
+      padding: 2px 8px;
+      border-radius: 999px;
+      background: color-mix(in srgb, var(--accent) 14%, transparent);
+      border: 1px solid var(--accent-border);
+    }
+    #screenVersus .player-panel.opp .player-label .score-live {
+      background: color-mix(in srgb, var(--accent2) 14%, transparent);
+      border-color: var(--accent2-border);
+    }
+    #screenVersus .piece-slot {
+      background: linear-gradient(160deg, color-mix(in srgb, var(--surface2) 88%, var(--accent) 12%), var(--surface)) !important;
+      border: 1px solid var(--accent-border) !important;
+      border-radius: 12px !important;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.2), inset 0 1px 0 rgba(255,255,255,0.05);
+    }
+    #screenVersus .pieces-area.opp-pieces .piece-slot {
+      background: linear-gradient(160deg, color-mix(in srgb, var(--surface2) 88%, var(--accent2) 12%), var(--surface)) !important;
+      border-color: var(--accent2-border) !important;
+    }
+    /* Dragging: hide tray piece completely (override versus !important chrome) */
+    #screenVersus .piece-slot.lifting,
+    #screenClassic .piece-slot.lifting {
+      opacity: 0 !important;
+      visibility: hidden !important;
+      background: transparent !important;
+      border-color: transparent !important;
+      box-shadow: none !important;
+      pointer-events: none !important;
+    }
+    #screenVersus .status-banner.status-danger {
+      background: color-mix(in srgb, var(--danger) 14%, transparent);
+      border-color: color-mix(in srgb, var(--danger) 40%, transparent);
+      box-shadow: 0 6px 18px color-mix(in srgb, var(--danger) 15%, transparent);
+    }
+    #screenVersus .status-banner.status-info {
+      background: var(--accent2-soft);
+      border-color: var(--accent2-border);
+      box-shadow: 0 6px 18px var(--glow-b);
+    }
+    #screenVersus .controls button.ghost {
+      background: color-mix(in srgb, var(--surface2) 90%, transparent);
+      border-color: color-mix(in srgb, var(--border) 75%, var(--accent2) 25%);
+    }
+
+    /* --- Shared secondary-screen atmosphere --- */
+    #screenSettings,
+    #screenFriends,
+    #screenHistory,
+    #screenAchievements,
+    #screenShop,
+    #screenInventory,
+    #screenMatch {
+      position: relative;
+      overflow-x: hidden;
+    }
+    #screenSettings {
+      background:
+        radial-gradient(ellipse 110% 55% at 50% -12%, var(--glow-a), transparent 72%),
+        radial-gradient(ellipse 60% 40% at 100% 40%, var(--glow-b), transparent 70%),
+        transparent;
+    }
+    #screenFriends {
+      background:
+        radial-gradient(ellipse 110% 55% at 50% -12%, var(--glow-b), transparent 72%),
+        radial-gradient(ellipse 60% 40% at 0% 70%, var(--glow-a), transparent 70%),
+        transparent;
+    }
+    #screenHistory {
+      background:
+        radial-gradient(ellipse 110% 50% at 50% -10%, color-mix(in srgb, var(--trophy) 12%, transparent), transparent 72%),
+        radial-gradient(ellipse 55% 40% at 90% 60%, var(--glow-a), transparent 70%),
+        transparent;
+    }
+    #screenAchievements {
+      background:
+        radial-gradient(ellipse 110% 55% at 50% -12%, color-mix(in srgb, var(--trophy) 14%, transparent), transparent 72%),
+        radial-gradient(ellipse 60% 40% at 10% 80%, var(--glow-b), transparent 70%),
+        transparent;
+    }
+    #screenShop, #screenInventory {
+      background:
+        radial-gradient(ellipse 110% 55% at 50% -12%, color-mix(in srgb, var(--diamond) 14%, transparent), transparent 72%),
+        radial-gradient(ellipse 60% 40% at 100% 50%, var(--glow-a), transparent 70%),
+        transparent;
+    }
+    #screenMatch {
+      background:
+        radial-gradient(ellipse 120% 70% at 50% 20%, var(--glow-a), transparent 68%),
+        radial-gradient(ellipse 80% 50% at 80% 70%, var(--glow-b), transparent 65%),
+        transparent;
+    }
+
+    /* --- Settings --- */
+    .settings-top {
+      background: linear-gradient(180deg, color-mix(in srgb, var(--surface) 92%, var(--accent) 8%), color-mix(in srgb, var(--bg) 88%, transparent)) !important;
+      border-bottom: 1px solid var(--accent-border) !important;
+      box-shadow: 0 10px 28px rgba(0,0,0,0.22) !important;
+      border-radius: 0 0 16px 16px;
+      padding: 10px 8px 14px !important;
+    }
+    .settings-top h1 {
+      filter: drop-shadow(0 2px 12px var(--glow-a));
+    }
+    .settings-row {
+      background: linear-gradient(165deg, color-mix(in srgb, var(--surface2) 94%, var(--accent) 6%), var(--surface)) !important;
+      border: 1px solid color-mix(in srgb, var(--border) 75%, var(--accent) 25%) !important;
+      box-shadow: 0 6px 16px rgba(0,0,0,0.14), inset 0 1px 0 rgba(255,255,255,0.05) !important;
+    }
+    .settings-section-title {
+      color: color-mix(in srgb, var(--text-dim) 80%, var(--accent)) !important;
+    }
+    .settings-section-title::after {
+      background: linear-gradient(90deg, var(--accent-border), transparent) !important;
+    }
+    .set-chip {
+      background: color-mix(in srgb, var(--surface2) 90%, transparent) !important;
+    }
+
+    /* --- Friends --- */
+    .friends-screen-top h1 {
+      background: linear-gradient(135deg, #fff 15%, var(--accent2));
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+      filter: drop-shadow(0 2px 12px var(--glow-b));
+    }
+    .fr-panel, .friend-code-box {
+      background: linear-gradient(160deg, color-mix(in srgb, var(--surface) 90%, var(--accent2) 10%), var(--surface)) !important;
+      border: 1px solid var(--accent2-border) !important;
+      box-shadow: 0 8px 22px rgba(0,0,0,0.2), inset 0 1px 0 rgba(255,255,255,0.05) !important;
+    }
+    .fr-code-meta .code {
+      text-shadow: 0 0 18px var(--glow-a);
+    }
+    .friend-card {
+      background: linear-gradient(155deg, color-mix(in srgb, var(--surface2) 92%, var(--accent) 8%), var(--surface)) !important;
+      border: 1px solid color-mix(in srgb, var(--border) 70%, var(--accent) 30%) !important;
+      box-shadow: 0 4px 14px rgba(0,0,0,0.15) !important;
+    }
+    .friend-req-card {
+      box-shadow: 0 6px 18px var(--glow-b) !important;
+    }
+    .friends-section-title {
+      color: color-mix(in srgb, var(--text-dim) 75%, var(--accent2)) !important;
+    }
+    .friend-add-row input {
+      background: color-mix(in srgb, var(--surface2) 95%, var(--accent2) 5%) !important;
+      border-color: var(--accent2-border) !important;
+    }
+    .friend-add-row input:focus {
+      border-color: var(--accent) !important;
+      box-shadow: 0 0 0 2px var(--accent-soft);
+    }
+
+    /* --- History --- */
+    #screenHistory .menu-logo {
+      background: linear-gradient(135deg, #fff 15%, var(--trophy));
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+    .history-item {
+      background: linear-gradient(155deg, color-mix(in srgb, var(--surface2) 92%, var(--trophy) 8%), var(--surface)) !important;
+      border: 1px solid color-mix(in srgb, var(--border) 70%, var(--trophy) 30%) !important;
+      border-radius: 14px !important;
+      box-shadow: 0 5px 16px rgba(0,0,0,0.16), inset 0 1px 0 rgba(255,255,255,0.04) !important;
+      transition: border-color 0.15s, transform 0.12s, box-shadow 0.15s;
+    }
+    .history-item:active {
+      transform: scale(0.98);
+    }
+    .history-item .hi-result.win { color: var(--accent) !important; text-shadow: 0 0 12px var(--glow-a); }
+    .history-item .hi-result.lose { color: var(--danger) !important; }
+    .history-item .hi-replay {
+      color: var(--accent2);
+      font-size: 0.72rem;
+      font-weight: 700;
+      margin-top: 4px;
+    }
+    .history-empty {
+      padding: 28px 16px !important;
+      border-radius: 16px;
+      background: color-mix(in srgb, var(--surface) 80%, transparent);
+      border: 1px dashed var(--border);
+    }
+
+    /* --- Achievements --- */
+    #screenAchievements .menu-logo {
+      background: linear-gradient(135deg, #fff 10%, var(--trophy) 55%, var(--accent)) !important;
+      -webkit-background-clip: text !important;
+      -webkit-text-fill-color: transparent !important;
+      background-clip: text !important;
+      filter: drop-shadow(0 2px 14px color-mix(in srgb, var(--trophy) 25%, transparent));
+    }
+    .ach-list > div,
+    .ach-card,
+    #achList > div {
+      /* generic cards if structure varies */
+    }
+    #achList .ach-item,
+    .ach-list .ach-item {
+      background: linear-gradient(155deg, color-mix(in srgb, var(--surface2) 90%, var(--trophy) 10%), var(--surface));
+      border: 1px solid color-mix(in srgb, var(--border) 65%, var(--trophy) 35%);
+      border-radius: 14px;
+      box-shadow: 0 5px 16px rgba(0,0,0,0.15);
+    }
+
+    /* --- Shop / Inventory --- */
+    .shop-top h1, .inv-top h1 {
+      filter: drop-shadow(0 2px 12px color-mix(in srgb, var(--diamond) 30%, transparent));
+    }
+    .shop-balance {
+      box-shadow: 0 4px 14px color-mix(in srgb, var(--diamond) 18%, transparent);
+    }
+    .skin-item.equipped {
+      border-color: var(--accent-border) !important;
+      background: linear-gradient(165deg, var(--accent-soft), color-mix(in srgb, var(--surface) 75%, transparent)) !important;
+      box-shadow: 0 0 0 1px var(--accent-border), 0 8px 22px var(--glow-a) !important;
+    }
+
+    /* --- Matchmaking --- */
+    #screenMatch .mm-box {
+      background: linear-gradient(165deg, color-mix(in srgb, var(--surface) 88%, var(--accent) 12%), var(--surface));
+      border: 1px solid var(--accent-border);
+      border-radius: 24px;
+      box-shadow: 0 16px 40px rgba(0,0,0,0.3), 0 0 40px var(--glow-a), inset 0 1px 0 rgba(255,255,255,0.06);
+    }
+    .mm-status-main {
+      background: linear-gradient(135deg, var(--text), var(--accent));
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+    .mm-hint-card {
+      background: var(--accent2-soft) !important;
+      border-color: var(--accent2-border) !important;
+    }
+    .mm-block.b1 { background: var(--accent) !important; }
+    .mm-block.b2 { background: var(--accent2) !important; }
+
+    /* Modal polish */
+    .modal {
+      background: linear-gradient(165deg, color-mix(in srgb, var(--surface) 92%, var(--accent) 8%), var(--surface)) !important;
+      border: 1px solid var(--accent-border) !important;
+      box-shadow: 0 20px 50px rgba(0,0,0,0.45), 0 0 40px var(--glow-a) !important;
+    }
+    .overlay.visible {
+      background: rgba(8, 10, 14, 0.72) !important;
+    }
+
+
+    /* ===== Sticky screen chrome (back always visible) ===== */
+    .screen-chrome {
+      width: 100%;
+      max-width: 440px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      padding: 8px 6px 10px;
+      flex-shrink: 0;
+      position: sticky;
+      top: 0;
+      z-index: 30;
+      background: linear-gradient(180deg, color-mix(in srgb, var(--bg) 92%, transparent) 60%, transparent);
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+    }
+    .screen-chrome h1 {
+      font-size: 1.15rem;
+      font-weight: 800;
+      margin: 0;
+      letter-spacing: -0.02em;
+      background: linear-gradient(135deg, var(--accent), var(--accent2));
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+      flex: 1;
+      text-align: center;
+      min-width: 0;
+    }
+    .screen-back {
+      min-height: 36px !important;
+      padding: 8px 12px !important;
+      font-size: 0.85rem !important;
+      font-weight: 750 !important;
+      border-radius: 12px !important;
+      flex-shrink: 0;
+      background: linear-gradient(180deg,
+        color-mix(in srgb, var(--surface2) 85%, #fff 8%) 0%,
+        color-mix(in srgb, var(--surface) 88%, var(--accent) 12%) 100%) !important;
+      border: 1px solid var(--accent-border) !important;
+      color: color-mix(in srgb, var(--text) 90%, var(--accent) 10%) !important;
+      box-shadow:
+        0 1px 0 rgba(255,255,255,0.1) inset,
+        0 -1px 3px rgba(0,0,0,0.2) inset,
+        0 3px 10px rgba(0,0,0,0.22) !important;
+      text-shadow: 0 1px 0 rgba(0,0,0,0.3);
+    }
+    .screen-action {
+      min-height: 36px !important;
+      min-width: 40px !important;
+      padding: 8px 10px !important;
+      font-size: 0.95rem !important;
+      border-radius: 12px !important;
+      flex-shrink: 0;
+    }
+    .ach-top-spacer {
+      width: 72px;
+      flex-shrink: 0;
+      visibility: hidden;
+      pointer-events: none;
+    }
+    .screen-hint {
+      width: 100%;
+      max-width: 440px;
+      text-align: center;
+      color: var(--text-dim);
+      font-size: 0.8rem;
+      line-height: 1.35;
+      margin: 0 0 10px;
+      padding: 0 8px;
+      flex-shrink: 0;
+    }
+    .screen-scroll {
+      flex: 1 1 auto;
+      min-height: 0;
+      overflow-y: auto;
+      -webkit-overflow-scrolling: touch;
+      overscroll-behavior: contain;
+      width: 100%;
+      max-width: 440px;
+      padding-bottom: max(16px, env(safe-area-inset-bottom, 0px));
+    }
+    /* Shop / Inventory: hide scrollbar track (scroll still works) */
+    #shopGrid.screen-scroll,
+    #invGrid.screen-scroll,
+    .shop-grid.screen-scroll,
+    .inv-grid.screen-scroll {
+      scrollbar-width: none;
+      -ms-overflow-style: none;
+    }
+    #shopGrid.screen-scroll::-webkit-scrollbar,
+    #invGrid.screen-scroll::-webkit-scrollbar,
+    .shop-grid.screen-scroll::-webkit-scrollbar,
+    .inv-grid.screen-scroll::-webkit-scrollbar {
+      width: 0 !important;
+      height: 0 !important;
+      display: none !important;
+      background: transparent;
+    }
+    /* Nested expanded shelf lists — already hidden, reinforce */
+    #screenShop .skin-scroll-inner,
+    #screenInventory .skin-scroll-inner,
+    .skin-scroll.open .skin-scroll-inner {
+      scrollbar-width: none !important;
+      -ms-overflow-style: none !important;
+    }
+    #screenShop .skin-scroll-inner::-webkit-scrollbar,
+    #screenInventory .skin-scroll-inner::-webkit-scrollbar,
+    .skin-scroll.open .skin-scroll-inner::-webkit-scrollbar {
+      width: 0 !important;
+      height: 0 !important;
+      display: none !important;
+    }
+    .screen-footer-bar {
+      flex-shrink: 0;
+      width: 100%;
+      max-width: 440px;
+      padding: 10px 6px max(12px, env(safe-area-inset-bottom, 0px));
+      display: flex;
+      justify-content: center;
+      background: linear-gradient(0deg, color-mix(in srgb, var(--bg) 94%, transparent) 55%, transparent);
+      position: sticky;
+      bottom: 0;
+      z-index: 25;
+    }
+    .inv-count-pill {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-width: 40px;
+      padding: 6px 10px;
+      border-radius: 999px;
+      font-weight: 800;
+      font-size: 0.82rem;
+      color: var(--accent);
+      background: var(--accent-soft);
+      border: 1px solid var(--accent-border);
+      flex-shrink: 0;
+    }
+
+    #screenShop, #screenInventory {
+      justify-content: flex-start !important;
+      overflow: hidden !important;
+      max-height: calc(100dvh - var(--safe-top) - var(--safe-bottom));
+      height: 100%;
+      gap: 0 !important;
+    }
+    #screenShop .shop-top h1,
+    #screenInventory .inv-top h1 {
+      /* use screen-chrome h1 styles */
+    }
+    #screenShop .shop-balance {
+      flex-shrink: 0;
+    }
+    #screenHistory {
+      justify-content: flex-start !important;
+      overflow: hidden !important;
+      max-height: calc(100dvh - var(--safe-top) - var(--safe-bottom));
+      gap: 0 !important;
+    }
+    #screenHistory .history-list {
+      margin: 0 !important;
+      max-height: none !important;
+      flex: 1 1 auto;
+    }
+    #screenAchievements {
+      justify-content: flex-start !important;
+      overflow: hidden !important;
+      max-height: calc(100dvh - var(--safe-top) - var(--safe-bottom));
+      gap: 0 !important;
+    }
+    #screenAchievements .ach-list {
+      margin: 0 !important;
+      max-height: none !important;
+    }
+    #screenDifficulty {
+      justify-content: flex-start !important;
+      overflow: hidden !important;
+      gap: 0 !important;
+    }
+    #screenDifficulty .bot-list {
+      margin: 6px 0 0 !important;
+    }
+    #screenDifficulty .bot-random-row {
+      flex-shrink: 0;
+      padding: 0 4px 8px;
+    }
+    #screenDifficulty .bot-random-row button {
+      max-width: 100%;
+    }
+    .hist-top h1 {
+      background: linear-gradient(135deg, #fff 20%, var(--trophy)) !important;
+      -webkit-background-clip: text !important;
+      -webkit-text-fill-color: transparent !important;
+    }
+    .ach-top h1 {
+      background: linear-gradient(135deg, #fff 15%, var(--trophy) 60%, var(--accent)) !important;
+      -webkit-background-clip: text !important;
+      -webkit-text-fill-color: transparent !important;
+    }
+    .diff-top h1 {
+      background: linear-gradient(135deg, #fff 20%, var(--accent2)) !important;
+      -webkit-background-clip: text !important;
+      -webkit-text-fill-color: transparent !important;
+    }
+    .inv-top h1 {
+      background: linear-gradient(135deg, var(--accent), var(--diamond)) !important;
+      -webkit-background-clip: text !important;
+      -webkit-text-fill-color: transparent !important;
+    }
+
+
+    #screenFriends {
+      justify-content: flex-start !important;
+      overflow: hidden !important;
+      max-height: calc(100dvh - var(--safe-top) - var(--safe-bottom));
+      gap: 0 !important;
+    }
+    #screenFriends .friends-screen-top {
+      position: sticky;
+      top: 0;
+      z-index: 30;
+    }
+    #screenFriends .fr-panel,
+    #screenFriends .friends-section,
+    #screenFriends .friends-actions-bar,
+    #screenFriends .fr-mp-status {
+      flex-shrink: 0;
+    }
+    /* scrollable middle of friends */
+    #screenFriends {
+      overflow-y: auto !important;
+    }
+    #screenSettings .settings-top.screen-chrome {
+      max-width: 420px;
+      margin: 0 auto;
+      display: grid !important;
+      grid-template-columns: minmax(72px, 1fr) auto minmax(72px, 1fr);
+      align-items: center;
+      gap: 8px;
+    }
+    #screenSettings .settings-top.screen-chrome h1 {
+      flex: none !important;
+      text-align: center !important;
+      justify-self: center;
+      width: auto;
+      margin: 0;
+      line-height: 1.2;
+    }
+    #screenSettings .settings-top .screen-back {
+      background: color-mix(in srgb, var(--surface) 88%, var(--accent) 12%) !important;
+      justify-self: start;
+      white-space: nowrap;
+    }
+    #screenSettings .settings-top .screen-action {
+      justify-self: end;
+    }
+  
+    

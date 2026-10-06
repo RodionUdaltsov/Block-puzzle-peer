@@ -570,7 +570,14 @@ const DEFAULT_SETTINGS = {
   confirmForfeit: '1',
   keepAwake: '0',
   bigText: '0',
-  hiContrast: '0'
+  hiContrast: '0',
+  // Graphics (see 13-performance.js). 'auto' = detect device + adapt to real frame pacing.
+  gfx: 'auto',
+  gfxSkin: 'auto',
+  gfxField: 'auto',
+  gfxFx: 'auto',
+  gfxGlow: 'auto',
+  gfxFps: '0'
 };
 let settings = { ...DEFAULT_SETTINGS };
 try {

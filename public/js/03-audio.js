@@ -498,7 +498,9 @@ function genCode(len = 6) {
 }
 let myFriendCode = localStorage.getItem('bp_my_code');
 if (!myFriendCode) {
-  myFriendCode = genCode(6);
+  // 8 chars from the start (guests must have exactly 8). A 6-char placeholder here used to be
+  // replaced later by ensureMyFriendCode(), so the server saw two different identities.
+  myFriendCode = genCode(8);
   localStorage.setItem('bp_my_code', myFriendCode);
 }
 let myNickname = localStorage.getItem('bp_nickname') || ('Player' + myFriendCode.slice(0, 3));

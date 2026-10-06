@@ -1,0 +1,86 @@
+  <div id="authModal" class="auth-modal" hidden aria-hidden="true" style="display:none">
+    <div class="auth-modal-backdrop" id="authModalBackdrop"></div>
+    <div class="auth-modal-card" role="dialog" aria-labelledby="authModalTitle">
+      <button type="button" class="auth-modal-close" id="authModalClose" aria-label="Закрыть">×</button>
+      <h2 id="authModalTitle">Аккаунт</h2>
+      <div class="auth-tabs">
+        <button type="button" class="auth-tab on" data-auth-tab="login" id="authTabLogin">Вход</button>
+        <button type="button" class="auth-tab" data-auth-tab="register" id="authTabRegister">Регистрация</button>
+      </div>
+      <form id="authForm" autocomplete="on">
+        <div class="profile-field">
+          <label for="authLogin">Логин</label>
+          <input id="authLogin" name="username" maxlength="24" placeholder="player_1" autocomplete="username" spellcheck="false" required />
+          <div class="hint">3–24 символа: a-z, 0-9, _</div>
+        </div>
+        <div class="profile-field" id="authNickField" hidden>
+          <label for="authNick">Ник в игре</label>
+          <input id="authNick" maxlength="9" placeholder="Необязательно" autocomplete="nickname" />
+        </div>
+        <div class="profile-field">
+          <label for="authPassword">Пароль</label>
+          <input id="authPassword" name="password" type="password" maxlength="72" placeholder="минимум 6 символов" autocomplete="current-password" required />
+        </div>
+        <div class="profile-field" id="authPasswordConfirmField" hidden>
+          <label for="authPasswordConfirm">Повторите пароль</label>
+          <input id="authPasswordConfirm" name="password_confirm" type="password" maxlength="72" placeholder="ещё раз" autocomplete="new-password" />
+        </div>
+        <div id="authError" class="auth-error" hidden></div>
+        <button type="submit" class="primary" id="authSubmit" style="width:100%;min-height:42px;margin-top:8px">Войти</button>
+      </form>
+    </div>
+  </div>
+
+
+  <!-- Account delete confirm modal (no native prompt/confirm) -->
+  <div id="accountDeleteModal" class="auth-modal danger-modal" hidden aria-hidden="true" style="display:none">
+    <div class="auth-modal-backdrop" id="accountDeleteBackdrop"></div>
+    <div class="auth-modal-card" role="dialog" aria-labelledby="accountDeleteTitle" aria-modal="true">
+      <button type="button" class="auth-modal-close" id="accountDeleteClose" aria-label="Закрыть">×</button>
+      <h2 id="accountDeleteTitle">Удалить аккаунт</h2>
+      <p class="danger-modal-lead">Действие необратимо. Будут удалены логин, серверный прогресс, друзья и история на сервере. Локальные данные на этом устройстве останутся.</p>
+      <div class="profile-field">
+        <label for="accountDeletePassword">Пароль для подтверждения</label>
+        <input id="accountDeletePassword" type="password" maxlength="72" placeholder="пароль аккаунта" autocomplete="current-password" />
+      </div>
+      <div id="accountDeleteError" class="auth-error" hidden></div>
+      <div class="stuck-actions" style="margin-top:12px;gap:8px">
+        <button type="button" class="primary danger-btn" id="accountDeleteConfirm" style="width:100%;min-height:42px">Удалить навсегда</button>
+        <button type="button" class="ghost" id="accountDeleteCancel" style="width:100%;min-height:38px">Отмена</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Generic confirm modal (replaces native confirm) -->
+  <div id="bpConfirmModal" class="auth-modal" hidden aria-hidden="true" style="display:none">
+    <div class="auth-modal-backdrop" id="bpConfirmBackdrop"></div>
+    <div class="auth-modal-card" role="dialog" aria-labelledby="bpConfirmTitle" aria-modal="true">
+      <h2 id="bpConfirmTitle">Подтверждение</h2>
+      <p id="bpConfirmText" class="danger-modal-lead" style="margin-bottom:14px"></p>
+      <div class="stuck-actions" style="gap:8px">
+        <button type="button" class="primary" id="bpConfirmOk" style="width:100%;min-height:42px">Да</button>
+        <button type="button" class="ghost" id="bpConfirmCancel" style="width:100%;min-height:38px">Отмена</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Guest → login: guest progress will be wiped -->
+  <div id="guestLoginWarnModal" class="auth-modal danger-modal" hidden aria-hidden="true" style="display:none">
+    <div class="auth-modal-backdrop" id="guestLoginWarnBackdrop"></div>
+    <div class="auth-modal-card" role="dialog" aria-labelledby="guestLoginWarnTitle" aria-modal="true">
+      <h2 id="guestLoginWarnTitle">Войти в аккаунт?</h2>
+      <p id="guestLoginWarnText" class="danger-modal-lead" style="margin-bottom:12px">
+        Весь прогресс гостевого аккаунта будет <strong>безвозвратно удалён</strong> с сервера
+        (алмазы, скины, друзья, история). Восстановить его будет нельзя.
+      </p>
+      <p style="margin:0 0 14px;font-size:0.88rem;opacity:0.85;line-height:1.4">
+        Рекомендуем <strong>зарегистрироваться</strong> — тогда гостевой прогресс перенесётся в новый аккаунт.
+      </p>
+      <div class="stuck-actions" style="gap:8px">
+        <button type="button" class="primary" id="guestLoginWarnRegister" style="width:100%;min-height:42px">Регистрация</button>
+        <button type="button" class="ghost" id="guestLoginWarnSkip" style="width:100%;min-height:38px">Понятно, войти</button>
+        <button type="button" class="ghost" id="guestLoginWarnCancel" style="width:100%;min-height:36px;opacity:0.75">Отмена</button>
+      </div>
+    </div>
+  </div>
+

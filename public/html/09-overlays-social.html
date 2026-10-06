@@ -1,0 +1,95 @@
+  <div class="overlay" id="nickSearchModal" aria-hidden="true">
+    <div class="modal lobby-modal" role="dialog" aria-labelledby="nickSearchTitle">
+      <h2 id="nickSearchTitle">Поиск по нику</h2>
+      <p style="margin-bottom:10px;font-size:0.85rem;color:var(--text-dim)">Игрок должен быть онлайн. До 11 символов.</p>
+      <input id="nickSearchInput" maxlength="11" placeholder="Ник онлайн…" autocomplete="off" spellcheck="false"
+        style="width:100%;padding:12px;border-radius:12px;border:1px solid var(--border);background:var(--surface2);color:var(--text);font-size:1rem;font-weight:700;margin-bottom:10px" />
+      <button type="button" class="primary" id="btnNickSearchGo" style="width:100%;margin-bottom:10px">Искать</button>
+      <div id="nickSearchResults" class="friend-find-list nick-search-results hide-scrollbar" style="max-height:40vh;overflow-y:auto;margin-bottom:10px"></div>
+      <div class="friends-section-empty" id="nickSearchEmpty" style="display:none">Никого не нашли</div>
+      <button type="button" class="ghost" id="btnNickSearchClose" style="width:100%">Закрыть</button>
+    </div>
+  </div>
+
+  <div class="overlay" id="friendMiniProfileModal" aria-hidden="true">
+    <div class="modal lobby-modal friend-mini-profile" role="dialog" aria-labelledby="friendMiniName">
+      <button type="button" class="friend-mini-close" id="btnFriendMiniClose" aria-label="Закрыть">×</button>
+      <div class="friend-mini-av" id="friendMiniAv"></div>
+      <h2 id="friendMiniName" class="friend-mini-name">—</h2>
+      <div class="friend-mini-bio" id="friendMiniCode"></div>
+      <div class="friend-mini-stats">
+        <div class="friend-mini-stat">
+          <div class="friend-mini-stat-val" id="friendMiniTrophies">0</div>
+          <div class="friend-mini-stat-label">Кубки</div>
+        </div>
+        <div class="friend-mini-stat">
+          <div class="friend-mini-stat-val" id="friendMiniWinrate">—</div>
+          <div class="friend-mini-stat-label">Winrate</div>
+        </div>
+      </div>
+      <div class="friend-mini-status" id="friendMiniStatus"></div>
+      <button type="button" class="ghost" id="btnFriendMiniClose2" style="width:100%;margin-top:12px">Закрыть</button>
+    </div>
+  </div>
+
+  <div class="overlay" id="joinRoomModal">
+    <div class="modal lobby-modal">
+      <h2 data-i18n="friends.joinRoom">Войти в комнату</h2>
+      <p style="margin-bottom:10px" data-i18n="friends.enterCode">Введи код от друга</p>
+      <input id="joinRoomInput" maxlength="8" placeholder="КОД" data-i18n-placeholder="friends.roomCode.ph" autocomplete="off"
+        style="width:100%;padding:12px;border-radius:12px;border:1px solid var(--border);background:var(--surface2);color:var(--text);font-size:1.2rem;font-weight:800;letter-spacing:0.15em;text-align:center;text-transform:uppercase;margin-bottom:12px" />
+      <div class="stuck-actions">
+        <button class="primary" id="btnJoinRoomGo" style="width:100%" data-i18n="friends.enter">Войти</button>
+        <button class="ghost" id="btnJoinRoomCancel" style="width:100%" data-i18n="friends.cancel">Отмена</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="overlay" id="roomLobby">
+    <div class="modal lobby-modal">
+      <h2 id="lobbyTitle" data-i18n="friends.room">Комната</h2>
+      <div class="lobby-code-wrap">
+        <div class="lobby-code-label" data-i18n="friends.roomCode">Код комнаты</div>
+        <div class="lobby-code" id="lobbyCode">————</div>
+      </div>
+      <div class="lobby-players" id="lobbyPlayers">
+        <div class="lobby-slot" id="lobbySlotMe">
+          <div class="lobby-slot-name"><span id="lobbyMeName" data-i18n="friends.you">Ты</span><span class="lobby-ping" id="lobbyMePing"></span></div>
+          <div class="lobby-slot-state" id="lobbyMeState">…</div>
+        </div>
+        <div class="lobby-slot empty" id="lobbySlotOpp">
+          <div class="lobby-slot-name"><span id="lobbyOppName" data-i18n="friends.waiting">Ожидание…</span><span class="lobby-ping" id="lobbyOppPing"></span></div>
+          <div class="lobby-slot-state" id="lobbyOppState">—</div>
+        </div>
+      </div>
+      <div class="lobby-duration">
+        <div class="lobby-code-label" data-i18n="friends.matchTime">Время матча</div>
+        <div class="duration-row" style="margin:8px 0 12px">
+          <button type="button" class="dur-btn lobby-dur" data-sec="60" data-i18n="dur.1m">1 мин</button>
+          <button type="button" class="dur-btn lobby-dur selected" data-sec="120" data-i18n="dur.2m">2 мин</button>
+          <button type="button" class="dur-btn lobby-dur" data-sec="180" data-i18n="dur.3m">3 мин</button>
+        </div>
+      </div>
+      <div class="stuck-actions">
+        <button class="primary" id="btnLobbyReady" style="width:100%" data-i18n="friends.ready">Готов</button>
+        <button class="ghost" id="btnLobbyInvite" style="width:100%" data-i18n="friends.inviteBtn">Пригласить</button>
+        <button class="ghost" id="btnLobbyLeave" style="width:100%" data-i18n="friends.leave">Выйти</button>
+      </div>
+      <p id="lobbyHint" style="font-size:0.78rem;color:var(--text-dim);margin-top:10px;line-height:1.35"><span data-i18n="friends.lobbyHint">Оба игрока должны нажать «Готов»</span></p>
+    </div>
+  </div>
+
+  <div class="overlay" id="lobbyInviteModal">
+    <div class="modal lobby-modal">
+      <h2 data-i18n="friends.invite">Пригласить друга</h2>
+      <p style="margin-bottom:4px;font-size:0.85rem;color:var(--text-dim)"><span data-i18n="friends.pickFriend">Выбери друга из списка</span></p>
+      <div class="lobby-invite-search">
+        <input type="search" id="lobbyInviteSearch" placeholder="Поиск по никнейму…" data-i18n-placeholder="friends.invite.ph" autocomplete="off" spellcheck="false" />
+      </div>
+      <div class="lobby-invite-list" id="lobbyInviteList"></div>
+      <div class="stuck-actions">
+        <button class="ghost" id="btnLobbyInviteClose" style="width:100%" data-i18n="common.close">Закрыть</button>
+      </div>
+    </div>
+  </div>
+

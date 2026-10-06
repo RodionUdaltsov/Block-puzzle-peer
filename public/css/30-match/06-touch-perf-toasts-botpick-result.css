@@ -1,0 +1,605 @@
+/* css/30-match/06-touch-perf-toasts-botpick-result.css — Touch/perf tuning, status toasts, bot pick, result modal, mini profile. */
+/* Prism: board + tray share the same rules above — do not strip ::after here */
+
+
+/* ========== Mobile / touch: softer feel than PC (drag / place / clear) ========== */
+body.touch-ui .screen.active {
+  filter: none !important; /* avoid full-screen filter thrash on weak GPUs */
+}
+/* Promote layers only while animating — less jank */
+body.touch-ui .cell.placing,
+body.touch-ui .cell[class*="clearing-"] {
+  backface-visibility: hidden;
+  -webkit-backface-visibility: hidden;
+  /* avoid permanent will-change — causes layer thrash / micro-stutters on mobile */
+  will-change: auto;
+}
+body.touch-ui .cell.placing {
+  /* Match PC placeSoft tempo */
+  animation-name: placeSoftMobile !important;
+  animation-duration: 0.32s !important;
+  animation-timing-function: cubic-bezier(0.33, 0.0, 0.2, 1) !important;
+  filter: none !important;
+}
+body.touch-ui #ghost {
+  -webkit-transform: translate3d(0,0,0);
+  backface-visibility: hidden;
+  -webkit-backface-visibility: hidden;
+  filter: none; /* filter on moving layer tanks high-Hz */
+  transition: opacity 0.15s ease !important;
+  will-change: transform;
+  contain: layout style;
+}
+body.touch-ui #ghost.cell-glide,
+body.touch-ui #ghost.no-glide {
+  transition: opacity 0.12s ease, transform 0s linear !important;
+}
+body.touch-ui.is-dragging #ghost {
+  filter: none !important;
+  will-change: transform;
+}
+/* High-refresh: isolate board layers, avoid whole-tree invalidation */
+body.touch-ui.is-dragging .board,
+body.touch-ui.is-dragging .board-wrap {
+  contain: layout style;
+  content-visibility: visible;
+}
+body.is-dragging #ghost {
+  will-change: transform;
+  filter: none !important;
+}
+body.touch-ui .cell.placing,
+body.touch-ui .cell[class*="clearing-"] {
+  -webkit-backface-visibility: hidden;
+  backface-visibility: hidden;
+}
+body.touch-ui .board,
+body.touch-ui .board-wrap {
+  contain: layout style;
+  transform: translateZ(0);
+  -webkit-transform: translateZ(0);
+}
+/* While dragging: kill scroll/bounce so aim tracks finger 1:1 */
+body.is-dragging,
+body.is-dragging #screenVersus,
+body.is-dragging #screenClassic {
+  overflow: hidden !important;
+  overscroll-behavior: none;
+  touch-action: none;
+  -webkit-user-select: none;
+  user-select: none;
+}
+body.is-dragging .piece-slot,
+body.is-dragging .board-wrap {
+  touch-action: none;
+}
+/* iOS Safari: prevent text-size adjust / tap highlight flash on cells */
+body.touch-ui .cell,
+body.touch-ui .piece-slot {
+  -webkit-tap-highlight-color: transparent;
+  -webkit-touch-callout: none;
+}
+@media (hover: none) and (pointer: coarse) {
+  .cell.placing {
+    animation-name: placeSoftMobile;
+    animation-duration: 0.32s;
+    animation-timing-function: cubic-bezier(0.33, 0.0, 0.2, 1);
+    animation-fill-mode: forwards;
+  }
+}
+
+
+/* ===== Status toast stack (AFK + disconnect can show together) ===== */
+.status-toast-stack {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  max-width: min(92vw, 360px);
+  margin: 6px auto 4px;
+  flex-shrink: 0;
+  pointer-events: none;
+  z-index: 6;
+  position: relative;
+}
+.status-toast-stack .status-toast {
+  width: 100%;
+  margin: 0;
+  opacity: 0;
+  transform: translateY(6px);
+  transition: opacity 0.22s ease, transform 0.22s ease;
+}
+.status-toast-stack .status-toast.show {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+/* Lobby host badge + ping */
+.lobby-host-badge {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 1px 7px;
+  border-radius: 999px;
+  font-size: 0.65rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #0b1a16;
+  background: linear-gradient(135deg, var(--accent), #5eead4);
+  vertical-align: middle;
+}
+.lobby-ping {
+  margin-left: 8px;
+  font-size: 0.72rem;
+  font-weight: 600;
+  opacity: 0.85;
+}
+.lobby-ping.good { color: #34d399; }
+.lobby-ping.mid { color: #fbbf24; }
+.lobby-ping.bad { color: #fb7185; }
+
+/* Deal-in cubes — short smooth pop */
+.piece-slot.deal-in {
+  transition:
+    opacity 0.28s cubic-bezier(0.22, 1, 0.36, 1),
+    transform 0.28s cubic-bezier(0.22, 1.15, 0.36, 1) !important;
+}
+
+/* Stronger match-end freeze */
+#matchEndFreeze {
+  transition: opacity 0.35s ease, visibility 0.35s ease;
+}
+#matchEndFreeze.show {
+  opacity: 1;
+  visibility: visible;
+}
+#matchEndFreeze .mef-core {
+  animation: mefCoreIn 0.45s cubic-bezier(0.22, 1.15, 0.36, 1) both;
+}
+#versusResult.visible {
+  animation: resultModalIn 0.4s cubic-bezier(0.22, 1.1, 0.36, 1) both;
+}
+@keyframes resultModalIn {
+  from { opacity: 0; transform: scale(0.94) translateY(12px); }
+  to   { opacity: 1; transform: scale(1) translateY(0); }
+}
+
+/* Random bot pick — more dramatic spin */
+.bot-pick-avatar.spin {
+  animation: botPickSpin 0.14s linear infinite !important;
+}
+.bot-pick-overlay.visible .bot-pick-card {
+  animation: botPickCardIn 0.3s cubic-bezier(0.22, 1.15, 0.36, 1) both;
+}
+@keyframes botPickCardIn {
+  from { opacity: 0; transform: scale(0.9) translateY(10px); }
+  to   { opacity: 1; transform: scale(1) translateY(0); }
+}
+
+.bot-card.pick-flash {
+  border-color: var(--accent2) !important;
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent2) 45%, transparent), 0 8px 24px rgba(124,92,255,0.25);
+  transform: scale(1.02);
+  transition: transform 0.12s ease, box-shadow 0.12s ease, border-color 0.12s ease;
+}
+
+
+/* Bot random reel polish */
+.bot-pick-avatar {
+  width: 96px; height: 96px;
+  margin: 8px auto 12px;
+  border-radius: 22px;
+  overflow: hidden;
+  box-shadow: 0 8px 28px rgba(0,0,0,0.35), 0 0 0 2px rgba(124,92,255,0.35);
+}
+.bot-pick-avatar.bot-pick-flash {
+  animation: botPickFlash 0.12s ease;
+}
+@keyframes botPickFlash {
+  from { transform: scale(0.86); filter: brightness(1.35); }
+  to   { transform: scale(1); filter: brightness(1); }
+}
+.bot-pick-name-spin {
+  letter-spacing: 0.02em;
+  opacity: 0.92;
+}
+.bot-pick-name-final {
+  animation: botPickNameFinal 0.45s cubic-bezier(0.22,1.2,0.36,1) both;
+  color: var(--accent);
+}
+@keyframes botPickNameFinal {
+  from { transform: scale(0.9); opacity: 0.5; }
+  to   { transform: scale(1); opacity: 1; }
+}
+.bot-pick-meta {
+  display: flex;
+  gap: 10px;
+  justify-content: center;
+  align-items: center;
+  flex-wrap: wrap;
+  margin-top: 6px;
+}
+.bot-pick-cups {
+  font-weight: 800;
+  color: var(--trophy);
+}
+.bot-pick-tier {
+  font-size: 0.78rem;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--accent2) 22%, transparent);
+  border: 1px solid color-mix(in srgb, var(--accent2) 40%, transparent);
+  color: #c4b5fd;
+}
+
+#mefScores {
+  display: flex;
+  gap: 10px;
+  justify-content: center;
+  align-items: baseline;
+  margin-top: 14px;
+  font-size: 1.6rem;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+}
+#mefScores .mef-sc.me { color: var(--accent); }
+#mefScores .mef-sc.opp { color: var(--accent2); }
+#mefScores .mef-colon { opacity: 0.5; }
+
+
+/* Bot pick — reel animation (not just hard swaps) */
+.bot-pick-card {
+  position: relative;
+  overflow: hidden;
+}
+.bot-pick-avatar {
+  transition: transform 0.18s cubic-bezier(0.22, 1.2, 0.36, 1), opacity 0.18s ease, filter 0.18s ease;
+}
+.bot-pick-avatar.spin {
+  animation: botPickSpinReel 0.35s cubic-bezier(0.22, 1, 0.36, 1);
+}
+@keyframes botPickSpinReel {
+  0%   { transform: translateY(18px) scale(0.88); opacity: 0.35; filter: blur(2px); }
+  55%  { transform: translateY(-4px) scale(1.04); opacity: 1; filter: blur(0); }
+  100% { transform: translateY(0) scale(1); opacity: 1; filter: blur(0); }
+}
+.bot-pick-name {
+  transition: transform 0.2s ease, opacity 0.2s ease;
+}
+.bot-pick-name.bot-pick-name-spin {
+  animation: botPickNameSlide 0.28s cubic-bezier(0.22, 1, 0.36, 1);
+}
+@keyframes botPickNameSlide {
+  0%   { transform: translateY(10px); opacity: 0.3; }
+  100% { transform: translateY(0); opacity: 1; }
+}
+.bot-pick-meta {
+  transition: opacity 0.2s ease;
+}
+
+
+/* Force interactive own hand during live versus */
+#screenVersus.active .pieces-area:not(.opp-pieces) .piece-slot.show:not(.used) {
+  pointer-events: auto !important;
+  touch-action: none;
+  cursor: grab;
+  filter: none !important;
+  opacity: 1 !important;
+}
+
+
+/* Live tray full brightness — never look "locked" during play */
+#screenVersus.active:not(.match-ending) .pieces-area:not(.opp-pieces),
+body:not(.match-ending):not(.rejoin-loading) #screenVersus.active .pieces-area:not(.opp-pieces) {
+  opacity: 1 !important;
+  filter: none !important;
+}
+body:not(.match-ending):not(.rejoin-loading) #screenVersus.active .pieces-area:not(.opp-pieces) .piece-slot.show:not(.used) {
+  opacity: 1 !important;
+  filter: none !important;
+  pointer-events: auto !important;
+}
+
+
+/* AFK toast: stable label, only seconds change — no blink */
+.status-toast-stack .status-toast.show {
+  opacity: 1 !important;
+  transform: none !important;
+  transition: none;
+}
+.status-toast .st-label,
+.status-toast .st-sec {
+  display: inline;
+}
+
+/* ===== Versus result modal — compact & contained ===== */
+#versusResult {
+  padding: max(12px, env(safe-area-inset-top)) max(12px, env(safe-area-inset-right))
+           max(12px, env(safe-area-inset-bottom)) max(12px, env(safe-area-inset-left));
+  overflow-x: hidden;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  box-sizing: border-box;
+}
+#versusResult .modal {
+  max-width: min(300px, calc(100vw - 32px));
+  width: 100%;
+  padding: 18px 16px 14px;
+  border-radius: 16px;
+  box-sizing: border-box;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0;
+}
+#versusResult .modal h2,
+#versusResult #vsTitle {
+  font-size: 1.2rem;
+  margin: 0 0 6px;
+  line-height: 1.2;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+#versusResult .vs-result {
+  display: flex;
+  justify-content: space-around;
+  width: 100%;
+  margin: 6px 0 10px;
+  font-size: 0.85rem;
+  gap: 8px;
+  box-sizing: border-box;
+}
+#versusResult .vs-result .side {
+  text-align: center;
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+}
+#versusResult .vs-result .side > div:first-child {
+  font-size: 0.78rem;
+  color: var(--text-dim);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 100%;
+}
+#versusResult .vs-result .side .s {
+  font-size: 1.35rem;
+  font-weight: 800;
+  line-height: 1.15;
+  margin-top: 2px;
+}
+#versusResult .trophy-delta,
+#versusResult #vsTrophyDelta {
+  font-size: 1.1rem;
+  font-weight: 700;
+  margin: 0 0 8px;
+  line-height: 1.2;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+#versusResult #vsTimeLeftInfo {
+  font-size: 0.75rem !important;
+  color: var(--text-dim);
+  margin: 0 0 10px !important;
+  line-height: 1.3;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+#versusResult .modal > button {
+  width: 100%;
+  margin: 0 0 6px !important;
+  padding: 10px 12px;
+  font-size: 0.9rem;
+  border-radius: 12px;
+  box-sizing: border-box;
+  max-width: 100%;
+}
+#versusResult .modal > button:last-child {
+  margin-bottom: 0 !important;
+}
+/* Tame entrance animations so content stays inside the card */
+#versusResult.visible .modal {
+  animation: vsResultModalIn 0.4s cubic-bezier(0.22, 1.1, 0.36, 1) both;
+}
+#versusResult.visible #vsTitle {
+  animation: vsTitlePop 0.45s cubic-bezier(0.22, 1.15, 0.36, 1) 0.05s both;
+}
+#versusResult.visible .vs-result,
+#versusResult.visible .trophy-delta,
+#versusResult.visible #vsTrophyDelta,
+#versusResult.visible .modal > button {
+  animation: none;
+  opacity: 1;
+  transform: none;
+  filter: none;
+}
+
+
+/* MOBILE FIELD PERF — keep DYNAMIC look, ban only expensive filter/blend paths */
+/* filter:brightness on whole board = progressive lag; transform/opacity stay OK */
+body.touch-ui .board-wrap.board-fx-solar,
+body.touch-ui .board-wrap.board-fx-nebula,
+body.touch-ui .board-wrap.board-fx-quantum,
+body.touch-ui .board-wrap.board-fx-abyss,
+body.touch-ui .board-wrap.board-fx-prismfield,
+body.touch-ui .board-wrap.board-fx-magma,
+body.touch-ui .board-wrap.board-fx-pulse {
+  /* soft glow pulse via box-shadow only — no filter */
+  animation: fieldMobileAura 3.2s ease-in-out infinite !important;
+  filter: none !important;
+  will-change: auto !important;
+}
+@keyframes fieldMobileAura {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.96; }
+}
+/* Solar rays: keep spinning, but cheaper (no mix-blend, lower opacity, contain) */
+body.touch-ui .board-wrap.board-fx-solar::before {
+  animation: fieldBorderSpin 12s linear infinite !important;
+  mix-blend-mode: normal !important;
+  opacity: 0.55 !important;
+  will-change: transform !important;
+  contain: strict;
+}
+body.touch-ui .board-wrap.board-fx-solar::after {
+  animation: fieldSolarRays 28s linear infinite !important;
+  mix-blend-mode: normal !important;
+  opacity: 0.28 !important;
+  will-change: transform !important;
+  contain: strict;
+}
+/* Other legend ::before/::after — gentle opacity pulse, no filter */
+body.touch-ui .board-wrap.board-fx-nebula::before,
+body.touch-ui .board-wrap.board-fx-nebula::after,
+body.touch-ui .board-wrap.board-fx-quantum::before,
+body.touch-ui .board-wrap.board-fx-quantum::after,
+body.touch-ui .board-wrap.board-fx-abyss::before,
+body.touch-ui .board-wrap.board-fx-abyss::after,
+body.touch-ui .board-wrap.board-fx-prismfield::before,
+body.touch-ui .board-wrap.board-fx-prismfield::after,
+body.touch-ui .board-wrap.board-fx-magma::before,
+body.touch-ui .board-wrap.board-fx-magma::after,
+body.touch-ui .board-wrap.board-fx-pulse::before,
+body.touch-ui .board-wrap.board-fx-pulse::after {
+  animation: fieldMobilePseudoPulse 4s ease-in-out infinite !important;
+  mix-blend-mode: normal !important;
+  filter: none !important;
+  will-change: opacity !important;
+}
+@keyframes fieldMobilePseudoPulse {
+  0%, 100% { opacity: 0.4; }
+  50% { opacity: 0.7; }
+}
+/* Inner board: no filter heat shimmer (main Solar lag source) */
+body.touch-ui .board-wrap.board-fx-solar .board,
+body.touch-ui .board-wrap.board-fx-nebula .board,
+body.touch-ui .board-wrap.board-fx-quantum .board,
+body.touch-ui .board-wrap.board-fx-abyss .board {
+  animation: none !important;
+  filter: none !important;
+  will-change: auto !important;
+}
+body.touch-ui .board-wrap.board-fx-solar .cell:not(.filled),
+body.touch-ui .board-wrap.board-fx-nebula .cell:not(.filled),
+body.touch-ui .board-wrap.board-fx-quantum .cell:not(.filled),
+body.touch-ui .board-wrap.board-fx-magma .cell:not(.filled),
+body.touch-ui .board-wrap.board-fx-pulse .cell:not(.filled) {
+  animation: none !important;
+  filter: none !important;
+}
+body.touch-ui .board-wrap.board-fx-solar {
+  box-shadow:
+    0 0 0 2px rgba(255, 192, 64, 0.4),
+    0 0 32px rgba(255, 160, 40, 0.28),
+    0 12px 32px rgba(0,0,0,0.45) !important;
+}
+/* After leaving a heavy field — force layers to drop */
+body.touch-ui .board-wrap:not(.board-fx-solar):not(.board-fx-nebula):not(.board-fx-quantum):not(.board-fx-abyss):not(.board-fx-prismfield) {
+  will-change: auto !important;
+  filter: none !important;
+}
+body.touch-ui .board-wrap:not(.board-fx-solar)::before,
+body.touch-ui .board-wrap:not(.board-fx-solar)::after {
+  will-change: auto !important;
+}
+
+/* —— Friend mini profile —— */
+#friendMiniProfileModal .friend-mini-profile {
+  text-align: center;
+  max-width: 320px;
+  position: relative;
+  padding-top: 28px;
+}
+.friend-mini-close {
+  position: absolute;
+  top: 8px;
+  right: 10px;
+  border: none;
+  background: transparent;
+  color: var(--text-dim, #999);
+  font-size: 1.5rem;
+  line-height: 1;
+  cursor: pointer;
+  padding: 4px 8px;
+}
+.friend-mini-av {
+  width: 88px;
+  height: 88px;
+  border-radius: 50%;
+  margin: 0 auto 12px;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--surface2, #1a1a24);
+  font-weight: 800;
+  font-size: 1.4rem;
+}
+.friend-mini-name {
+  margin: 0 0 4px;
+  font-size: 1.25rem;
+  font-weight: 800;
+}
+.friend-mini-code {
+  font-size: 0.8rem;
+  opacity: 0.65;
+  letter-spacing: 0.06em;
+  margin-bottom: 16px;
+}
+.friend-mini-stats {
+  display: flex;
+  gap: 12px;
+  justify-content: center;
+  margin-bottom: 10px;
+}
+.friend-mini-stat {
+  flex: 1;
+  background: var(--surface2, #1a1a24);
+  border-radius: 12px;
+  padding: 12px 8px;
+  min-width: 0;
+}
+.friend-mini-stat-val {
+  font-size: 1.35rem;
+  font-weight: 800;
+  line-height: 1.2;
+}
+.friend-mini-stat-label {
+  font-size: 0.72rem;
+  opacity: 0.65;
+  margin-top: 4px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.friend-mini-status {
+  font-size: 0.85rem;
+  opacity: 0.8;
+  min-height: 1.2em;
+}
+#screenFriends .friend-card .f-av {
+  cursor: pointer;
+}
+
+.friend-mini-bio,
+.friend-mini-code.friend-mini-status-text {
+  font-size: 0.88rem;
+  opacity: 0.85;
+  font-weight: 600;
+  letter-spacing: normal;
+  text-transform: none;
+  margin-bottom: 14px;
+  color: var(--accent, #00d4aa);
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding: 0 8px;
+}

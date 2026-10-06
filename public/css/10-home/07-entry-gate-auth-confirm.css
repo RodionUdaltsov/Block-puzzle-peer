@@ -1,0 +1,418 @@
+/* css/10-home/07-entry-gate-auth-confirm.css — Entry gate, account-delete/confirm modals, auth fields. */
+/* Scrollable lists without visible scrollbar */
+.hide-scrollbar,
+.nick-search-results {
+  scrollbar-width: none; /* Firefox */
+  -ms-overflow-style: none; /* IE/Edge legacy */
+}
+.hide-scrollbar::-webkit-scrollbar,
+.nick-search-results::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+  display: none;
+}
+.friend-find-nick-btn {
+  width: 100%;
+  margin-top: 8px;
+}
+
+/* Friend-request toast actions must stay clickable above swipe layer */
+.fr-toast .fr-toast-actions,
+.fr-toast .fr-toast-actions button,
+.fr-toast .fr-toast-dismiss {
+  pointer-events: auto !important;
+  position: relative;
+  z-index: 2;
+}
+
+/* Account delete / generic confirm */
+.danger-modal .auth-modal-card h2 { color: #ff7a8a; }
+.danger-modal-lead {
+  font-size: 0.86rem;
+  font-weight: 600;
+  color: var(--text-dim, #a8b0c0);
+  line-height: 1.45;
+  margin: 0 0 12px;
+}
+.danger-btn {
+  background: linear-gradient(180deg, #ff5a6e, #d63a50) !important;
+  border-color: rgba(255, 90, 110, 0.55) !important;
+  color: #fff !important;
+  font-weight: 800;
+}
+.danger-btn:active { filter: brightness(0.92); }
+#bpConfirmModal .auth-modal-card h2 { font-size: 1.15rem; }
+
+/* —— Entry gate (full-screen welcome, no game behind) —— */
+.entry-gate {
+  position: fixed;
+  inset: 0;
+  z-index: 100000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  background: #050c0a;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.45s ease;
+}
+.entry-gate.visible {
+  opacity: 1;
+  pointer-events: auto;
+}
+.entry-gate-bg {
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(ellipse 70% 55% at 50% 20%, rgba(0, 212, 170, 0.18), transparent 60%),
+    radial-gradient(ellipse 50% 40% at 80% 80%, rgba(100, 80, 255, 0.1), transparent 55%),
+    radial-gradient(ellipse 40% 30% at 15% 70%, rgba(0, 180, 220, 0.08), transparent 50%),
+    linear-gradient(165deg, #061410 0%, #050c0a 50%, #0a1210 100%);
+  pointer-events: none;
+}
+.entry-gate-card {
+  position: relative;
+  z-index: 1;
+  width: 100%;
+  max-width: 380px;
+  padding: 28px 24px 24px;
+  border-radius: 22px;
+  background: linear-gradient(165deg, rgba(22, 42, 38, 0.98), rgba(10, 20, 18, 0.98));
+  border: 1px solid rgba(0, 212, 170, 0.22);
+  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.55);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  transform: translateY(28px) scale(0.96);
+  opacity: 0;
+  transition: transform 0.55s cubic-bezier(0.22, 1, 0.36, 1), opacity 0.45s ease;
+}
+.entry-gate-close {
+  position: absolute;
+  top: 10px;
+  right: 12px;
+  z-index: 2;
+  width: 36px;
+  height: 36px;
+  border: none;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.06);
+  color: #c8e8dc;
+  font-size: 1.35rem;
+  line-height: 1;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0.85;
+  transition: background 0.15s ease, opacity 0.15s ease;
+}
+.entry-gate-close:hover {
+  background: rgba(255, 255, 255, 0.12);
+  opacity: 1;
+}
+.entry-gate-close[hidden] {
+  display: none !important;
+}
+
+/* While auth JS boots: solid cover, no incomplete gate flash */
+html.entry-gate-booting body {
+  overflow: hidden !important;
+}
+html.entry-gate-booting body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: 100040;
+  background: #050c0a;
+  pointer-events: all;
+}
+html.entry-gate-booting #entryGate {
+  visibility: hidden !important;
+  opacity: 0 !important;
+  pointer-events: none !important;
+}
+/* Reserve space for optional register fields — less jump when switching tabs */
+#entryAuthNickField,
+#entryAuthPasswordConfirmField {
+  min-height: 0;
+  transition: opacity 0.18s ease, max-height 0.22s ease;
+  overflow: hidden;
+}
+#entryAuthNickField[hidden],
+#entryAuthPasswordConfirmField[hidden] {
+  display: block !important;
+  visibility: hidden;
+  opacity: 0;
+  max-height: 0 !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  min-height: 0 !important;
+  pointer-events: none;
+  border: none !important;
+}
+#entryAuthNickField:not([hidden]),
+#entryAuthPasswordConfirmField:not([hidden]) {
+  opacity: 1;
+  max-height: 120px;
+}
+
+.entry-gate.visible .entry-gate-card {
+  transform: translateY(0) scale(1);
+  opacity: 1;
+}
+.entry-gate-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  animation: entryPanelIn 0.4s cubic-bezier(0.22, 1, 0.36, 1);
+}
+@keyframes entryPanelIn {
+  from { opacity: 0; transform: translateX(16px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+.entry-gate-panel-choice.leaving {
+  animation: entryPanelOut 0.28s ease forwards;
+}
+@keyframes entryPanelOut {
+  to { opacity: 0; transform: translateX(-14px); }
+}
+.entry-gate-logo {
+  font-weight: 900;
+  font-size: 0.78rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--accent, #00d4aa);
+  opacity: 0.9;
+  text-align: center;
+}
+.entry-gate-card h2 {
+  margin: 0;
+  font-size: 1.35rem;
+  font-weight: 800;
+  text-align: center;
+  color: var(--text, #e8fff8);
+}
+.entry-gate-lead {
+  margin: 0 0 6px;
+  font-size: 0.84rem;
+  line-height: 1.4;
+  color: var(--text-dim, #a8b0c0);
+  text-align: center;
+}
+.entry-gate-btn {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  min-height: 56px;
+  padding: 12px 14px;
+  text-align: left;
+  border-radius: 14px;
+}
+.entry-gate-btn-ico {
+  font-size: 1.4rem;
+  flex-shrink: 0;
+  width: 36px;
+  text-align: center;
+}
+.entry-gate-btn-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.entry-gate-btn-text strong {
+  font-size: 0.95rem;
+  font-weight: 800;
+}
+.entry-gate-btn-text small {
+  font-size: 0.72rem;
+  opacity: 0.7;
+  font-weight: 600;
+}
+.entry-gate-warn {
+  margin-top: 4px;
+  padding: 12px 14px;
+  border-radius: 12px;
+  background: rgba(255, 179, 71, 0.1);
+  border: 1px solid rgba(255, 179, 71, 0.35);
+  animation: entryPanelIn 0.35s ease;
+}
+.entry-gate-warn p {
+  margin: 0 0 12px;
+  font-size: 0.8rem;
+  line-height: 1.45;
+  color: var(--text, #e8fff8);
+}
+.entry-gate-warn-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.entry-gate-warn-actions .primary,
+.entry-gate-warn-actions .ghost {
+  width: 100%;
+  min-height: 40px;
+}
+.entry-gate-back {
+  align-self: flex-start;
+  background: transparent;
+  border: none;
+  color: var(--accent, #00d4aa);
+  font-weight: 700;
+  font-size: 0.85rem;
+  padding: 4px 0;
+  cursor: pointer;
+  font-family: inherit;
+}
+.entry-gate-back:hover { opacity: 0.85; }
+.entry-gate-tabs {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 4px;
+}
+.entry-gate-panel-auth .profile-field {
+  margin-bottom: 8px;
+}
+body.entry-gate-open {
+  overflow: hidden;
+}
+body.entry-gate-open #bootLoader,
+body.entry-gate-open .screen,
+body.entry-gate-open .home-root,
+body.entry-gate-open #screenMenu {
+  visibility: hidden !important;
+  pointer-events: none !important;
+}
+
+html.entry-gate-pending body,
+html.entry-gate-pending .screen {
+  /* prevent game flash before gate */
+}
+html.entry-gate-pending body {
+  background: #050c0a !important;
+}
+
+.entry-gate-guest-block {
+  margin: 2px 0 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  flex-shrink: 0;
+}
+.entry-gate-guest-block[hidden] {
+  display: none !important;
+}
+.entry-gate-or {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 4px 0 2px;
+  color: var(--text-dim, #a8b0c0);
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  opacity: 0.75;
+}
+.entry-gate-or::before,
+.entry-gate-or::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: rgba(255,255,255,0.12);
+}
+.entry-gate-tabs {
+  display: flex;
+  gap: 6px;
+  margin: 4px 0 8px;
+}
+.entry-gate-tabs .auth-tab {
+  flex: 1;
+  min-height: 38px;
+}
+
+/* Never show legacy auth modal while entry gate is open */
+body.entry-gate-open #authModal,
+html.entry-gate-pending #authModal {
+  display: none !important;
+  visibility: hidden !important;
+  pointer-events: none !important;
+  opacity: 0 !important;
+  z-index: -1 !important;
+}
+
+
+    /* Avatar photo loading shimmer (home + profile) */
+    .home-profile-av.av-loading,
+    .profile-av-big.av-loading,
+    .profile-av-opt.av-loading {
+      position: relative;
+    }
+    .home-profile-av.av-loading::after,
+    .profile-av-big.av-loading::after {
+      content: '';
+      position: absolute;
+      inset: 0;
+      border-radius: inherit;
+      background: linear-gradient(110deg,
+        rgba(255,255,255,0.04) 25%,
+        rgba(255,255,255,0.14) 37%,
+        rgba(255,255,255,0.04) 63%);
+      background-size: 200% 100%;
+      animation: avShimmer 1.1s ease-in-out infinite;
+      pointer-events: none;
+      z-index: 2;
+    }
+    @keyframes avShimmer {
+      0% { background-position: 100% 0; }
+      100% { background-position: -100% 0; }
+    }
+    .home-profile-av img,
+    .profile-av-big img {
+      width: 100%; height: 100%;
+      object-fit: cover;
+      display: block;
+      border-radius: inherit;
+    }
+    .profile-av-opt.custom-upload.has-photo {
+      padding: 0;
+      overflow: hidden;
+      background: var(--surface2, #1a1f2e) !important;
+    }
+    .profile-av-opt.custom-upload.has-photo img {
+      width: 100%; height: 100%;
+      object-fit: cover;
+      display: block;
+      opacity: 0;
+      transition: opacity 0.2s ease;
+    }
+    .profile-av-opt.custom-upload.has-photo.photo-ready img {
+      opacity: 1;
+    }
+    .profile-av-loading {
+      grid-column: 1 / -1;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 10px;
+      min-height: 88px;
+      color: var(--muted, #9aa3b5);
+      font-size: 0.85rem;
+      font-weight: 600;
+    }
+    .profile-av-spinner {
+      width: 18px; height: 18px;
+      border-radius: 50%;
+      border: 2px solid rgba(255,255,255,0.15);
+      border-top-color: var(--accent, #6c8cff);
+      animation: avSpin 0.7s linear infinite;
+    }
+    @keyframes avSpin { to { transform: rotate(360deg); } }
+    #profileAvatarGrid.is-loading {
+      opacity: 0.92;
+    }
+
+

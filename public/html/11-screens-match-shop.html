@@ -1,0 +1,50 @@
+  <div class="screen" id="screenMatch" role="region" aria-label="Матч" data-i18n-aria="match.searching">
+    <div class="mm-box" id="mmBox">
+      <div class="mm-arena" aria-hidden="true">
+        <div class="mm-radar"></div>
+        <div class="mm-ring"></div>
+        <div class="mm-ring r2"></div>
+        <div class="mm-ring r3"></div>
+        <div class="mm-orbit">
+          <span class="mm-block b1"></span>
+          <span class="mm-block b2"></span>
+          <span class="mm-block b4"></span>
+        </div>
+        <div class="mm-orbit rev">
+          <span class="mm-block b3"></span>
+          <span class="mm-block b5"></span>
+        </div>
+        <div class="mm-core">⚔️</div>
+      </div>
+      <div class="mm-status-main" id="mmStatus" data-i18n="match.searching" aria-live="polite">Ищем соперника...</div>
+      <div class="mm-dots" id="mmDots" aria-hidden="true"><span></span><span></span><span></span></div>
+      <div class="mm-name" id="mmName">—</div>
+      <div class="mm-hint-card" id="mmHint">
+        <span data-i18n="match.searchHint">Поиск игроков с рейтингом ±100 от вашего</span>
+      </div>
+      <div class="controls" style="margin-top:20px">
+        <button class="ghost" id="btnCancelSearch" data-i18n="match.cancelSearch">Отмена</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="screen" id="screenShop" role="region" aria-label="Магазин" data-i18n-aria="shop.title">
+    <div class="screen-chrome shop-top">
+      <button type="button" class="ghost screen-back" id="btnShopBack" data-i18n="common.back">← Назад</button>
+      <h1 data-i18n="shop.title">Магазин</h1>
+      <div class="shop-balance">💎 <span id="shopDiamonds">0</span></div>
+    </div>
+    <p class="screen-hint" data-i18n="shop.hint">Покупай уникальное оформление за алмазы!</p>
+    <div class="shop-grid screen-scroll" id="shopGrid"></div>
+  </div>
+
+  <div class="screen" id="screenInventory" role="region" aria-label="Инвентарь" data-i18n-aria="inv.title">
+    <div class="screen-chrome inv-top">
+      <button type="button" class="ghost screen-back" id="btnInvBack" data-i18n="common.back">← Назад</button>
+      <h1 data-i18n="inv.title">Инвентарь</h1>
+      <div class="inv-count-pill" id="invCountPill">0</div>
+    </div>
+    <p class="screen-hint" data-i18n="inv.hint">Выбери оформление и надень одним тапом</p>
+    <div class="inv-grid screen-scroll" id="invGrid"></div>
+  </div>
+

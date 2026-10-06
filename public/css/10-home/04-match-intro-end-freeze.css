@@ -1,0 +1,310 @@
+/* css/10-home/04-match-intro-end-freeze.css — Match intro and match-end freeze overlays. */
+/* ===== MATCH INTRO OVERLAY ===== */
+    #matchIntro {
+      position: fixed;
+      inset: 0;
+      z-index: 9000;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      flex-direction: column;
+      background: rgba(8,10,14,0.82);
+      backdrop-filter: blur(10px);
+      -webkit-backdrop-filter: blur(10px);
+      pointer-events: auto;
+    }
+    #matchIntro.visible { display: flex; }
+    #matchIntro .mi-ring {
+      position: absolute;
+      width: min(280px, 70vw);
+      height: min(280px, 70vw);
+      border-radius: 50%;
+      border: 2px solid transparent;
+      border-top-color: rgba(0,212,170,0.55);
+      border-right-color: rgba(124,92,255,0.35);
+      animation: miSpin 1.6s linear infinite;
+      opacity: 0.7;
+    }
+    #matchIntro .mi-ring.r2 {
+      width: min(220px, 55vw);
+      height: min(220px, 55vw);
+      border-top-color: rgba(124,92,255,0.5);
+      animation-direction: reverse;
+      animation-duration: 2.2s;
+    }
+    @keyframes miSpin { to { transform: rotate(360deg); } }
+    #matchIntro .mi-core {
+      position: relative;
+      z-index: 2;
+      text-align: center;
+      padding: 20px;
+    }
+    #matchIntro .mi-label {
+      font-size: 0.75rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.14em;
+      color: rgba(232,234,237,0.55);
+      margin-bottom: 10px;
+      animation: miRise 0.45s ease both;
+    }
+    #matchIntro .mi-title {
+      font-size: clamp(1.6rem, 7vw, 2.4rem);
+      font-weight: 800;
+      letter-spacing: -0.03em;
+      background: linear-gradient(135deg, #fff, var(--accent, #00d4aa) 60%, var(--accent2, #7c5cff));
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+      margin-bottom: 8px;
+      animation: miRise 0.5s 0.08s cubic-bezier(0.22,1.1,0.36,1) both;
+      filter: drop-shadow(0 0 20px rgba(0,212,170,0.3));
+    }
+    #matchIntro .mi-sub {
+      font-size: 0.95rem;
+      color: rgba(232,234,237,0.75);
+      font-weight: 600;
+      animation: miRise 0.5s 0.16s ease both;
+      min-height: 1.3em;
+    }
+    #matchIntro .mi-blocks {
+      display: flex;
+      gap: 8px;
+      justify-content: center;
+      margin-top: 22px;
+      animation: miRise 0.5s 0.22s ease both;
+    }
+    #matchIntro .mi-blocks span {
+      width: 12px; height: 12px;
+      border-radius: 3px;
+      animation: miBlock 0.9s ease-in-out infinite;
+    }
+    #matchIntro .mi-blocks span:nth-child(1) { background: #00d4aa; animation-delay: 0s; }
+    #matchIntro .mi-blocks span:nth-child(2) { background: #7c5cff; animation-delay: 0.12s; }
+    #matchIntro .mi-blocks span:nth-child(3) { background: #ffd666; animation-delay: 0.24s; }
+    #matchIntro .mi-blocks span:nth-child(4) { background: #5ee7ff; animation-delay: 0.36s; }
+    #matchIntro .mi-blocks span:nth-child(5) { background: #ff5c7a; animation-delay: 0.48s; }
+    @keyframes miRise {
+      from { opacity: 0; transform: translateY(14px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+    @keyframes miBlock {
+      0%, 100% { transform: translateY(0) scale(1); opacity: 0.5; }
+      50% { transform: translateY(-8px) scale(1.15); opacity: 1; box-shadow: 0 0 10px currentColor; }
+    }
+    #matchIntro.mi-go .mi-title {
+      animation: miGoPulse 0.9s cubic-bezier(0.22,1.1,0.36,1) both;
+    }
+    #matchIntro.mi-go .mi-label {
+      opacity: 0.35;
+    }
+    #matchIntro.mi-go .mi-blocks span {
+      animation: miBlockGo 0.7s ease both;
+    }
+    @keyframes miGoPulse {
+      0% { transform: scale(0.92); filter: drop-shadow(0 0 12px rgba(0,212,170,0.25)); }
+      35% { transform: scale(1.16); filter: drop-shadow(0 0 36px rgba(0,212,170,0.65)); }
+      70% { transform: scale(1.05); filter: drop-shadow(0 0 28px rgba(0,212,170,0.5)); }
+      100% { transform: scale(1.08); filter: drop-shadow(0 0 32px rgba(0,212,170,0.55)); }
+    }
+    @keyframes miBlockGo {
+      0% { transform: scale(1); }
+      50% { transform: scale(1.25) translateY(-4px); }
+      100% { transform: scale(1.1); opacity: 1; }
+    }
+
+    /* —— Match end freeze: clear "Матч окончен" card + score count —— */
+    #matchEndFreeze {
+      position: fixed;
+      inset: 0;
+      z-index: 9050;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      flex-direction: column;
+      background: rgba(6, 8, 14, 0.55);
+      pointer-events: auto;
+      opacity: 0;
+      transition: opacity 0.4s ease;
+      backdrop-filter: blur(6px);
+      -webkit-backdrop-filter: blur(6px);
+    }
+    #matchEndFreeze.visible {
+      display: flex;
+      opacity: 1;
+    }
+    #matchEndFreeze .mef-flash {
+      position: absolute;
+      inset: 0;
+      background:
+        radial-gradient(ellipse 80% 60% at 50% 40%, rgba(0, 212, 170, 0.12), transparent 70%),
+        radial-gradient(ellipse 60% 50% at 50% 60%, rgba(124, 92, 255, 0.1), transparent 70%);
+      animation: mefWashIn 0.55s ease both;
+      pointer-events: none;
+    }
+    #matchEndFreeze.mef-time .mef-flash {
+      background:
+        radial-gradient(ellipse 90% 70% at 50% 42%, rgba(8, 10, 16, 0.3), transparent 72%),
+        radial-gradient(ellipse 55% 40% at 50% 50%, rgba(255, 214, 102, 0.14), transparent 65%),
+        linear-gradient(180deg, rgba(8, 10, 14, 0.35) 0%, rgba(8, 10, 14, 0.12) 40%, rgba(8, 10, 14, 0.48) 100%);
+    }
+    #matchEndFreeze.mef-lose .mef-flash {
+      background:
+        radial-gradient(ellipse 90% 70% at 50% 42%, rgba(8, 10, 16, 0.32), transparent 72%),
+        radial-gradient(ellipse 55% 40% at 50% 50%, rgba(255, 92, 122, 0.12), transparent 65%),
+        linear-gradient(180deg, rgba(8, 10, 14, 0.35) 0%, rgba(8, 10, 14, 0.15) 40%, rgba(8, 10, 14, 0.5) 100%);
+    }
+    #matchEndFreeze.mef-win .mef-flash {
+      background:
+        radial-gradient(ellipse 90% 70% at 50% 42%, rgba(8, 10, 16, 0.25), transparent 72%),
+        radial-gradient(ellipse 60% 45% at 50% 48%, rgba(0, 212, 170, 0.16), transparent 65%),
+        linear-gradient(180deg, rgba(8, 10, 14, 0.3) 0%, rgba(8, 10, 14, 0.1) 40%, rgba(8, 10, 14, 0.42) 100%);
+    }
+    @keyframes mefWashIn {
+      from { opacity: 0; }
+      to { opacity: 1; }
+    }
+    /* Free-floating typography — no border / no box */
+    #matchEndFreeze .mef-core {
+      position: relative;
+      z-index: 2;
+      text-align: center;
+      padding: 28px 28px 24px;
+      max-width: min(94vw, 380px);
+      width: 100%;
+      background: linear-gradient(165deg, rgba(28, 32, 48, 0.96), rgba(14, 16, 26, 0.96));
+      border: 1px solid rgba(124, 92, 255, 0.35);
+      border-radius: 22px;
+      box-shadow:
+        0 24px 64px rgba(0, 0, 0, 0.55),
+        0 0 40px rgba(0, 212, 170, 0.12),
+        inset 0 1px 0 rgba(255, 255, 255, 0.06);
+      animation: mefCoreIn 0.55s cubic-bezier(0.16, 1, 0.3, 1) both;
+    }
+    @keyframes mefCoreIn {
+      from { opacity: 0; transform: translateY(22px) scale(0.96); filter: blur(8px); }
+      to { opacity: 1; transform: translateY(0) scale(1); filter: blur(0); }
+    }
+    #matchEndFreeze .mef-label {
+      font-size: 0.7rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.22em;
+      color: rgba(232, 234, 237, 0.55);
+      margin-bottom: 12px;
+      animation: mefRise 0.55s 0.08s ease both;
+      text-shadow: 0 2px 16px rgba(0, 0, 0, 0.55);
+    }
+    #matchEndFreeze .mef-title {
+      font-size: clamp(2.1rem, 9vw, 3.2rem);
+      font-weight: 800;
+      letter-spacing: -0.04em;
+      line-height: 1.05;
+      margin-bottom: 10px;
+      background: linear-gradient(135deg, #ffffff 8%, var(--accent, #00d4aa) 48%, var(--accent2, #7c5cff) 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+      animation: mefTitleIn 0.85s 0.12s cubic-bezier(0.16, 1, 0.3, 1) both;
+      filter: drop-shadow(0 4px 28px rgba(0, 212, 170, 0.35));
+    }
+    #matchEndFreeze.mef-time .mef-title {
+      background: linear-gradient(135deg, #ffffff 5%, #ffe08a 45%, #ff9f43 100%);
+      -webkit-background-clip: text;
+      background-clip: text;
+      -webkit-text-fill-color: transparent;
+      filter: drop-shadow(0 4px 28px rgba(255, 214, 102, 0.4));
+    }
+    #matchEndFreeze.mef-lose .mef-title {
+      background: linear-gradient(135deg, #ffffff 10%, #ffb0bc 50%, #ff5c7a 100%);
+      -webkit-background-clip: text;
+      background-clip: text;
+      -webkit-text-fill-color: transparent;
+      filter: drop-shadow(0 4px 24px rgba(255, 92, 122, 0.35));
+    }
+    #matchEndFreeze.mef-win .mef-title {
+      filter: drop-shadow(0 4px 32px rgba(0, 212, 170, 0.45));
+    }
+    @keyframes mefTitleIn {
+      0% { opacity: 0; transform: scale(0.82) translateY(18px); letter-spacing: 0.06em; }
+      60% { opacity: 1; transform: scale(1.04) translateY(0); }
+      100% { opacity: 1; transform: scale(1) translateY(0); letter-spacing: -0.04em; }
+    }
+    #matchEndFreeze .mef-sub {
+      font-size: 1rem;
+      color: rgba(232, 234, 237, 0.82);
+      font-weight: 600;
+      min-height: 1.25em;
+      animation: mefRise 0.55s 0.28s ease both;
+      text-shadow: 0 2px 14px rgba(0, 0, 0, 0.5);
+    }
+    #matchEndFreeze .mef-scores {
+      margin-top: 22px;
+      display: flex;
+      align-items: baseline;
+      justify-content: center;
+      gap: 14px;
+      font-variant-numeric: tabular-nums;
+      animation: mefRise 0.55s 0.38s ease both;
+    }
+    #matchEndFreeze .mef-scores .mef-sc {
+      font-size: clamp(1.5rem, 5vw, 2rem);
+      font-weight: 800;
+      min-width: 1.6em;
+      padding: 0;
+      border-radius: 0;
+      background: none;
+      border: none;
+      text-shadow: 0 2px 18px rgba(0, 0, 0, 0.45);
+    }
+    #matchEndFreeze .mef-scores .mef-sc.me { color: var(--accent); }
+    #matchEndFreeze .mef-scores .mef-sc.opp { color: var(--accent2); }
+    #matchEndFreeze .mef-scores .mef-colon {
+      font-size: 1.25rem;
+      font-weight: 600;
+      color: rgba(232, 234, 237, 0.4);
+    }
+    #matchEndFreeze .mef-bars {
+      display: flex;
+      gap: 7px;
+      justify-content: center;
+      margin-top: 26px;
+      animation: mefRise 0.5s 0.48s ease both;
+      opacity: 0.7;
+    }
+    #matchEndFreeze .mef-bars span {
+      width: 8px; height: 8px;
+      border-radius: 50%;
+      background: var(--accent);
+      animation: mefBar 1.1s ease-in-out infinite;
+      opacity: 0.5;
+    }
+    #matchEndFreeze .mef-bars span:nth-child(2) { background: var(--accent2); animation-delay: 0.15s; }
+    #matchEndFreeze .mef-bars span:nth-child(3) { background: #ffd666; animation-delay: 0.3s; }
+    @keyframes mefRise {
+      from { opacity: 0; transform: translateY(14px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+    @keyframes mefBar {
+      0%, 100% { transform: translateY(0) scale(1); opacity: 0.35; }
+      50% { transform: translateY(-5px) scale(1.15); opacity: 1; box-shadow: 0 0 12px currentColor; }
+    }
+    #matchEndFreeze.mef-out {
+      opacity: 0;
+      transition: opacity 0.4s ease;
+    }
+    body.match-ending #screenVersus {
+      pointer-events: none;
+    }
+    body.match-ending #screenVersus .board-wrap {
+      filter: saturate(0.88) brightness(0.9);
+      transition: filter 0.55s ease;
+    }
+    body.match-ending #btnForfeit,
+    body.match-ending #vsLiveControls,
+    body.match-ending .pieces-area {
+      pointer-events: none !important;
+      opacity: 0.4;
+      transition: opacity 0.4s ease;
+    }
+    

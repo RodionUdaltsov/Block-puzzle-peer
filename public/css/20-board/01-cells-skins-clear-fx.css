@@ -1,0 +1,662 @@
+/* css/20-board/01-cells-skins-clear-fx.css — Board cells, skin keyframes, line-clear FX. */
+/* Gated by .bp-full-board-fx (set by 13-performance.js). Without it, heavy board FX are off. */
+html:not(.bp-full-board-fx) .board-wrap[class*="board-fx-"]:not(.board-fx-none):not(.board-fx-soft) {
+  /* Keep solid colors / soft tint; drop continuous animations & filters on low-end */
+}
+html:not(.bp-full-board-fx) .board-wrap[class*="board-fx-"] {
+  animation: none !important;
+}
+html:not(.bp-full-board-fx) .board-wrap[class*="board-fx-"]::before,
+html:not(.bp-full-board-fx) .board-wrap[class*="board-fx-"]::after {
+  animation: none !important;
+  opacity: 0.35 !important;
+  filter: none !important;
+}
+html:not(.bp-full-board-fx) .board-wrap .cell {
+  filter: none !important;
+  will-change: auto !important;
+}
+html:not(.bp-full-board-fx) body.skin-fx-prism .cell,
+html:not(.bp-full-board-fx) .skin-fx-prism .cell {
+  animation: none !important;
+}
+
+/* styles-board.css — board, cells, skins, clear FX (v3.9.31) */
+    .skin-particle.sunset-spark {
+      width: 6px; height: 6px;
+      margin: -3px 0 0 -3px;
+      border-radius: 50%;
+      background: #ff6b35;
+      box-shadow: 0 0 10px currentColor, 0 0 16px rgba(255,209,102,0.6);
+      animation: sunsetSpark 1.0s cubic-bezier(0.25, 0.7, 0.3, 1) forwards;
+    }
+    @keyframes sunsetSpark {
+      0%   { opacity: 1; transform: translate(-50%, -50%) scale(1.3); }
+      100% { opacity: 0; transform: translate(calc(-50% + var(--sx)), calc(-50% + var(--sy))) scale(0.2); }
+    }
+    .skin-particle.candy-spark {
+      width: 7px; height: 7px;
+      margin: -3.5px 0 0 -3.5px;
+      border-radius: 2px;
+      background: #ff8fab;
+      box-shadow: 0 0 8px currentColor;
+      animation: candySpark 1.05s cubic-bezier(0.34, 1.3, 0.4, 1) forwards;
+    }
+    @keyframes candySpark {
+      0%   { opacity: 1; transform: translate(-50%, -50%) scale(1.2) rotate(0deg); }
+      100% { opacity: 0; transform: translate(calc(-50% + var(--sx)), calc(-50% + var(--sy))) scale(0.3) rotate(var(--rot, 180deg)); }
+    }
+    .skin-particle.royal-gem {
+      width: 8px; height: 8px;
+      margin: -4px 0 0 -4px;
+      background: linear-gradient(145deg, #e0b0ff, #7b2cbf 50%, #ffd700);
+      clip-path: polygon(50% 0%, 100% 50%, 50% 100%, 0% 50%);
+      box-shadow: 0 0 12px rgba(199,125,255,0.7);
+      animation: royalGem 1.1s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+    }
+    @keyframes royalGem {
+      0%   { opacity: 1; transform: translate(-50%, -50%) scale(1.3) rotate(0deg); }
+      100% { opacity: 0; transform: translate(calc(-50% + var(--sx)), calc(-50% + var(--sy))) scale(0.25) rotate(140deg); }
+    }
+    .skin-particle.midnight-star {
+      width: 7px; height: 7px;
+      margin: -3px 0 0 -3px;
+      background: #e0e1dd;
+      clip-path: polygon(50% 0%, 61% 35%, 98% 35%, 68% 57%, 79% 91%, 50% 70%, 21% 91%, 32% 57%, 2% 35%, 39% 35%);
+      box-shadow: 0 0 10px rgba(94,231,255,0.6), 0 0 16px rgba(124,92,255,0.35);
+      animation: midnightStar 1.15s ease-out forwards;
+    }
+    @keyframes midnightStar {
+      0%   { opacity: 1; transform: translate(-50%, -50%) scale(1.25) rotate(0deg); }
+      100% { opacity: 0; transform: translate(calc(-50% + var(--sx)), calc(-50% + var(--sy))) scale(0.2) rotate(200deg); }
+    }
+    /* tray FX unified with board rules above */
+
+    .cell.preview-ok {
+      opacity: 1;
+      transform: scale(0.985);
+      filter: brightness(1.08);
+    }
+    .cell.preview-bad {
+      opacity: 0.6;
+      transform: scale(0.97);
+      filter: grayscale(0.15) brightness(0.9);
+    }
+    /* Solar: preview = heat flare, not extinguish */
+    .board-wrap.board-fx-solar .cell.preview-ok {
+      opacity: 1 !important;
+      filter: brightness(1.35) saturate(1.3) !important;
+      box-shadow:
+        inset 0 0 0 2px rgba(255,220,100,0.85),
+        inset 0 0 14px rgba(255,160,40,0.45),
+        0 0 12px rgba(255,180,40,0.4) !important;
+      animation: none !important;
+    }
+    .board-wrap.board-fx-solar .cell.preview-bad {
+      opacity: 0.65 !important;
+      filter: brightness(0.75) saturate(0.6) !important;
+      box-shadow: inset 0 0 0 1.5px rgba(255,100,60,0.45) !important;
+      animation: none !important;
+    }
+    .cell.placing {
+      animation: placeSoft 0.75s cubic-bezier(0.33, 0.0, 0.2, 1) forwards;
+      z-index: 2;
+    }
+    @keyframes placeSoft {
+      /* Same soft settle for every rarity — legendary-smooth border cross */
+      0%   { transform: scale(0.95); opacity: 0.82; filter: brightness(1.06); }
+      50%  { transform: scale(1.015); opacity: 1; filter: brightness(1.02); }
+      100% { transform: scale(1); opacity: 1; filter: brightness(1); }
+    }
+    /* During settle: soft volume for all skins (incl. non-legend) */
+    .cell.filled.placing {
+      box-shadow:
+        inset 0 1px 0 rgba(255,255,255,0.22),
+        inset 0 -1px 2px rgba(0,0,0,0.08),
+        0 0 0 transparent !important;
+    }
+    /* Legendary place — soft glow bloom + settle */
+    /* Legendary uses the same placeSoft motion; only keeps soft glow bloom */
+    body.skin-fx-prism .cell.placing,
+    .player-panel.opp.skin-fx-prism .cell.placing {
+      animation: placeSoft 0.75s cubic-bezier(0.33, 0.0, 0.2, 1) forwards;
+      z-index: 4;
+    }
+    @keyframes legendPlace {
+      /* kept for any legacy references — mirrors placeSoft */
+      0%   { transform: scale(0.95); opacity: 0.82; filter: brightness(1.06); }
+      50%  { transform: scale(1.015); opacity: 1; filter: brightness(1.02); }
+      100% { transform: scale(1); opacity: 1; filter: brightness(1); }
+    }
+    body.anim-off .cell.placing {
+      animation-duration: 0.01ms !important;
+    }
+    body.anim-soft .cell.placing {
+      animation-duration: 0.55s !important;
+    }
+    body.skin-fx-prism .cell.placing::after,
+    .player-panel.opp.skin-fx-prism .cell.placing::after {
+      animation: legendPlaceSpec 0.55s ease-out forwards;
+    }
+    @keyframes legendPlaceSpec {
+      0%   { opacity: 1; background: linear-gradient(160deg, rgba(255,255,255,0.85) 0%, rgba(255,255,255,0.25) 40%, transparent 70%); }
+      100% { opacity: 0.88; }
+    }
+    /* —— Field clear FX. Desktop: snappy 110ms; mobile: readable ~300ms soft clear —— */
+    .cell.clearing,
+    .cell[class*="clearing-"],
+    .cell.filled[class*="clearing-"],
+    .board-wrap .cell[class*="clearing-"],
+    body.skin-fx-prism .player-panel:not(.opp) .board-wrap .cell.filled[class*="clearing-"],
+    body.skin-fx-prism #screenClassic .board-wrap .cell.filled[class*="clearing-"] {
+      transition: none !important;
+      pointer-events: none !important;
+      z-index: 4 !important;
+      overflow: hidden !important;
+      will-change: opacity, filter, clip-path, transform;
+      animation-duration: 0.11s !important;
+      animation-fill-mode: forwards !important;
+      animation-iteration-count: 1 !important;
+      animation-delay: 0s !important;
+    }
+    body.touch-ui .cell.clearing,
+    body.touch-ui .cell[class*="clearing-"],
+    body.touch-ui .cell.filled[class*="clearing-"],
+    body.touch-ui .board-wrap .cell[class*="clearing-"] {
+      animation-duration: 0.3s !important;
+      animation-timing-function: cubic-bezier(0.22, 0.12, 0.18, 1) !important;
+      will-change: opacity, transform !important;
+      filter: none !important;
+    }
+    body.touch-ui .cell.clearing-mobile-soft {
+      animation-name: clearMobileSoft !important;
+      animation-duration: 0.3s !important;
+    }
+body.touch-ui .clear-beam.row { animation-duration: 0.32s !important; opacity: 0.95; }
+body.touch-ui .clear-beam.col { animation-duration: 0.32s !important; opacity: 0.95; }
+/* Mobile clear: no pseudo-element FX thrash */
+body.touch-ui .cell[class*="clearing-"]::before,
+body.touch-ui .cell[class*="clearing-"]::after,
+body.touch-ui .cell.clearing::before,
+body.touch-ui .cell.clearing::after {
+  display: none !important;
+  animation: none !important;
+  content: none !important;
+}
+
+    .cell[class*="clearing-"]::before,
+    .cell[class*="clearing-"]::after,
+    .cell.clearing::before,
+    .cell.clearing::after {
+      display: none !important;
+      animation: none !important;
+      opacity: 0 !important;
+      content: none !important;
+    }
+
+    /* COMMON: plain soft fade */
+    .cell.clearing-common, .cell.filled.clearing-common, .board-wrap .cell.clearing-common,
+    .cell.clearing:not([class*="clearing-"]) {
+      animation-name: clearCommon !important; animation-timing-function: ease-out !important;
+    }
+    @keyframes clearCommon { 0% { opacity: 1; } 100% { opacity: 0; } }
+
+    /* Mobile-only: compositor-cheap clear (no filter / clip-path / box-shadow anim).
+       Hold brightness a beat, then scale+fade so the clear is readable on small screens. */
+    @keyframes clearMobileSoft {
+      0%   { opacity: 1; transform: scale(1); }
+      18%  { opacity: 1; transform: scale(1.08); }
+      55%  { opacity: 0.72; transform: scale(0.94); }
+      100% { opacity: 0; transform: scale(0.78); }
+    }
+    /* Highest specificity so themed clearing-* never overrides on mobile */
+    body.touch-ui .cell.clearing-mobile-soft,
+    body.touch-ui .cell.filled.clearing-mobile-soft,
+    body.touch-ui .board-wrap .cell.clearing-mobile-soft,
+    body.touch-ui .cell.clearing.clearing-mobile-soft {
+      animation-name: clearMobileSoft !important;
+      animation-duration: 0.3s !important;
+      animation-timing-function: cubic-bezier(0.2, 0.55, 0.2, 1) !important;
+      animation-fill-mode: forwards !important;
+      filter: none !important;
+      clip-path: none !important;
+      will-change: opacity, transform !important;
+      backface-visibility: hidden;
+      -webkit-backface-visibility: hidden;
+      z-index: 5 !important;
+    }
+    body.touch-ui .cell.clearing-mobile-soft::before,
+    body.touch-ui .cell.clearing-mobile-soft::after {
+      display: none !important;
+      content: none !important;
+      animation: none !important;
+    }
+
+    /* RARE — Azure: soft cyan rim glow */
+    .cell.clearing-rare-azure, .cell.filled.clearing-rare-azure, .board-wrap .cell.clearing-rare-azure {
+      animation-name: clearRareAzure !important; animation-timing-function: ease-out !important;
+    }
+    @keyframes clearRareAzure {
+      0%   { opacity: 1; filter: brightness(1); box-shadow: inset 0 0 0 0 transparent; }
+      40%  { opacity: 1; filter: brightness(1.2); box-shadow: inset 0 0 0 2px rgba(90,200,255,0.7), 0 0 8px rgba(90,200,255,0.4); }
+      100% { opacity: 0; filter: brightness(1.1); box-shadow: inset 0 0 0 0 transparent; }
+    }
+    /* RARE — Violet: soft purple pulse */
+    .cell.clearing-rare-violet, .cell.filled.clearing-rare-violet, .board-wrap .cell.clearing-rare-violet {
+      animation-name: clearRareViolet !important; animation-timing-function: ease-out !important;
+    }
+    @keyframes clearRareViolet {
+      0%   { opacity: 1; transform: scale(1); filter: brightness(1) hue-rotate(0deg); }
+      40%  { opacity: 1; transform: scale(1.05); filter: brightness(1.18) hue-rotate(-15deg); }
+      100% { opacity: 0; transform: scale(0.88); filter: brightness(1.05) hue-rotate(-30deg); }
+    }
+    /* RARE — Jade: soft green shrink */
+    .cell.clearing-rare-jade, .cell.filled.clearing-rare-jade, .board-wrap .cell.clearing-rare-jade {
+      animation-name: clearRareJade !important; animation-timing-function: ease-out !important;
+    }
+    @keyframes clearRareJade {
+      0%   { opacity: 1; transform: scale(1); filter: brightness(1) saturate(1); }
+      45%  { opacity: 0.9; transform: scale(0.94); filter: brightness(1.15) saturate(1.3); }
+      100% { opacity: 0; transform: scale(0.78); filter: brightness(1.05) saturate(1.1); }
+    }
+    /* fallback rare */
+    .cell.clearing-rare, .cell.filled.clearing-rare, .board-wrap .cell.clearing-rare {
+      animation-name: clearRareAzure !important; animation-timing-function: ease-out !important;
+    }
+
+    /* EPIC — Crystal/Pulse: energy ring inward */
+    .cell.clearing-epic, .cell.filled.clearing-epic, .board-wrap .cell.clearing-epic {
+      animation-name: clearEpic !important; animation-timing-function: cubic-bezier(0.4, 0, 0.5, 1) !important;
+    }
+    @keyframes clearEpic {
+      0%   { opacity: 1; clip-path: inset(0%); filter: brightness(1); box-shadow: 0 0 0 transparent; }
+      30%  { opacity: 1; clip-path: inset(8%); filter: brightness(1.35); box-shadow: 0 0 12px rgba(199,125,255,0.55); }
+      100% { opacity: 0; clip-path: inset(48%); filter: brightness(1.55); box-shadow: 0 0 0 transparent; }
+    }
+    /* EPIC — Neon grid: flash then vertical dissolve */
+    .cell.clearing-neon, .cell.filled.clearing-neon, .board-wrap .cell.clearing-neon {
+      animation-name: clearNeon !important; animation-timing-function: ease-out !important;
+    }
+    @keyframes clearNeon {
+      0%   { opacity: 1; filter: brightness(1) contrast(1); clip-path: inset(0 0 0 0); }
+      25%  { opacity: 1; filter: brightness(1.6) contrast(1.25); }
+      55%  { opacity: 0.75; filter: brightness(1.3); clip-path: inset(0 0 40% 0); }
+      100% { opacity: 0; filter: brightness(1.5); clip-path: inset(0 0 100% 0); }
+    }
+    /* EPIC — Magma: melt upward burn */
+    .cell.clearing-magma, .cell.filled.clearing-magma, .board-wrap .cell.clearing-magma {
+      animation-name: clearMagma !important; animation-timing-function: cubic-bezier(0.3, 0, 0.6, 1) !important;
+    }
+    @keyframes clearMagma {
+      0%   { opacity: 1; transform: translateY(0); filter: brightness(1) saturate(1); clip-path: inset(0 0 0 0); }
+      35%  { opacity: 1; transform: translateY(-3px); filter: brightness(1.45) saturate(1.5) hue-rotate(-10deg); clip-path: inset(0 0 25% 0); }
+      100% { opacity: 0; transform: translateY(-8px); filter: brightness(0.6) saturate(0.4); clip-path: inset(0 0 100% 0); }
+    }
+
+    /* SOLAR: white-hot burn, shrink to ash */
+    .cell.clearing-solar, .cell.filled.clearing-solar, .board-wrap .cell.clearing-solar {
+      animation-name: clearSolar !important;
+      animation-timing-function: cubic-bezier(0.4, 0, 0.6, 1) !important;
+    }
+    @keyframes clearSolar {
+      0%   { opacity: 1; filter: brightness(1) saturate(1.2) contrast(1); transform: scale(1); }
+      20%  { opacity: 1; filter: brightness(2.6) saturate(1.8) contrast(1.3); transform: scale(1.08); }
+      50%  { opacity: 0.85; filter: brightness(3.2) saturate(0.3) contrast(1.5); transform: scale(1.02); }
+      100% { opacity: 0; filter: brightness(0.4) saturate(0) contrast(0.8); transform: scale(0.7); }
+    }
+
+    /* ABYSS: stretch & drown downward only */
+    .cell.clearing-abyss, .cell.filled.clearing-abyss, .board-wrap .cell.clearing-abyss {
+      animation-name: clearAbyss !important;
+      animation-timing-function: cubic-bezier(0.55, 0.05, 0.9, 0.4) !important;
+    }
+    @keyframes clearAbyss {
+      0%   { opacity: 1; transform: translateY(0) scaleX(1) scaleY(1); filter: brightness(1) blur(0) saturate(1); }
+      35%  { opacity: 0.9; transform: translateY(4px) scaleX(1.08) scaleY(0.88); filter: brightness(0.7) blur(0) saturate(1.2); }
+      70%  { opacity: 0.45; transform: translateY(12px) scaleX(1.15) scaleY(0.5); filter: brightness(0.4) blur(1px) saturate(0.6); }
+      100% { opacity: 0; transform: translateY(22px) scaleX(1.2) scaleY(0.15); filter: brightness(0.15) blur(2.5px) saturate(0.2); }
+    }
+
+    /* NEBULA: soft bloom expand + violet fade */
+    .cell.clearing-nebula, .cell.filled.clearing-nebula, .board-wrap .cell.clearing-nebula {
+      animation-name: clearNebula !important;
+      animation-timing-function: ease-in-out !important;
+    }
+    @keyframes clearNebula {
+      0%   { opacity: 1; transform: scale(1); filter: brightness(1) hue-rotate(0deg) saturate(1) blur(0); }
+      40%  { opacity: 0.8; transform: scale(1.15); filter: brightness(1.3) hue-rotate(-55deg) saturate(1.6) blur(0.5px); }
+      100% { opacity: 0; transform: scale(1.35); filter: brightness(1.6) hue-rotate(-100deg) saturate(0.2) blur(3px); }
+    }
+
+    /* QUANTUM: hard horizontal digital wipe */
+    .cell.clearing-quantum, .cell.filled.clearing-quantum, .board-wrap .cell.clearing-quantum {
+      animation-name: clearQuantum !important;
+      animation-timing-function: steps(5, end) !important;
+    }
+    @keyframes clearQuantum {
+      0%   { opacity: 1; clip-path: inset(0 0 0 0%); filter: brightness(1) contrast(1); transform: none; }
+      20%  { opacity: 1; clip-path: inset(0 0 0 20%); filter: brightness(1.5) contrast(1.4); }
+      40%  { opacity: 1; clip-path: inset(0 0 0 40%); filter: brightness(1.3) contrast(1.3); }
+      60%  { opacity: 0.8; clip-path: inset(0 0 0 60%); filter: brightness(1.7) contrast(1.5); }
+      80%  { opacity: 0.4; clip-path: inset(0 0 0 80%); filter: brightness(2) contrast(1.6); }
+      100% { opacity: 0; clip-path: inset(0 0 0 100%); filter: brightness(2.2) contrast(1.7); }
+    }
+
+    /* PRISM: spectrum fold — rainbow bands collapse inward (stays in-cell) */
+    .cell.clearing-prism, .cell.filled.clearing-prism, .board-wrap .cell.clearing-prism {
+      animation-name: clearPrism !important;
+      animation-timing-function: cubic-bezier(0.3, 0.1, 0.4, 1) !important;
+    }
+    @keyframes clearPrism {
+      0% {
+        opacity: 1;
+        transform: scale(1);
+        filter: hue-rotate(0deg) brightness(1) saturate(1.05);
+        clip-path: inset(0% 0% 0% 0%);
+      }
+      30% {
+        opacity: 1;
+        transform: scale(1.01);
+        filter: hue-rotate(55deg) brightness(1.08) saturate(1.25);
+        clip-path: inset(10% 10% 10% 10%);
+      }
+      60% {
+        opacity: 0.65;
+        transform: scale(0.92);
+        filter: hue-rotate(140deg) brightness(1.05) saturate(1.2);
+        clip-path: inset(24% 20% 24% 20%);
+      }
+      100% {
+        opacity: 0;
+        transform: scale(0.78);
+        filter: hue-rotate(220deg) brightness(0.98) saturate(1);
+        clip-path: inset(48% 45% 48% 45%);
+      }
+    }
+    /* Contain prism clear: no outer glow spill, hide holo layers (keep filter for keyframes) */
+    body.skin-fx-prism .cell.clearing-prism,
+    body.skin-fx-prism .cell.filled.clearing-prism,
+    body.skin-fx-prism .player-panel:not(.opp) .board-wrap .cell.clearing-prism,
+    body.skin-fx-prism #screenClassic .board-wrap .cell.clearing-prism,
+    body.skin-fx-prism #board .cell.clearing-prism,
+    body.skin-fx-prism #boardMe .cell.clearing-prism,
+    body.skin-fx-prism #boardOpp .cell.clearing-prism,
+    .player-panel.opp.skin-fx-prism .cell.clearing-prism,
+    .player-panel.opp.skin-fx-prism #boardOpp .cell.clearing-prism,
+    .board-wrap.board-fx-prismfield .cell.clearing-prism,
+    .board-wrap.board-fx-prismfield .cell.filled.clearing-prism {
+      background-image: none !important;
+      overflow: hidden !important;
+      /* do NOT force filter:none — keyframes need it */
+      box-shadow: none !important;
+      outline: none !important;
+    }
+    body.skin-fx-prism .cell.clearing-prism::before,
+    body.skin-fx-prism .cell.clearing-prism::after,
+    body.skin-fx-prism .cell.filled.clearing-prism::before,
+    body.skin-fx-prism .cell.filled.clearing-prism::after,
+    body.skin-fx-prism #board .cell.clearing-prism::before,
+    body.skin-fx-prism #board .cell.clearing-prism::after,
+    body.skin-fx-prism #boardMe .cell.clearing-prism::before,
+    body.skin-fx-prism #boardMe .cell.clearing-prism::after,
+    body.skin-fx-prism #boardOpp .cell.clearing-prism::before,
+    body.skin-fx-prism #boardOpp .cell.clearing-prism::after,
+    .player-panel.opp.skin-fx-prism .cell.clearing-prism::before,
+    .player-panel.opp.skin-fx-prism .cell.clearing-prism::after,
+    .player-panel.opp.skin-fx-prism #boardOpp .cell.clearing-prism::before,
+    .player-panel.opp.skin-fx-prism #boardOpp .cell.clearing-prism::after {
+      display: none !important;
+      animation: none !important;
+      opacity: 0 !important;
+      content: none !important;
+      background: none !important;
+      box-shadow: none !important;
+    }
+
+    /* ===== Debris: unique silhouettes & motion per field ===== */
+    .clear-debris {
+      position: absolute;
+      pointer-events: none;
+      z-index: 22;
+      margin: 0;
+      will-change: transform, opacity;
+    }
+
+    /* SOLAR shards — pointed sun pieces, fly OUT + UP */
+    .clear-debris.solar-shard {
+      width: 8px; height: 10px;
+      background: linear-gradient(160deg, #ffffff, #ffe566 30%, #ffb000 70%, #ff6a00);
+      clip-path: polygon(50% 0%, 100% 35%, 78% 100%, 22% 100%, 0% 35%);
+      box-shadow: 0 0 10px #ffb000, 0 0 18px rgba(255,120,0,0.7);
+      animation: solarShardFly 0.32s cubic-bezier(0.15, 0.85, 0.3, 1) forwards;
+    }
+    @keyframes solarShardFly {
+      0%   { opacity: 1; transform: translate(-50%, -50%) scale(1.15) rotate(0deg); filter: brightness(1.5); }
+      40%  { opacity: 1; filter: brightness(1.2); }
+      100% { opacity: 0; transform: translate(calc(-50% + var(--dx)), calc(-50% + var(--dy))) scale(0.25) rotate(var(--rot)); filter: brightness(0.6); }
+    }
+    .clear-debris.solar-ember {
+      width: 5px; height: 5px; border-radius: 50%;
+      background: radial-gradient(circle, #fff 0%, #ffd700 40%, #ff6a00 100%);
+      box-shadow: 0 0 8px #ff8c00;
+      animation: solarEmberFly 0.28s ease-out forwards;
+    }
+    @keyframes solarEmberFly {
+      0%   { opacity: 1; transform: translate(-50%, -50%) scale(1.2); }
+      100% { opacity: 0; transform: translate(calc(-50% + var(--dx)), calc(-50% + var(--dy))) scale(0.15); }
+    }
+
+    /* ABYSS — only vertical: heavy drops DOWN, light bubbles UP */
+    .clear-debris.abyss-drop {
+      width: 6px; height: 11px;
+      border-radius: 50% 50% 45% 45%;
+      background: linear-gradient(180deg, #b3e5fc, #0288d1 60%, #01579b);
+      box-shadow: 0 4px 10px rgba(2,100,180,0.55);
+      animation: abyssDrop 0.34s cubic-bezier(0.5, 0, 0.9, 0.4) forwards;
+    }
+    @keyframes abyssDrop {
+      0%   { opacity: 1; transform: translate(-50%, -50%) scaleY(1) scaleX(1); }
+      100% { opacity: 0; transform: translate(-50%, calc(-50% + var(--dy))) scaleY(1.4) scaleX(0.6); }
+    }
+    .clear-debris.abyss-bubble {
+      width: 5px; height: 5px; border-radius: 50%;
+      border: 1.5px solid rgba(180,230,255,0.9);
+      background: rgba(100,190,255,0.2);
+      animation: abyssBubble 0.36s ease-out forwards;
+    }
+    @keyframes abyssBubble {
+      0%   { opacity: 0.85; transform: translate(-50%, -50%) scale(0.5); }
+      30%  { opacity: 1; transform: translate(calc(-50% + var(--dx) * 0.3), calc(-50% + var(--dy) * 0.3)) scale(1); }
+      100% { opacity: 0; transform: translate(calc(-50% + var(--dx)), calc(-50% + var(--dy))) scale(1.3); }
+    }
+
+    /* NEBULA — soft stars drift slowly, no sharp trajectories */
+    .clear-debris.nebula-star {
+      width: 7px; height: 7px;
+      background: #f0e6ff;
+      clip-path: polygon(50% 0%, 61% 35%, 98% 35%, 68% 57%, 79% 91%, 50% 70%, 21% 91%, 32% 57%, 2% 35%, 39% 35%);
+      box-shadow: 0 0 10px #a78bff, 0 0 20px rgba(124,92,255,0.55);
+      animation: nebulaStar 0.38s ease-out forwards;
+    }
+    @keyframes nebulaStar {
+      0%   { opacity: 0; transform: translate(-50%, -50%) scale(0.4) rotate(0deg); }
+      25%  { opacity: 1; transform: translate(-50%, -50%) scale(1.1) rotate(20deg); }
+      100% { opacity: 0; transform: translate(calc(-50% + var(--dx)), calc(-50% + var(--dy))) scale(0.5) rotate(80deg); }
+    }
+    .clear-debris.nebula-dust {
+      width: 3px; height: 3px; border-radius: 50%;
+      background: #c4b5fd;
+      box-shadow: 0 0 6px #7c5cff;
+      animation: nebulaDust 0.36s ease-in-out forwards;
+    }
+    @keyframes nebulaDust {
+      0%   { opacity: 0.9; transform: translate(-50%, -50%); }
+      50%  { opacity: 0.7; }
+      100% { opacity: 0; transform: translate(calc(-50% + var(--dx)), calc(-50% + var(--dy))); }
+    }
+
+    /* QUANTUM — square pixels, stepped motion (robotic) */
+    .clear-debris.quantum-bit {
+      width: 6px; height: 6px;
+      background: #00ffc8;
+      box-shadow: 0 0 0 1px rgba(0,255,200,0.4), 0 0 8px #00ffc8;
+      border-radius: 1px;
+      animation: quantumBit 0.28s steps(6, end) forwards;
+    }
+    @keyframes quantumBit {
+      0%   { opacity: 1; transform: translate(-50%, -50%) scale(1); filter: brightness(1.5); }
+      33%  { opacity: 1; transform: translate(calc(-50% + var(--dx) * 0.33), calc(-50% + var(--dy) * 0.33)) scale(0.95); }
+      66%  { opacity: 0.7; transform: translate(calc(-50% + var(--dx) * 0.66), calc(-50% + var(--dy) * 0.66)) scale(0.7); }
+      100% { opacity: 0; transform: translate(calc(-50% + var(--dx)), calc(-50% + var(--dy))) scale(0.3); filter: brightness(2); }
+    }
+    .clear-debris.quantum-scan {
+      width: 2px; height: 10px;
+      background: #fff;
+      box-shadow: 0 0 6px #00ffc8, 0 0 12px #00ffc8;
+      animation: quantumScan 0.2s linear forwards;
+    }
+    @keyframes quantumScan {
+      0%   { opacity: 1; transform: translate(-50%, -50%) scaleY(1); }
+      100% { opacity: 0; transform: translate(calc(-50% + var(--dx)), -50%) scaleY(0.3); }
+    }
+
+    /* PRISM — small spectrum chips, short local drift (not full-board explosion) */
+    .clear-debris.prism-shard {
+      width: 5px; height: 6px;
+      clip-path: polygon(50% 0%, 100% 100%, 0% 100%);
+      opacity: 0.85;
+      animation: prismShard 0.28s cubic-bezier(0.25, 0.7, 0.4, 1) forwards;
+    }
+    @keyframes prismShard {
+      0%   { opacity: 0.85; transform: translate(-50%, -50%) scale(0.9) rotate(0deg); filter: brightness(1.05); }
+      40%  { opacity: 0.7; filter: brightness(1.08); }
+      100% { opacity: 0; transform: translate(calc(-50% + var(--dx)), calc(-50% + var(--dy))) scale(0.25) rotate(var(--rot)); filter: brightness(1); }
+    }
+
+    /* RARE debris */
+    .clear-debris.rare-spark {
+      width: 4px; height: 4px; border-radius: 50%;
+      animation: rareSpark 0.28s ease-out forwards;
+    }
+    @keyframes rareSpark {
+      0%   { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+      100% { opacity: 0; transform: translate(calc(-50% + var(--dx)), calc(-50% + var(--dy))) scale(0.3); }
+    }
+    /* EPIC pulse / crystal sparks */
+    .clear-debris.epic-spark {
+      width: 5px; height: 5px; border-radius: 50%;
+      background: radial-gradient(circle, #fff, #c77dff);
+      box-shadow: 0 0 8px rgba(199,125,255,0.8);
+      animation: epicSpark 0.3s ease-out forwards;
+    }
+    @keyframes epicSpark {
+      0%   { opacity: 1; transform: translate(-50%, -50%) scale(1.1); }
+      100% { opacity: 0; transform: translate(calc(-50% + var(--dx)), calc(-50% + var(--dy))) scale(0.2); }
+    }
+    /* EPIC neon bits */
+    .clear-debris.neon-bit {
+      width: 3px; height: 8px;
+      background: #39ff14;
+      box-shadow: 0 0 6px #39ff14, 0 0 10px #00f5ff;
+      animation: neonBit 0.28s ease-out forwards;
+    }
+    @keyframes neonBit {
+      0%   { opacity: 1; transform: translate(-50%, -50%) scaleY(1); }
+      100% { opacity: 0; transform: translate(calc(-50% + var(--dx)), calc(-50% + var(--dy))) scaleY(0.3); }
+    }
+    /* EPIC magma embers */
+    .clear-debris.magma-ember {
+      width: 5px; height: 5px; border-radius: 50%;
+      background: radial-gradient(circle, #fff3a0, #ff6a30 60%, #c0392b);
+      box-shadow: 0 0 8px #ff6a30;
+      animation: magmaEmber 0.32s ease-out forwards;
+    }
+    @keyframes magmaEmber {
+      0%   { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+      100% { opacity: 0; transform: translate(calc(-50% + var(--dx)), calc(-50% + var(--dy))) scale(0.2); }
+    }
+
+    /* Line beams — distinct look per legendary */
+    .clear-beam {
+      position: absolute; pointer-events: none; z-index: 8; border-radius: 1px; opacity: 0;
+    }
+    .clear-beam.row { left: 0; height: 2px; transform: translateY(-50%); animation: clearBeamRow 0.18s ease-out forwards; }
+    .clear-beam.col { top: 0; width: 2px; transform: translateX(-50%); animation: clearBeamCol 0.18s ease-out forwards; }
+    .clear-beam.solar {
+      height: 4px;
+      background: linear-gradient(90deg, transparent 0%, #ff6a00 20%, #fff3a0 50%, #ffd700 80%, transparent 100%);
+      box-shadow: 0 0 14px rgba(255,140,20,0.9), 0 0 28px rgba(255,100,0,0.45);
+    }
+    .clear-beam.abyss {
+      height: 3px;
+      background: linear-gradient(90deg, transparent, #01579b, #4fc3f7, #01579b, transparent);
+      box-shadow: 0 6px 14px rgba(2,80,160,0.55), 0 0 8px rgba(79,195,247,0.5);
+    }
+    .clear-beam.nebula {
+      height: 2px;
+      background: linear-gradient(90deg, transparent, #7c5cff, #e9d5ff, #a78bff, transparent);
+      box-shadow: 0 0 12px rgba(124,92,255,0.75), 0 0 24px rgba(167,139,255,0.35);
+    }
+    .clear-beam.quantum {
+      height: 2px;
+      background: repeating-linear-gradient(90deg, #00ffc8 0 4px, transparent 4px 7px);
+      box-shadow: 0 0 8px #00ffc8;
+      animation-timing-function: steps(8, end);
+    }
+    /* Prism beam: only colors — never override .row/.col size or animation
+       (old bug: forced clearBeamRow + height:2px made column clears a full-board rainbow sheet) */
+    .clear-beam.prism {
+      background: linear-gradient(90deg, transparent, #ff6b81, #ffd666, #5ee7ff, #c77dff, #ff9de2, transparent);
+      background-size: 200% 100%;
+      box-shadow: 0 0 5px rgba(199,125,255,0.4);
+    }
+    .clear-beam.prism.row {
+      height: 2px;
+      animation: clearBeamRow 0.18s ease-out forwards, prismBeamShift 0.18s linear;
+    }
+    .clear-beam.prism.col {
+      width: 2px;
+      background: linear-gradient(180deg, transparent, #ff6b81, #ffd666, #5ee7ff, #c77dff, #ff9de2, transparent);
+      background-size: 100% 200%;
+      animation: clearBeamCol 0.18s ease-out forwards, prismBeamShiftCol 0.18s linear;
+    }
+    @keyframes prismBeamShiftCol {
+      0% { background-position: 50% 0%; }
+      100% { background-position: 50% 100%; }
+    }
+    .clear-beam.rare, .clear-beam.rare-azure {
+      background: linear-gradient(90deg, transparent, #5ac8ff, transparent);
+      box-shadow: 0 0 6px rgba(90,200,255,0.5);
+    }
+    .clear-beam.rare-violet {
+      background: linear-gradient(90deg, transparent, #b388ff, transparent);
+      box-shadow: 0 0 6px rgba(179,136,255,0.5);
+    }
+    .clear-beam.rare-jade {
+      background: linear-gradient(90deg, transparent, #2dd4a8, transparent);
+      box-shadow: 0 0 6px rgba(45,212,168,0.5);
+    }
+    .clear-beam.epic {
+      background: linear-gradient(90deg, transparent, #c77dff, #fff, #c77dff, transparent);
+      box-shadow: 0 0 8px rgba(199,125,255,0.55);
+    }
+    .clear-beam.neon {
+      background: linear-gradient(90deg, transparent, #39ff14, #00f5ff, #39ff14, transparent);
+      box-shadow: 0 0 8px rgba(57,255,20,0.55);
+    }
+    .clear-beam.magma {
+      height: 3px;
+      background: linear-gradient(90deg, transparent, #ff6a30, #ffd666, #ff6a30, transparent);
+      box-shadow: 0 0 10px rgba(255,100,30,0.65);
+    }
+    @keyframes clearBeamRow {
+      0% { opacity: 0; width: 0; } 35% { opacity: 1; width: 100%; } 100% { opacity: 0; width: 100%; }
+    }
+    @keyframes clearBeamCol {
+      0% { opacity: 0; height: 0; } 35% { opacity: 1; height: 100%; } 100% { opacity: 0; height: 100%; }
+    }
+    @keyframes prismBeamShift {
+      0% { background-position: 0% 50%; } 100% { background-position: 100% 50%; }
+    }
+
+    

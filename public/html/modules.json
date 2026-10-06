@@ -1,0 +1,22 @@
+{
+  "_comment": "HTML fragments of public/index.html in document order. Consumed by scripts/bundle-html.js; %%VERSION%% is replaced with package.json version. Edit fragments, then run `npm run build:html`.",
+  "fragments": [
+    "public/html/00-head.html",
+    "public/html/01-skip-link-entry-gate.html",
+    "public/html/02-auth-modals.html",
+    "public/html/03-boot-loader.html",
+    "public/html/04-boot-gate-script.html",
+    "public/html/05-match-intro-net-toasts.html",
+    "public/html/06-screen-menu.html",
+    "public/html/07-screen-profile.html",
+    "public/html/08-screen-settings.html",
+    "public/html/09-overlays-social.html",
+    "public/html/10-screens-meta.html",
+    "public/html/11-screens-match-shop.html",
+    "public/html/12-screens-play.html",
+    "public/html/13-overlays-match.html",
+    "public/html/14-floating-ui.html",
+    "public/html/15-client-bundle-menu-delegate.html",
+    "public/html/16-pwa.html"
+  ]
+}

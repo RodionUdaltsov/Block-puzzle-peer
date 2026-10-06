@@ -1,0 +1,108 @@
+  <script>
+  /* Boot gate: keep loader until client marks menu ready. Failsafe only after long timeout. */
+  (function () {
+    var ready = false;
+    var unlocked = false;
+    function unlockUI(force) {
+      if (unlocked && !force) return;
+      unlocked = true;
+      ready = true;
+      try { document.body.classList.remove('rejoin-loading', 'is-offline', 'bp-booting'); } catch (e) {}
+      try { document.body.classList.add('bp-menu-ready'); } catch (e) {}
+      // Only force-hide boot / rejoin — never touch screenLoading (used for tab switches)
+      ['bootLoader', 'rejoinLoading'].forEach(function (id) {
+        var el = document.getElementById(id);
+        if (!el) return;
+        try {
+          el.classList.remove('visible', 'show');
+          el.classList.add('hide');
+          el.setAttribute('aria-hidden', 'true');
+          el.setAttribute('data-hidden', '1');
+          setTimeout(function () {
+            try {
+              if (el.id === 'bootLoader') {
+                el.style.display = 'none';
+                el.style.pointerEvents = 'none';
+                el.remove();
+              } else if (!el.classList.contains('show') && !el.classList.contains('visible')) {
+                el.style.display = 'none';
+                el.style.pointerEvents = 'none';
+              }
+            } catch (e) {}
+          }, id === 'bootLoader' ? 650 : 220);
+        } catch (e) {}
+      });
+      // Reset tab loader so it can be shown later (do not kill it)
+      try {
+        var sl = document.getElementById('screenLoading');
+        if (sl) {
+          sl.classList.remove('show', 'hide');
+          sl.hidden = true;
+          sl.setAttribute('hidden', '');
+          sl.setAttribute('aria-hidden', 'true');
+          sl.style.display = '';
+          sl.style.pointerEvents = '';
+        }
+      } catch (e) {}
+      // matchIntro: only clear if not actively showing a load
+      try {
+        var mi = document.getElementById('matchIntro');
+        if (mi && !mi.classList.contains('visible')) {
+          mi.style.display = 'none';
+          mi.style.pointerEvents = 'none';
+          mi.setAttribute('aria-hidden', 'true');
+        }
+      } catch (e) {}
+      try {
+        var mef = document.getElementById('matchEndFreeze');
+        if (mef && !mef.classList.contains('visible')) {
+          mef.style.display = '';
+          mef.style.pointerEvents = '';
+        }
+        var bp = document.getElementById('botPickOverlay');
+        if (bp && !bp.classList.contains('visible')) {
+          bp.style.display = '';
+          bp.style.pointerEvents = '';
+        }
+      } catch (e) {}
+      // Warm hover/transition styles after first paint so first hover does not jank
+      try {
+        requestAnimationFrame(function () {
+          requestAnimationFrame(function () {
+            try { document.body.classList.add('bp-menu-warm'); } catch (e) {}
+          });
+        });
+      } catch (e) {
+        try { document.body.classList.add('bp-menu-warm'); } catch (e2) {}
+      }
+    }
+    window.__hideBootLoader = function () { unlockUI(false); };
+    window.__unlockUI = function () { unlockUI(true); };
+    window.__markMenuReady = function () {
+      if (ready) return;
+      ready = true;
+      // Double rAF: menu DOM + CSS must paint under the loader before we reveal
+      try {
+        requestAnimationFrame(function () {
+          requestAnimationFrame(function () {
+            unlockUI(false);
+          });
+        });
+      } catch (e) {
+        unlockUI(false);
+      }
+    };
+    // Hard failsafe only — do NOT race with bundle parse on load / first tap
+    setTimeout(function () { if (!unlocked) unlockUI(true); }, 6000);
+    // First tap: only unlock if already past failsafe window (stuck loader)
+    document.addEventListener('pointerdown', function once(ev) {
+      if (!unlocked && (performance.now() > 4500)) {
+        unlockUI(true);
+      }
+      if (unlocked) {
+        document.removeEventListener('pointerdown', once, true);
+      }
+    }, true);
+  })();
+  </script>
+

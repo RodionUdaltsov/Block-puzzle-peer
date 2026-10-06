@@ -103,6 +103,7 @@ echo.
 
 REM ---- Build client ----
 echo Building client bundle...
+node scripts\bundle-html.js
 node scripts\bundle-css.js
 if errorlevel 1 echo [WARN] CSS bundle failed
 node scripts\bundle-client.js

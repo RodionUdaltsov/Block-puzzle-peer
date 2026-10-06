@@ -1,0 +1,85 @@
+  <!-- Client bundle (ESM pipeline → dist/client.bundle.js). Sources: public/js/* -->
+  <script src="dist/client.bundle.js?v=%%VERSION%%"></script>
+  <script>
+  /* menu-delegate: clicks work even if late game.js bindings failed */
+  (function () {
+    function go(fn) {
+      try { if (typeof window.__unlockUI === 'function') window.__unlockUI(); } catch (e) {}
+      try { fn(); } catch (e) { console.warn('menu', e); }
+    }
+    document.addEventListener('click', function (e) {
+      var t = e.target;
+      if (!t || !t.closest) return;
+      var el;
+      if ((el = t.closest('#cardClassic'))) {
+        e.preventDefault();
+        go(function () {
+          if (typeof startClassic === 'function') startClassic(false);
+          else if (typeof showScreen === 'function') showScreen('classic');
+        });
+      } else if ((el = t.closest('#cardVersus'))) {
+        e.preventDefault();
+        go(function () {
+          if (typeof startVersusFlow === 'function') startVersusFlow();
+          else if (typeof showScreen === 'function') showScreen('compType');
+        });
+      } else if ((el = t.closest('#cardOnline'))) {
+        e.preventDefault();
+        go(function () {
+          if (typeof goDurationFromOnline === 'function') goDurationFromOnline();
+          else if (typeof showScreen === 'function') showScreen('duration');
+        });
+      } else if ((el = t.closest('#cardBots'))) {
+        e.preventDefault();
+        go(function () {
+          if (typeof goDifficulty === 'function') goDifficulty();
+          else if (typeof showScreen === 'function') showScreen('difficulty');
+        });
+      } else if ((el = t.closest('#btnStartMatch'))) {
+        e.preventDefault();
+        go(function () {
+          if (typeof startMatchFlow === 'function') startMatchFlow();
+        });
+      } else if ((el = t.closest('#btnBackFromComp, #btnBackDiff, #btnBackMenu, #btnClassicMenu, #btnVsMenu, #btnSettingsBack, #btnShopBack, #btnInvBack, #btnAchBack, #btnHistoryBack'))) {
+        e.preventDefault();
+        go(function () {
+          if (typeof showScreen === 'function') showScreen('menu');
+          if (typeof updateMenuStats === 'function') updateMenuStats();
+        });
+      } else if ((el = t.closest('#btnSettings'))) {
+        e.preventDefault();
+        go(function () {
+          if (typeof showScreen === 'function') showScreen('settings');
+        });
+      } else if ((el = t.closest('#btnShop'))) {
+        e.preventDefault();
+        go(function () {
+          if (typeof showScreen === 'function') showScreen('shop');
+        });
+      } else if ((el = t.closest('#btnInventory'))) {
+        e.preventDefault();
+        go(function () {
+          if (typeof showScreen === 'function') showScreen('inventory');
+        });
+      } else if ((el = t.closest('#btnFriends'))) {
+        e.preventDefault();
+        go(function () {
+          if (typeof showScreen === 'function') showScreen('friends');
+          if (typeof renderFriends === 'function') renderFriends();
+        });
+      } else if ((el = t.closest('#btnHistory'))) {
+        e.preventDefault();
+        go(function () {
+          if (typeof showScreen === 'function') showScreen('history');
+          if (typeof renderHistory === 'function') renderHistory();
+        });
+      } else if ((el = t.closest('#btnAchievements'))) {
+        e.preventDefault();
+        go(function () {
+          if (typeof showScreen === 'function') showScreen('achievements');
+        });
+      }
+    }, true);
+  })();
+  </script>
+

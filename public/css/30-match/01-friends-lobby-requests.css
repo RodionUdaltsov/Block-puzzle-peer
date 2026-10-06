@@ -1,0 +1,709 @@
+/* css/30-match/01-friends-lobby-requests.css — Friends screen, lobby, friend requests and toasts. */
+    #screenFriends .friends-req-scroll {
+      max-height: min(36vh, 260px);
+      overflow-x: hidden;
+      overflow-y: auto;
+      -webkit-overflow-scrolling: touch;
+      overscroll-behavior: contain;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      margin-bottom: 4px;
+      padding-right: 2px;
+      scroll-behavior: smooth;
+      scrollbar-width: none;
+      -ms-overflow-style: none;
+    }
+    #screenFriends .friends-req-scroll::-webkit-scrollbar { width: 0; height: 0; display: none; }
+    #screenFriends .friend-req-list {
+      gap: 6px;
+      margin-bottom: 0;
+      max-height: none;
+    }
+    #screenFriends .friend-search-row {
+      width: 100%;
+      max-width: 420px;
+      margin: 0 0 8px;
+      padding: 0 2px;
+    }
+    #screenFriends .friend-search-row input {
+      width: 100%;
+      padding: 10px 14px;
+      border-radius: 12px;
+      border: 1px solid var(--border);
+      background: var(--surface2);
+      color: var(--text);
+      font-size: 0.88rem;
+      font-weight: 600;
+      outline: none;
+      transition: border-color 0.15s, box-shadow 0.15s;
+    }
+    #screenFriends .friend-search-row input:focus {
+      border-color: var(--accent);
+      box-shadow: 0 0 0 2px var(--accent-soft);
+    }
+    #screenFriends .friend-search-row input::placeholder {
+      color: var(--text-dim);
+      font-weight: 500;
+    }
+    /* Find online players (server presence search) */
+    #screenFriends .friend-find-row {
+      display: flex;
+      gap: 8px;
+      margin: 8px 0 10px;
+      align-items: stretch;
+    }
+    #screenFriends .friend-find-row input {
+      flex: 1;
+      min-width: 0;
+      padding: 11px 14px;
+      border-radius: 12px;
+      border: 1px solid var(--border);
+      background: var(--surface2);
+      color: var(--text);
+      font-size: 0.95rem;
+      font-weight: 600;
+    }
+    #screenFriends .friend-find-row input:focus {
+      outline: none;
+      border-color: var(--accent);
+    }
+    #screenFriends .friend-find-row .primary {
+      flex-shrink: 0;
+      padding: 0 16px;
+      white-space: nowrap;
+    }
+    #screenFriends .friend-find-list {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      margin-bottom: 6px;
+    }
+    #screenFriends .friend-find-card {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 10px 12px;
+      border-radius: 14px;
+      background: var(--surface2);
+      border: 1px solid var(--border);
+    }
+    #screenFriends .friend-find-card .ff-av {
+      width: 40px;
+      height: 40px;
+      border-radius: 12px;
+      background: linear-gradient(135deg, var(--accent), var(--accent2, #7c5cff));
+      color: #fff;
+      font-weight: 800;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 0.95rem;
+      flex-shrink: 0;
+    }
+    #screenFriends .friend-find-card .ff-meta {
+      flex: 1;
+      min-width: 0;
+    }
+    #screenFriends .friend-find-card .ff-name {
+      font-weight: 800;
+      font-size: 0.95rem;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    #screenFriends .friend-find-card .ff-sub {
+      font-size: 0.78rem;
+      opacity: 0.7;
+      margin-top: 2px;
+    }
+    #screenFriends .friend-find-card .ff-add {
+      flex-shrink: 0;
+      padding: 8px 12px;
+      font-size: 0.85rem;
+    }
+    #screenFriends .friend-find-card.is-friend .ff-add {
+      opacity: 0.55;
+      pointer-events: none;
+    }
+
+    /* Friend list / request animations — no max-height collapse (avoids scrollbar flash) */
+    .friend-card, .friend-req-card, .lobby-invite-item {
+      transition:
+        opacity 0.28s ease,
+        transform 0.28s cubic-bezier(0.22,1,0.36,1),
+        max-height 0.28s ease,
+        margin 0.28s ease,
+        padding 0.28s ease,
+        border-width 0.25s ease,
+        gap 0.25s ease;
+      overflow: hidden;
+      max-height: 72px;
+    }
+    .friend-card.friend-enter, .friend-req-card.friend-enter {
+      animation: friendCardIn 0.4s cubic-bezier(0.22, 1.1, 0.36, 1) both;
+    }
+    .friend-card.friend-added {
+      animation: friendAddedPulse 0.65s cubic-bezier(0.22, 1.1, 0.36, 1) both;
+      border-color: var(--accent) !important;
+      box-shadow: 0 0 0 1px var(--accent-border), 0 8px 24px var(--glow-a);
+    }
+    .friend-card.friend-exit, .friend-req-card.friend-exit, .lobby-invite-item.friend-exit {
+      opacity: 0 !important;
+      transform: translateY(-6px) scale(0.94) !important;
+      max-height: 0 !important;
+      margin-top: 0 !important;
+      margin-bottom: 0 !important;
+      padding-top: 0 !important;
+      padding-bottom: 0 !important;
+      border-width: 0 !important;
+      gap: 0 !important;
+      pointer-events: none !important;
+    }
+    @keyframes friendCardIn {
+      from { opacity: 0; transform: translateY(8px) scale(0.97); }
+      to { opacity: 1; transform: translateY(0) scale(1); }
+    }
+    @keyframes friendAddedPulse {
+      0% { opacity: 0; transform: scale(0.94); }
+      50% { opacity: 1; transform: scale(1.02); }
+      100% { opacity: 1; transform: scale(1); }
+    }
+    .f-av { position: relative; }
+    .f-online-dot {
+      position: absolute;
+      right: -2px; bottom: -2px;
+      width: 11px; height: 11px;
+      border-radius: 50%;
+      border: 2px solid var(--surface);
+      background: #6b7280;
+      box-shadow: 0 0 0 1px rgba(0,0,0,0.25);
+      pointer-events: none;
+    }
+    .f-online-dot.on {
+      background: #22c55e;
+      box-shadow: 0 0 0 1px rgba(34,197,94,0.35), 0 0 8px rgba(34,197,94,0.45);
+    }
+    .f-online-dot.off {
+      background: #6b7280;
+    }
+    .f-online-dot.checking {
+      background: #f59e0b;
+      animation: onlinePulse 1s ease-in-out infinite;
+    }
+    @keyframes onlinePulse {
+      0%, 100% { opacity: 0.55; }
+      50% { opacity: 1; }
+    }
+    .f-status-line {
+      font-size: 0.62rem;
+      font-weight: 600;
+      margin-top: 0;
+      color: var(--text-dim);
+      line-height: 1.2;
+    }
+    .f-status-line.on { color: #4ade80; }
+    .f-status-line.off { color: var(--text-dim); }
+    /* Lobby invite friends picker */
+    .lobby-invite-search {
+      width: 100%;
+      margin: 4px 0 8px;
+    }
+    .lobby-invite-search input {
+      width: 100%;
+      padding: 10px 14px;
+      border-radius: 12px;
+      border: 1px solid var(--border);
+      background: var(--surface2);
+      color: var(--text);
+      font-size: 0.88rem;
+      font-weight: 600;
+      outline: none;
+    }
+    .lobby-invite-search input:focus {
+      border-color: var(--accent);
+      box-shadow: 0 0 0 2px var(--accent-soft);
+    }
+    .lobby-invite-list {
+      width: 100%;
+      max-height: min(46vh, 300px);
+      overflow-x: hidden;
+      overflow-y: auto;
+      scrollbar-width: thin;
+      scrollbar-color: rgba(255,255,255,0.15) transparent;
+      -ms-overflow-style: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      margin: 4px 0 12px;
+      text-align: left;
+      -webkit-overflow-scrolling: touch;
+      overscroll-behavior: contain;
+    }
+    .lobby-invite-list::-webkit-scrollbar { width: 4px; }
+    .lobby-invite-list::-webkit-scrollbar-thumb {
+      background: rgba(255,255,255,0.18);
+      border-radius: 4px;
+    }
+    .lobby-invite-item {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 10px 12px;
+      border-radius: 12px;
+      background: var(--surface2);
+      border: 1px solid var(--border);
+    }
+    .lobby-invite-item .f-av {
+      width: 36px; height: 36px; border-radius: 10px;
+      background: linear-gradient(135deg, var(--accent2), var(--accent));
+      display: flex; align-items: center; justify-content: center;
+      font-weight: 800; font-size: 0.85rem; color: #041018; flex-shrink: 0;
+    }
+    .lobby-invite-item .f-info { flex: 1; min-width: 0; }
+    .lobby-invite-item .f-name { font-weight: 700; font-size: 0.9rem; }
+    .lobby-invite-item .f-meta { font-size: 0.72rem; color: var(--text-dim); margin-top: 2px; }
+    .lobby-invite-item button { flex-shrink: 0; min-height: 34px; padding: 7px 12px; font-size: 0.78rem; }
+    .lobby-invite-empty {
+      text-align: center; color: var(--text-dim); font-size: 0.85rem; padding: 18px 8px;
+    }
+    #screenFriends .friend-card,
+    #screenFriends .friend-req-card {
+      padding: 6px 8px;
+      border-radius: 10px;
+      gap: 8px;
+    }
+    #screenFriends .friend-card .f-av,
+    #screenFriends .friend-req-card .f-av {
+      width: 28px;
+      height: 28px;
+      min-width: 28px;
+      min-height: 28px;
+      max-width: 28px;
+      max-height: 28px;
+      border-radius: 8px;
+      font-size: 0.7rem;
+      overflow: hidden;
+    }
+    #screenFriends .friend-card .f-name,
+    #screenFriends .friend-req-card .f-name {
+      font-size: 0.82rem;
+      font-weight: 700;
+      line-height: 1.15;
+    }
+    #screenFriends .friend-card .f-code,
+    #screenFriends .friend-req-card .f-meta {
+      font-size: 0.65rem;
+      margin-top: 0;
+      line-height: 1.2;
+    }
+    #screenFriends .friend-card .f-actions {
+      flex-direction: row;
+      gap: 4px;
+      align-items: center;
+    }
+    #screenFriends .friend-card .f-actions button {
+      padding: 5px 8px;
+      font-size: 0.68rem;
+      min-height: 28px;
+      border-radius: 8px;
+    }
+    #screenFriends .friend-req-card .f-actions button {
+      padding: 5px 9px;
+      font-size: 0.72rem;
+      min-height: 28px;
+      border-radius: 8px;
+    }
+    #screenFriends .friend-list {
+      gap: 5px;
+    }
+    #screenFriends .f-online-dot {
+      width: 9px;
+      height: 9px;
+      right: -1px;
+      bottom: -1px;
+      border-width: 1.5px;
+    }
+    #screenFriends .friends-actions-bar {
+      margin-top: 8px;
+    }
+    #screenFriends .friends-section-empty {
+      padding: 10px;
+      font-size: 0.78rem;
+    }
+    .lobby-modal { max-width: 360px; width: 100%; }
+    .lobby-code-wrap {
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 12px;
+      margin: 4px 0 14px;
+    }
+    .lobby-code-label {
+      font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.08em;
+      color: var(--text-dim); margin-bottom: 4px;
+    }
+    .lobby-code {
+      font-size: 1.6rem; font-weight: 800; letter-spacing: 0.18em;
+      color: var(--accent); font-variant-numeric: tabular-nums;
+    }
+    .lobby-players {
+      display: flex; flex-direction: column; gap: 8px; margin-bottom: 12px;
+    }
+    .lobby-slot {
+      display: flex; justify-content: space-between; align-items: center;
+      padding: 12px 14px; border-radius: 12px;
+      background: var(--surface2); border: 1px solid var(--border);
+      text-align: left;
+    }
+    .lobby-slot.empty { opacity: 0.65; }
+    .lobby-slot.ready {
+      border-color: rgba(0,212,170,0.5);
+      background: rgba(0,212,170,0.08);
+    }
+    .lobby-slot-name { font-weight: 700; font-size: 0.95rem; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+    .lobby-ping {
+      font-size: 0.72rem;
+      font-weight: 700;
+      font-variant-numeric: tabular-nums;
+      padding: 1px 6px;
+      border-radius: 999px;
+      background: rgba(255,255,255,0.06);
+      border: 1px solid var(--border);
+      color: var(--text-dim);
+    }
+    .lobby-ping.good { color: var(--accent); border-color: rgba(0,212,170,0.35); background: rgba(0,212,170,0.1); }
+    .lobby-ping.mid { color: #ffc14d; border-color: rgba(255,193,77,0.35); background: rgba(255,193,77,0.1); }
+    .lobby-ping.bad { color: var(--danger); border-color: rgba(255,80,100,0.35); background: rgba(255,80,100,0.1); }
+    .lobby-ping:empty { display: none; }
+    .lobby-slot-state { font-size: 0.78rem; color: var(--text-dim); font-weight: 600; }
+    .lobby-slot.ready .lobby-slot-state { color: var(--accent); }
+    .lobby-duration { margin-bottom: 4px; }
+    #btnLobbyReady.is-ready {
+      background: var(--surface2);
+      color: var(--accent);
+      border: 1px solid rgba(0,212,170,0.45);
+    }
+    .friend-code-box .label { font-size: 0.75rem; color: var(--text-dim); margin-bottom: 6px; }
+    .friend-code-box .code {
+      font-size: 1.6rem; font-weight: 800; letter-spacing: 0.18em;
+      color: var(--accent); font-variant-numeric: tabular-nums;
+      -webkit-user-select: text;
+      user-select: text;
+      cursor: text;
+    }
+    .friend-add-row input,
+    #joinRoomInput,
+    #friendCodeInput {
+      -webkit-user-select: text;
+      user-select: text;
+    }
+    .friend-add-row {
+      display: flex; gap: 8px; width: 100%; max-width: 420px; margin: 8px 0 12px;
+    }
+    .friend-add-row input {
+      flex: 1; background: var(--surface2); border: 1px solid var(--border);
+      border-radius: 12px; padding: 10px 12px; color: var(--text);
+      font-size: 0.95rem; letter-spacing: 0.12em; text-transform: uppercase;
+      outline: none;
+    }
+    .friend-add-row input:focus { border-color: var(--accent); }
+    .friend-list {
+      width: 100%; max-width: 420px; max-height: 45vh; overflow-y: auto;
+      display: flex; flex-direction: column; gap: 5px; margin-bottom: 8px;
+    }
+    .friend-card {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: 10px; padding: 6px 8px;
+      display: flex; align-items: center; gap: 8px;
+    }
+    .friend-card .f-av {
+      width: 28px; height: 28px; border-radius: 8px;
+      background: linear-gradient(135deg, var(--accent2), var(--accent));
+      display: flex; align-items: center; justify-content: center;
+      font-weight: 800; font-size: 0.7rem; color: #041018; flex-shrink: 0;
+      overflow: hidden;
+      position: relative;
+      box-sizing: border-box;
+    }
+    .friend-card .f-av img,
+    .friend-req-card .f-av img,
+    #screenFriends .f-av img,
+    .lobby-invite-item .f-av img {
+      width: 100% !important;
+      height: 100% !important;
+      max-width: 100% !important;
+      max-height: 100% !important;
+      object-fit: cover !important;
+      object-position: center !important;
+      display: block !important;
+      border-radius: inherit;
+      flex-shrink: 0;
+    }
+    .friend-card .f-av.has-photo,
+    .friend-req-card .f-av.has-photo,
+    #screenFriends .f-av.has-photo {
+      background: transparent !important;
+      color: transparent !important;
+      padding: 0 !important;
+    }
+    .friend-card .f-info { flex: 1; text-align: left; min-width: 0; }
+    .friend-card .f-name { font-weight: 700; font-size: 0.82rem; line-height: 1.15; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .friend-card .f-code { font-size: 0.65rem; color: var(--text-dim); margin-top: 0; letter-spacing: 0.06em; line-height: 1.2; }
+    .friend-card .f-actions {
+      display: flex; flex-direction: row; gap: 4px;
+      flex-shrink: 0; position: relative; z-index: 5;
+      pointer-events: auto !important;
+      align-items: center;
+    }
+    .friend-card .f-actions button {
+      padding: 5px 8px; font-size: 0.68rem;
+      min-height: 28px; cursor: pointer;
+      pointer-events: auto !important;
+      touch-action: manipulation;
+      position: relative; z-index: 6;
+      border-radius: 8px;
+    }
+    .friend-card .f-remove {
+      border-color: rgba(255,92,122,0.45) !important;
+      color: var(--danger) !important;
+    }
+    .friend-add-status {
+      display: none !important;
+      width: 100%; max-width: 420px;
+      min-height: 0;
+      height: 0;
+      overflow: hidden;
+      font-size: 0.8rem;
+      font-weight: 600;
+      text-align: center;
+      margin: 0;
+      color: var(--text-dim);
+    }
+    .friend-add-status.err { color: var(--danger); }
+    .friend-add-status.ok { color: var(--accent); }
+    .friend-add-status.wait { color: var(--accent2); }
+    .friend-req-list {
+      width: 100%; max-width: 420px;
+      display: flex; flex-direction: column; gap: 5px;
+      margin: 0 0 6px;
+    }
+    .friend-req-card {
+      background: linear-gradient(145deg, rgba(124,92,255,0.14), rgba(0,212,170,0.08));
+      border: 1px solid rgba(124,92,255,0.4);
+      border-radius: 10px;
+      padding: 6px 8px;
+      display: flex; align-items: center; gap: 8px;
+      animation: friendReqIn 0.45s cubic-bezier(0.22, 1.05, 0.36, 1) both;
+    }
+    .friend-req-card.lobby-ch-card {
+      background: linear-gradient(145deg, rgba(124,92,255,0.22), rgba(94,231,255,0.08));
+      border: 1px solid rgba(124,92,255,0.55);
+      box-shadow: 0 0 0 1px rgba(124,92,255,0.12), 0 6px 18px rgba(124,92,255,0.12);
+      animation: none;
+    }
+    .friend-req-card.lobby-ch-card .f-meta {
+      color: #b9a6ff;
+      font-weight: 600;
+    }
+    .friend-req-card.lobby-ch-card .f-av {
+      background: linear-gradient(135deg, var(--accent2), #5ee7ff);
+      box-shadow: 0 0 0 1px rgba(124,92,255,0.35);
+    }
+    .friend-req-card.lobby-join-card {
+      background: linear-gradient(145deg, rgba(0,212,170,0.16), rgba(124,92,255,0.06));
+      border: 1px solid rgba(0,212,170,0.45);
+      box-shadow: 0 0 0 1px rgba(0,212,170,0.1), 0 6px 18px rgba(0,212,170,0.1);
+      animation: none;
+    }
+    .friend-req-card.lobby-join-card .f-meta {
+      color: var(--accent);
+      font-weight: 600;
+    }
+    .friend-req-card .req-badge {
+      display: inline-block;
+      font-size: 0.58rem;
+      font-weight: 800;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      padding: 1px 6px;
+      border-radius: 999px;
+      margin-right: 4px;
+      vertical-align: middle;
+    }
+    .friend-req-card.lobby-ch-card .req-badge {
+      color: #cbb8ff;
+      background: rgba(124,92,255,0.22);
+      border: 1px solid rgba(124,92,255,0.4);
+    }
+    .friend-req-card.lobby-join-card .req-badge {
+      color: var(--accent);
+      background: rgba(0,212,170,0.15);
+      border: 1px solid rgba(0,212,170,0.35);
+    }
+    .friend-req-card.friend-only-card .req-badge {
+      color: var(--text-dim);
+      background: rgba(255,255,255,0.06);
+      border: 1px solid var(--border);
+    }
+    .lobby-inv-btn.waiting {
+      opacity: 0.85;
+      pointer-events: none;
+      background: var(--surface2) !important;
+      border: 1px solid var(--border) !important;
+      color: var(--text-dim) !important;
+    }
+    @keyframes friendReqIn {
+      from { opacity: 0; transform: translateY(-12px) scale(0.96); }
+      to { opacity: 1; transform: translateY(0) scale(1); }
+    }
+    .friend-req-card .f-av {
+      width: 28px; height: 28px; border-radius: 8px;
+      background: linear-gradient(135deg, var(--accent2), var(--accent));
+      display: flex; align-items: center; justify-content: center;
+      font-weight: 800; font-size: 0.7rem; color: #041018; flex-shrink: 0;
+    }
+    .friend-req-card .f-info { flex: 1; text-align: left; min-width: 0; }
+    .friend-req-card .f-name { font-weight: 700; font-size: 0.82rem; line-height: 1.15; }
+    .friend-req-card .f-meta { font-size: 0.65rem; color: var(--text-dim); margin-top: 0; line-height: 1.2; }
+    .friend-req-card .f-actions { display: flex; gap: 4px; flex-shrink: 0; align-items: center; }
+    .friend-req-card .f-actions button { padding: 5px 9px; font-size: 0.72rem; min-height: 28px; border-radius: 8px; }
+    /* Global incoming friend request toast */
+    .fr-toast {
+      border: 1px solid rgba(124, 92, 255, 0.55);
+      box-shadow: 0 16px 48px rgba(0,0,0,0.55), 0 0 28px rgba(124,92,255,0.18);
+    }
+    .fr-toast.visible {
+      opacity: 1;
+      transform: translateX(0);
+      pointer-events: auto;
+    }
+    .fr-toast.out {
+      opacity: 0;
+      transform: translateX(112%);
+      pointer-events: none;
+    }
+    .fr-toast-head {
+      display: flex; align-items: center; gap: 10px; margin-bottom: 10px;
+    }
+    .fr-toast-av {
+      width: 40px; height: 40px; border-radius: 12px;
+      background: linear-gradient(135deg, var(--accent2), var(--accent));
+      display: flex; align-items: center; justify-content: center;
+      font-weight: 800; font-size: 0.9rem; color: #041018; flex-shrink: 0;
+      box-shadow: 0 0 0 2px rgba(124,92,255,0.35);
+    }
+    .fr-toast-label {
+      font-size: 0.65rem; font-weight: 800; text-transform: uppercase;
+      letter-spacing: 0.08em; color: var(--accent2);
+    }
+    .fr-toast-name {
+      font-size: 0.95rem; font-weight: 800; color: var(--text); line-height: 1.2;
+      overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 180px;
+    }
+    .fr-toast-meta {
+      font-size: 0.75rem; color: var(--text-dim); margin-top: 2px;
+    }
+    .fr-toast-actions {
+      display: flex; gap: 8px; margin-top: 4px;
+    }
+    .fr-toast-actions button {
+      flex: 1; min-height: 36px; font-size: 0.82rem;
+      border-radius: 10px;
+    }
+    .fr-toast-dismiss {
+      position: absolute;
+      top: 8px; right: 10px;
+      width: 28px; height: 28px;
+      border: none;
+      background: transparent;
+      color: var(--text-dim);
+      font-size: 1.1rem;
+      line-height: 1;
+      cursor: pointer;
+      padding: 0;
+      min-height: 0;
+      opacity: 0.7;
+      z-index: 2;
+    }
+    .fr-toast-dismiss:active { opacity: 1; transform: scale(0.92); }
+    .fr-toast-hint {
+      font-size: 0.6rem;
+      color: var(--text-dim);
+      text-align: center;
+      margin-top: 6px;
+      opacity: 0.7;
+    }
+    .fr-toast.dragging, .ch-toast.dragging, .rj-toast.dragging {
+      transition: none !important;
+    }
+    .fr-toast-shine {
+      position: absolute; inset: 0; border-radius: 18px; overflow: hidden; pointer-events: none;
+    }
+    .fr-toast-shine::after {
+      content: '';
+      position: absolute; inset: 0;
+      background: linear-gradient(105deg, transparent 40%, rgba(255,255,255,0.1) 50%, transparent 60%);
+      transform: translateX(-120%);
+      animation: frShine 0.8s ease 0.35s forwards;
+    }
+    @keyframes frShine {
+      to { transform: translateX(120%); }
+    }
+    /* Lightweight info toast (decline / connected) — top-right slide */
+    .info-toast {
+      position: fixed;
+      top: max(12px, env(safe-area-inset-top, 0px));
+      right: max(10px, env(safe-area-inset-right, 0px));
+      left: auto;
+      transform: translateX(112%);
+      z-index: 10000;
+      width: min(86vw, 280px);
+      background: rgba(18, 22, 30, 0.98);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 11px 12px 10px;
+      opacity: 0;
+      pointer-events: none;
+      transition: transform 0.38s cubic-bezier(0.22, 1.1, 0.36, 1), opacity 0.32s ease;
+      box-shadow: 0 12px 36px rgba(0,0,0,0.45);
+      touch-action: pan-y;
+    }
+    .info-toast.visible {
+      transform: translateX(0);
+      opacity: 1;
+      pointer-events: auto;
+    }
+    .info-toast.out {
+      transform: translateX(112%);
+      opacity: 0;
+    }
+    .info-toast.dragging { transition: none; }
+    .info-toast.ok {
+      border-color: rgba(0,212,170,0.5);
+      background: linear-gradient(145deg, rgba(0,40,36,0.98), rgba(18,22,30,0.98));
+      box-shadow: 0 12px 36px rgba(0,0,0,0.45), 0 0 0 1px rgba(0,212,170,0.12);
+    }
+    .info-toast.bad {
+      border-color: rgba(255,90,100,0.45);
+      background: linear-gradient(145deg, rgba(50,18,24,0.98), rgba(18,22,30,0.98));
+      box-shadow: 0 12px 36px rgba(0,0,0,0.45), 0 0 0 1px rgba(255,80,100,0.1);
+    }
+    .info-toast-label {
+      font-size: 0.68rem;
+      font-weight: 800;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--text-dim);
+      margin-bottom: 2px;
+    }
+    .info-toast.ok .info-toast-label { color: var(--accent); }
+    .info-toast.bad .info-toast-label { color: #ff8a96; }
+    .info-toast-text {
+      font-size: 0.88rem;
+      font-weight: 650;
+      color: var(--text);
+      line-height: 1.35;
+    }
+
+    

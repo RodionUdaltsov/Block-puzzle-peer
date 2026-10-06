@@ -1,25 +1,87 @@
 {
-  "version": "3.10.12",
-  "hash": "452377ada2f1",
+  "version": "3.11.0",
+  "hash": "36d2f0932b90",
   "minified": true,
-  "generatedAt": "2026-10-05T19:48:40.312Z",
+  "generatedAt": "2026-10-06T23:17:00.021Z",
   "modules": [
     "public/shared/rules.js",
     "public/match-client.js",
     "public/js/00-state.js",
     "public/js/00-perf.js",
     "public/js/00-i18n.js",
-    "public/js/01-cosmetics.js",
+    "public/js/01-cosmetics/01-skins-core.js",
+    "public/js/01-cosmetics/02-boards.js",
+    "public/js/01-cosmetics/03-skin-shop-actions.js",
+    "public/js/01-cosmetics/04-shop-grid.js",
+    "public/js/01-cosmetics/05-preview-modals.js",
+    "public/js/01-cosmetics/06-inventory-and-server-state.js",
     "public/js/02-bots-achievements-settings.js",
     "public/js/03-audio.js",
-    "public/js/04-profile-friends.js",
-    "public/js/05-soft-render.js",
+    "public/js/04-profile-friends/01-profile-avatar.js",
+    "public/js/04-profile-friends/02-friends-store.js",
+    "public/js/04-profile-friends/03-friends-requests.js",
+    "public/js/04-profile-friends/04-friend-request-toast.js",
+    "public/js/04-profile-friends/05-friends-presence.js",
+    "public/js/04-profile-friends/06-friends-list-ui.js",
+    "public/js/04-profile-friends/07-live-match-rejoin.js",
+    "public/js/04-profile-friends/08-auth-session.js",
+    "public/js/04-profile-friends/09-guest-progress-migration.js",
+    "public/js/04-profile-friends/10-guest-mode-sync.js",
+    "public/js/04-profile-friends/11-auth-modal.js",
+    "public/js/04-profile-friends/12-account-delete-confirm.js",
+    "public/js/04-profile-friends/13-profile-sync-restore.js",
+    "public/js/04-profile-friends/14-entry-gate.js",
+    "public/js/04-profile-friends/15-account-ui-bind.js",
+    "public/js/05-render-and-match-state/01-soft-render.js",
+    "public/js/05-render-and-match-state/02-remote-match-state.js",
+    "public/js/05-render-and-match-state/03-online-room-state.js",
+    "public/js/05-render-and-match-state/04-disconnect-afk-ui.js",
     "public/js/06-match-liveness.js",
-    "public/js/07-match-flow-ui.js",
-    "public/js/08-screens-gameplay.js",
+    "public/js/06-match-lifecycle/01-opponent-profile.js",
+    "public/js/06-match-lifecycle/02-rematch.js",
+    "public/js/06-match-lifecycle/03-room-create-join.js",
+    "public/js/06-match-lifecycle/04-friend-removal.js",
+    "public/js/06-match-lifecycle/05-lobby-ping-toasts.js",
+    "public/js/06-match-lifecycle/06-challenges.js",
+    "public/js/07-match-flow/01-match-loading.js",
+    "public/js/07-match-flow/02-opp-remote-moves.js",
+    "public/js/07-match-flow/03-bot-list-voice.js",
+    "public/js/07-match-flow/04-achievements-claim.js",
+    "public/js/07-match-flow/05-match-end-score-duel.js",
+    "public/js/07-match-flow/06-achievements-render.js",
+    "public/js/07-match-flow/07-opp-pieces-and-dom-refs.js",
+    "public/js/08-gameplay/01-screens.js",
+    "public/js/08-gameplay/02-placement-helpers.js",
+    "public/js/08-gameplay/03-clear-fx.js",
+    "public/js/08-gameplay/04-grid-and-pieces.js",
+    "public/js/08-gameplay/05-board-metrics-drag-state.js",
+    "public/js/08-gameplay/06-drag-input.js",
+    "public/js/08-gameplay/07-ghost-preview.js",
+    "public/js/08-gameplay/08-place-piece.js",
+    "public/js/08-gameplay/09-fx-combo-stuck.js",
     "public/js/09-offline-and-ranked.js",
-    "public/js/10-match-handlers.js",
-    "public/js/11-private-rooms-ui.js",
+    "public/js/10-match-handlers/01-bind-match-client.js",
+    "public/js/10-match-handlers/02-handlers-match-start.js",
+    "public/js/10-match-handlers/03-handlers-state-rejoin.js",
+    "public/js/10-match-handlers/04-handlers-opponent-moves.js",
+    "public/js/10-match-handlers/05-handlers-my-moves.js",
+    "public/js/10-match-handlers/06-handlers-status-clock.js",
+    "public/js/10-match-handlers/07-handlers-match-end.js",
+    "public/js/10-match-handlers/08-handlers-rematch.js",
+    "public/js/10-match-handlers/09-room-match-sync.js",
+    "public/js/10-match-handlers/10-match-intro.js",
+    "public/js/11-lobby-versus-replay/01-private-lobby.js",
+    "public/js/11-lobby-versus-replay/02-versus-start.js",
+    "public/js/11-lobby-versus-replay/03-bot-ai.js",
+    "public/js/11-lobby-versus-replay/04-stuck-and-match-end.js",
+    "public/js/11-lobby-versus-replay/05-end-versus.js",
+    "public/js/11-lobby-versus-replay/06-replay-core.js",
+    "public/js/11-lobby-versus-replay/07-replay-hands.js",
+    "public/js/11-lobby-versus-replay/08-replay-seek.js",
+    "public/js/11-lobby-versus-replay/09-bot-pick.js",
+    "public/js/11-lobby-versus-replay/10-shop-inventory-screens.js",
+    "public/js/11-lobby-versus-replay/11-forfeit-confirm.js",
+    "public/js/11-lobby-versus-replay/12-post-match-rematch.js",
     "public/js/12-boot.js",
     "public/js/13-performance.js",
     "public/js/14-settings-ui.js"
@@ -52,97 +114,469 @@
     {
       "file": "public/js/00-i18n.js",
       "startLine": 1201,
-      "endLine": 2114,
-      "bytes": 41313
+      "endLine": 2158,
+      "bytes": 44049
     },
     {
-      "file": "public/js/01-cosmetics.js",
-      "startLine": 2115,
-      "endLine": 4085,
-      "bytes": 81283
+      "file": "public/js/01-cosmetics/01-skins-core.js",
+      "startLine": 2159,
+      "endLine": 2509,
+      "bytes": 15120
+    },
+    {
+      "file": "public/js/01-cosmetics/02-boards.js",
+      "startLine": 2510,
+      "endLine": 2907,
+      "bytes": 17167
+    },
+    {
+      "file": "public/js/01-cosmetics/03-skin-shop-actions.js",
+      "startLine": 2908,
+      "endLine": 3164,
+      "bytes": 11341
+    },
+    {
+      "file": "public/js/01-cosmetics/04-shop-grid.js",
+      "startLine": 3165,
+      "endLine": 3357,
+      "bytes": 7633
+    },
+    {
+      "file": "public/js/01-cosmetics/05-preview-modals.js",
+      "startLine": 3358,
+      "endLine": 3826,
+      "bytes": 17102
+    },
+    {
+      "file": "public/js/01-cosmetics/06-inventory-and-server-state.js",
+      "startLine": 3827,
+      "endLine": 4164,
+      "bytes": 14616
     },
     {
       "file": "public/js/02-bots-achievements-settings.js",
-      "startLine": 4086,
-      "endLine": 4968,
-      "bytes": 151766
+      "startLine": 4165,
+      "endLine": 5054,
+      "bytes": 151963
     },
     {
       "file": "public/js/03-audio.js",
-      "startLine": 4969,
-      "endLine": 5475,
-      "bytes": 18112
+      "startLine": 5055,
+      "endLine": 5563,
+      "bytes": 18296
     },
     {
-      "file": "public/js/04-profile-friends.js",
-      "startLine": 5476,
-      "endLine": 12077,
-      "bytes": 270474
+      "file": "public/js/04-profile-friends/01-profile-avatar.js",
+      "startLine": 5564,
+      "endLine": 6007,
+      "bytes": 19380
     },
     {
-      "file": "public/js/05-soft-render.js",
-      "startLine": 12078,
-      "endLine": 14038,
-      "bytes": 73647
+      "file": "public/js/04-profile-friends/02-friends-store.js",
+      "startLine": 6008,
+      "endLine": 6091,
+      "bytes": 3195
+    },
+    {
+      "file": "public/js/04-profile-friends/03-friends-requests.js",
+      "startLine": 6092,
+      "endLine": 6704,
+      "bytes": 24265
+    },
+    {
+      "file": "public/js/04-profile-friends/04-friend-request-toast.js",
+      "startLine": 6705,
+      "endLine": 7051,
+      "bytes": 12705
+    },
+    {
+      "file": "public/js/04-profile-friends/05-friends-presence.js",
+      "startLine": 7052,
+      "endLine": 7423,
+      "bytes": 13505
+    },
+    {
+      "file": "public/js/04-profile-friends/06-friends-list-ui.js",
+      "startLine": 7424,
+      "endLine": 7907,
+      "bytes": 18960
+    },
+    {
+      "file": "public/js/04-profile-friends/07-live-match-rejoin.js",
+      "startLine": 7908,
+      "endLine": 8562,
+      "bytes": 26678
+    },
+    {
+      "file": "public/js/04-profile-friends/08-auth-session.js",
+      "startLine": 8563,
+      "endLine": 9138,
+      "bytes": 22975
+    },
+    {
+      "file": "public/js/04-profile-friends/09-guest-progress-migration.js",
+      "startLine": 9139,
+      "endLine": 9766,
+      "bytes": 28367
+    },
+    {
+      "file": "public/js/04-profile-friends/10-guest-mode-sync.js",
+      "startLine": 9767,
+      "endLine": 10190,
+      "bytes": 16265
+    },
+    {
+      "file": "public/js/04-profile-friends/11-auth-modal.js",
+      "startLine": 10191,
+      "endLine": 10856,
+      "bytes": 29314
+    },
+    {
+      "file": "public/js/04-profile-friends/12-account-delete-confirm.js",
+      "startLine": 10857,
+      "endLine": 11151,
+      "bytes": 12387
+    },
+    {
+      "file": "public/js/04-profile-friends/13-profile-sync-restore.js",
+      "startLine": 11152,
+      "endLine": 11270,
+      "bytes": 5278
+    },
+    {
+      "file": "public/js/04-profile-friends/14-entry-gate.js",
+      "startLine": 11271,
+      "endLine": 12029,
+      "bytes": 32379
+    },
+    {
+      "file": "public/js/04-profile-friends/15-account-ui-bind.js",
+      "startLine": 12030,
+      "endLine": 12260,
+      "bytes": 9377
+    },
+    {
+      "file": "public/js/05-render-and-match-state/01-soft-render.js",
+      "startLine": 12261,
+      "endLine": 12581,
+      "bytes": 13411
+    },
+    {
+      "file": "public/js/05-render-and-match-state/02-remote-match-state.js",
+      "startLine": 12582,
+      "endLine": 13173,
+      "bytes": 22931
+    },
+    {
+      "file": "public/js/05-render-and-match-state/03-online-room-state.js",
+      "startLine": 13174,
+      "endLine": 13645,
+      "bytes": 16495
+    },
+    {
+      "file": "public/js/05-render-and-match-state/04-disconnect-afk-ui.js",
+      "startLine": 13646,
+      "endLine": 14238,
+      "bytes": 21700
     },
     {
       "file": "public/js/06-match-liveness.js",
-      "startLine": 14039,
-      "endLine": 16101,
-      "bytes": 74940
+      "startLine": 14239,
+      "endLine": 14676,
+      "bytes": 15277
     },
     {
-      "file": "public/js/07-match-flow-ui.js",
-      "startLine": 16102,
-      "endLine": 18059,
-      "bytes": 75891
+      "file": "public/js/06-match-lifecycle/01-opponent-profile.js",
+      "startLine": 14677,
+      "endLine": 14835,
+      "bytes": 6114
     },
     {
-      "file": "public/js/08-screens-gameplay.js",
-      "startLine": 18060,
-      "endLine": 21272,
-      "bytes": 129223
+      "file": "public/js/06-match-lifecycle/02-rematch.js",
+      "startLine": 14836,
+      "endLine": 15282,
+      "bytes": 16478
+    },
+    {
+      "file": "public/js/06-match-lifecycle/03-room-create-join.js",
+      "startLine": 15283,
+      "endLine": 15431,
+      "bytes": 6353
+    },
+    {
+      "file": "public/js/06-match-lifecycle/04-friend-removal.js",
+      "startLine": 15432,
+      "endLine": 15504,
+      "bytes": 2489
+    },
+    {
+      "file": "public/js/06-match-lifecycle/05-lobby-ping-toasts.js",
+      "startLine": 15505,
+      "endLine": 15747,
+      "bytes": 8656
+    },
+    {
+      "file": "public/js/06-match-lifecycle/06-challenges.js",
+      "startLine": 15748,
+      "endLine": 16337,
+      "bytes": 21087
+    },
+    {
+      "file": "public/js/07-match-flow/01-match-loading.js",
+      "startLine": 16338,
+      "endLine": 16827,
+      "bytes": 17349
+    },
+    {
+      "file": "public/js/07-match-flow/02-opp-remote-moves.js",
+      "startLine": 16828,
+      "endLine": 17142,
+      "bytes": 12242
+    },
+    {
+      "file": "public/js/07-match-flow/03-bot-list-voice.js",
+      "startLine": 17143,
+      "endLine": 17314,
+      "bytes": 7635
+    },
+    {
+      "file": "public/js/07-match-flow/04-achievements-claim.js",
+      "startLine": 17315,
+      "endLine": 17601,
+      "bytes": 12133
+    },
+    {
+      "file": "public/js/07-match-flow/05-match-end-score-duel.js",
+      "startLine": 17602,
+      "endLine": 17964,
+      "bytes": 13595
+    },
+    {
+      "file": "public/js/07-match-flow/06-achievements-render.js",
+      "startLine": 17965,
+      "endLine": 18199,
+      "bytes": 9338
+    },
+    {
+      "file": "public/js/07-match-flow/07-opp-pieces-and-dom-refs.js",
+      "startLine": 18200,
+      "endLine": 18330,
+      "bytes": 5106
+    },
+    {
+      "file": "public/js/08-gameplay/01-screens.js",
+      "startLine": 18331,
+      "endLine": 18672,
+      "bytes": 13388
+    },
+    {
+      "file": "public/js/08-gameplay/02-placement-helpers.js",
+      "startLine": 18673,
+      "endLine": 18826,
+      "bytes": 5843
+    },
+    {
+      "file": "public/js/08-gameplay/03-clear-fx.js",
+      "startLine": 18827,
+      "endLine": 19338,
+      "bytes": 22796
+    },
+    {
+      "file": "public/js/08-gameplay/04-grid-and-pieces.js",
+      "startLine": 19339,
+      "endLine": 19769,
+      "bytes": 16654
+    },
+    {
+      "file": "public/js/08-gameplay/05-board-metrics-drag-state.js",
+      "startLine": 19770,
+      "endLine": 19991,
+      "bytes": 9006
+    },
+    {
+      "file": "public/js/08-gameplay/06-drag-input.js",
+      "startLine": 19992,
+      "endLine": 20367,
+      "bytes": 15248
+    },
+    {
+      "file": "public/js/08-gameplay/07-ghost-preview.js",
+      "startLine": 20368,
+      "endLine": 20882,
+      "bytes": 19725
+    },
+    {
+      "file": "public/js/08-gameplay/08-place-piece.js",
+      "startLine": 20883,
+      "endLine": 21245,
+      "bytes": 14626
+    },
+    {
+      "file": "public/js/08-gameplay/09-fx-combo-stuck.js",
+      "startLine": 21246,
+      "endLine": 21622,
+      "bytes": 15670
     },
     {
       "file": "public/js/09-offline-and-ranked.js",
-      "startLine": 21273,
-      "endLine": 21884,
+      "startLine": 21623,
+      "endLine": 22234,
       "bytes": 24315
     },
     {
-      "file": "public/js/10-match-handlers.js",
-      "startLine": 21885,
-      "endLine": 23716,
-      "bytes": 78383
+      "file": "public/js/10-match-handlers/01-bind-match-client.js",
+      "startLine": 22235,
+      "endLine": 22280,
+      "bytes": 1689
     },
     {
-      "file": "public/js/11-private-rooms-ui.js",
-      "startLine": 23717,
-      "endLine": 27943,
-      "bytes": 169270
+      "file": "public/js/10-match-handlers/02-handlers-match-start.js",
+      "startLine": 22281,
+      "endLine": 22448,
+      "bytes": 7832
+    },
+    {
+      "file": "public/js/10-match-handlers/03-handlers-state-rejoin.js",
+      "startLine": 22449,
+      "endLine": 22612,
+      "bytes": 7069
+    },
+    {
+      "file": "public/js/10-match-handlers/04-handlers-opponent-moves.js",
+      "startLine": 22613,
+      "endLine": 22712,
+      "bytes": 4528
+    },
+    {
+      "file": "public/js/10-match-handlers/05-handlers-my-moves.js",
+      "startLine": 22713,
+      "endLine": 22981,
+      "bytes": 12027
+    },
+    {
+      "file": "public/js/10-match-handlers/06-handlers-status-clock.js",
+      "startLine": 22982,
+      "endLine": 23160,
+      "bytes": 8603
+    },
+    {
+      "file": "public/js/10-match-handlers/07-handlers-match-end.js",
+      "startLine": 23161,
+      "endLine": 23252,
+      "bytes": 3797
+    },
+    {
+      "file": "public/js/10-match-handlers/08-handlers-rematch.js",
+      "startLine": 23253,
+      "endLine": 23337,
+      "bytes": 3436
+    },
+    {
+      "file": "public/js/10-match-handlers/09-room-match-sync.js",
+      "startLine": 23338,
+      "endLine": 23733,
+      "bytes": 15279
+    },
+    {
+      "file": "public/js/10-match-handlers/10-match-intro.js",
+      "startLine": 23734,
+      "endLine": 24145,
+      "bytes": 17072
+    },
+    {
+      "file": "public/js/11-lobby-versus-replay/01-private-lobby.js",
+      "startLine": 24146,
+      "endLine": 24372,
+      "bytes": 9101
+    },
+    {
+      "file": "public/js/11-lobby-versus-replay/02-versus-start.js",
+      "startLine": 24373,
+      "endLine": 24644,
+      "bytes": 11967
+    },
+    {
+      "file": "public/js/11-lobby-versus-replay/03-bot-ai.js",
+      "startLine": 24645,
+      "endLine": 25052,
+      "bytes": 15086
+    },
+    {
+      "file": "public/js/11-lobby-versus-replay/04-stuck-and-match-end.js",
+      "startLine": 25053,
+      "endLine": 25428,
+      "bytes": 12620
+    },
+    {
+      "file": "public/js/11-lobby-versus-replay/05-end-versus.js",
+      "startLine": 25429,
+      "endLine": 25903,
+      "bytes": 22843
+    },
+    {
+      "file": "public/js/11-lobby-versus-replay/06-replay-core.js",
+      "startLine": 25904,
+      "endLine": 26501,
+      "bytes": 23844
+    },
+    {
+      "file": "public/js/11-lobby-versus-replay/07-replay-hands.js",
+      "startLine": 26502,
+      "endLine": 27124,
+      "bytes": 23050
+    },
+    {
+      "file": "public/js/11-lobby-versus-replay/08-replay-seek.js",
+      "startLine": 27125,
+      "endLine": 27561,
+      "bytes": 18645
+    },
+    {
+      "file": "public/js/11-lobby-versus-replay/09-bot-pick.js",
+      "startLine": 27562,
+      "endLine": 27749,
+      "bytes": 7292
+    },
+    {
+      "file": "public/js/11-lobby-versus-replay/10-shop-inventory-screens.js",
+      "startLine": 27750,
+      "endLine": 27919,
+      "bytes": 7441
+    },
+    {
+      "file": "public/js/11-lobby-versus-replay/11-forfeit-confirm.js",
+      "startLine": 27920,
+      "endLine": 28088,
+      "bytes": 5927
+    },
+    {
+      "file": "public/js/11-lobby-versus-replay/12-post-match-rematch.js",
+      "startLine": 28089,
+      "endLine": 28440,
+      "bytes": 14154
     },
     {
       "file": "public/js/12-boot.js",
-      "startLine": 27944,
-      "endLine": 28095,
+      "startLine": 28441,
+      "endLine": 28592,
       "bytes": 5958
     },
     {
       "file": "public/js/13-performance.js",
-      "startLine": 28096,
-      "endLine": 28247,
-      "bytes": 5372
+      "startLine": 28593,
+      "endLine": 28937,
+      "bytes": 14019
     },
     {
       "file": "public/js/14-settings-ui.js",
-      "startLine": 28248,
-      "endLine": 28343,
+      "startLine": 28938,
+      "endLine": 29033,
       "bytes": 3616
     }
   ],
   "bytes": {
-    "classic": 1221132,
-    "esm": 1221176,
-    "classicRaw": 1244218
+    "classic": 1234691,
+    "esm": 1234734,
+    "classicRaw": 1275589
   }
 }

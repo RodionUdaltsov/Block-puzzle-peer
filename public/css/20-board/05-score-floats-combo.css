@@ -1,0 +1,326 @@
+/* css/20-board/05-score-floats-combo.css — Score floats and combo effects. */
+.player-panel.opp .combo-banner {
+      z-index: 28;
+    }
+    .combo-banner.show {
+      animation: comboPulse 0.85s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+    }
+    /* Stay near the piece — short rise, does not fly over the whole board */
+    @keyframes comboPulse {
+      0%   { opacity: 0; transform: translate(-50%, -35%) scale(0.88); }
+      18%  { opacity: 1; transform: translate(-50%, -55%) scale(1.06); }
+      70%  { opacity: 0.9; transform: translate(-50%, -72%) scale(1); }
+      100% { opacity: 0; transform: translate(-50%, -88%) scale(0.96); }
+    }
+    .score-float {
+      position: absolute; pointer-events: none; z-index: 26;
+      font-weight: 800; font-size: 0.82rem;
+      color: rgba(0, 212, 170, 0.95);
+      text-shadow: 0 0 8px rgba(0,212,170,0.35), 0 1px 6px rgba(0,0,0,0.4);
+      animation: scoreFloatUp 1.05s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+      white-space: nowrap;
+    }
+    .score-float.combo { color: rgba(255, 200, 100, 0.98); font-size: 0.9rem; }
+    .score-float.chain-tag {
+      font-size: 1.05rem;
+      letter-spacing: 0.04em;
+      z-index: 27;
+    }
+    @keyframes scoreFloatUp {
+      0%   { opacity: 0; transform: translate(-50%, 8px) scale(0.85); }
+      18%  { opacity: 1; transform: translate(-50%, -2px) scale(1.05); }
+      100% { opacity: 0; transform: translate(-50%, -22px) scale(0.95); }
+    }
+    /* —— Rare skins: exclusive score number FX —— */
+    .score-float.sf-rare {
+      color: #7af0ff;
+      font-weight: 800;
+      text-shadow: 0 0 10px rgba(94,231,255,0.7), 0 0 18px rgba(94,231,255,0.35);
+      animation: scoreRareFloat 1.15s cubic-bezier(0.22, 1.1, 0.36, 1) forwards;
+    }
+    .score-float.sf-rare-neon {
+      color: #39ff14;
+      font-weight: 900;
+      letter-spacing: 0.04em;
+      text-shadow:
+        0 0 6px #39ff14,
+        0 0 14px #39ff14,
+        0 0 22px #ff00ff,
+        0 0 4px #00f5ff;
+      animation: scoreNeonPulse 1.2s cubic-bezier(0.2, 0.9, 0.3, 1) forwards;
+    }
+    @keyframes scoreNeonPulse {
+      0%   { opacity: 0; transform: translate(-50%, 10px) scale(0.6); filter: brightness(1.6); }
+      12%  { opacity: 1; transform: translate(-50%, -4px) scale(1.25); filter: brightness(1.8); }
+      28%  { opacity: 1; transform: translate(-50%, -10px) scale(1.05); filter: brightness(1.2); }
+      40%  { opacity: 0.85; filter: brightness(1.7); }
+      55%  { opacity: 0.95; filter: brightness(1.15); }
+      100% { opacity: 0; transform: translate(-50%, -48px) scale(0.95); filter: brightness(1.4); }
+    }
+    .score-float.sf-rare-ice {
+      color: #e0f7ff;
+      font-weight: 800;
+      text-shadow:
+        0 0 8px rgba(165,243,252,0.9),
+        0 0 16px rgba(34,211,238,0.55),
+        0 1px 0 rgba(255,255,255,0.5);
+      animation: scoreIceRise 1.25s cubic-bezier(0.18, 0.9, 0.25, 1) forwards;
+    }
+    @keyframes scoreIceRise {
+      0%   { opacity: 0; transform: translate(-50%, 14px) scale(0.7) rotate(-4deg); filter: blur(2px); }
+      15%  { opacity: 1; transform: translate(-50%, -2px) scale(1.18) rotate(1deg); filter: blur(0); }
+      40%  { opacity: 1; transform: translate(calc(-50% + 3px), -14px) scale(1.05); }
+      100% { opacity: 0; transform: translate(calc(-50% - 2px), -52px) scale(0.9); filter: blur(1px); }
+    }
+    .score-float.sf-rare-sunset {
+      color: #ffd166;
+      font-weight: 800;
+      background: linear-gradient(90deg, #ff6b35, #ffd166, #ef476f);
+      background-size: 200% 100%;
+      -webkit-background-clip: text;
+      background-clip: text;
+      -webkit-text-fill-color: transparent;
+      filter: drop-shadow(0 0 8px rgba(255,107,53,0.55));
+      animation: scoreSunset 1.2s cubic-bezier(0.22, 1.05, 0.36, 1) forwards;
+    }
+    @keyframes scoreSunset {
+      0%   { opacity: 0; transform: translate(-50%, 12px) scale(0.75); background-position: 0% 50%; }
+      15%  { opacity: 1; transform: translate(-50%, -4px) scale(1.2); background-position: 40% 50%; }
+      50%  { opacity: 1; transform: translate(-50%, -18px) scale(1.05); background-position: 80% 50%; }
+      100% { opacity: 0; transform: translate(-50%, -50px) scale(0.92); background-position: 120% 50%; }
+    }
+    .score-float.sf-rare-candy {
+      color: #ff8fab;
+      font-weight: 800;
+      text-shadow: 0 0 10px rgba(255,143,171,0.7), 0 0 16px rgba(189,224,254,0.4);
+      animation: scoreCandyBounce 1.25s cubic-bezier(0.34, 1.4, 0.4, 1) forwards;
+    }
+    @keyframes scoreCandyBounce {
+      0%   { opacity: 0; transform: translate(-50%, 16px) scale(0.5); }
+      20%  { opacity: 1; transform: translate(-50%, -8px) scale(1.22); }
+      35%  { transform: translate(-50%, -2px) scale(0.95); }
+      50%  { transform: translate(-50%, -14px) scale(1.08); }
+      100% { opacity: 0; transform: translate(-50%, -46px) scale(0.9); }
+    }
+    .score-float.sf-epic {
+      color: #e8d4ff;
+      font-weight: 800;
+      text-shadow: 0 0 12px rgba(199,125,255,0.65), 0 0 18px rgba(255,214,102,0.25);
+      animation: scoreEpicFloat 1.2s cubic-bezier(0.22, 1.1, 0.36, 1) forwards;
+    }
+    /* Epic per-skin score numbers */
+    .score-float.sf-epic-lava {
+      color: #ff6b35;
+      font-weight: 900;
+      text-shadow: 0 0 10px rgba(255,69,0,0.85), 0 0 20px rgba(255,140,0,0.5), 0 2px 0 rgba(80,0,0,0.35);
+      animation: scoreLava 1.25s cubic-bezier(0.22, 1.05, 0.36, 1) forwards;
+    }
+    @keyframes scoreLava {
+      0%   { opacity: 0; transform: translate(-50%, 14px) scale(0.7); filter: brightness(1.4); }
+      15%  { opacity: 1; transform: translate(-50%, -6px) scale(1.22); filter: brightness(1.6); }
+      40%  { opacity: 1; transform: translate(calc(-50% + 3px), -16px) scale(1.06); filter: brightness(1.15); }
+      100% { opacity: 0; transform: translate(-50%, -50px) scale(0.92); filter: brightness(1.3); }
+    }
+    .score-float.sf-epic-royal {
+      color: #f5e6a8;
+      font-weight: 900;
+      text-shadow: 0 0 10px rgba(199,125,255,0.7), 0 0 18px rgba(255,214,102,0.45), 0 1px 0 rgba(80,40,120,0.4);
+      animation: scoreRoyal 1.3s cubic-bezier(0.2, 0.95, 0.3, 1) forwards;
+    }
+    @keyframes scoreRoyal {
+      0%   { opacity: 0; transform: translate(-50%, 12px) scale(0.65) rotate(-6deg); }
+      18%  { opacity: 1; transform: translate(-50%, -4px) scale(1.2) rotate(2deg); }
+      45%  { opacity: 1; transform: translate(-50%, -16px) scale(1.05) rotate(0deg); }
+      100% { opacity: 0; transform: translate(-50%, -52px) scale(0.94); }
+    }
+    .score-float.sf-epic-aurora {
+      font-weight: 900;
+      background: linear-gradient(90deg, #5ee7ff, #c77dff, #80ffdb, #a78bfa);
+      background-size: 220% 100%;
+      -webkit-background-clip: text;
+      background-clip: text;
+      -webkit-text-fill-color: transparent;
+      filter: drop-shadow(0 0 10px rgba(94,231,255,0.55));
+      animation: scoreAurora 1.35s cubic-bezier(0.22, 1.05, 0.36, 1) forwards;
+    }
+    @keyframes scoreAurora {
+      0%   { opacity: 0; transform: translate(-50%, 12px) scale(0.75); background-position: 0% 50%; }
+      15%  { opacity: 1; transform: translate(-50%, -4px) scale(1.18); background-position: 40% 50%; }
+      50%  { opacity: 1; transform: translate(-50%, -18px) scale(1.05); background-position: 80% 50%; }
+      100% { opacity: 0; transform: translate(-50%, -52px) scale(0.92); background-position: 120% 50%; }
+    }
+    .score-float.sf-epic-sakura {
+      color: #ffb7c5;
+      font-weight: 900;
+      text-shadow: 0 0 10px rgba(255,143,171,0.75), 0 0 18px rgba(255,200,220,0.4);
+      animation: scoreSakura 1.3s cubic-bezier(0.28, 1.2, 0.4, 1) forwards;
+    }
+    @keyframes scoreSakura {
+      0%   { opacity: 0; transform: translate(-50%, 16px) scale(0.6) rotate(-8deg); }
+      20%  { opacity: 1; transform: translate(-50%, -6px) scale(1.2) rotate(3deg); }
+      40%  { transform: translate(calc(-50% + 4px), -12px) scale(1.05) rotate(-2deg); }
+      100% { opacity: 0; transform: translate(calc(-50% - 6px), -48px) scale(0.9) rotate(4deg); }
+    }
+    .score-float.sf-epic-toxic {
+      color: #b8ff3d;
+      font-weight: 900;
+      text-shadow: 0 0 10px rgba(132,204,22,0.85), 0 0 20px rgba(34,197,94,0.45), 0 0 6px #39ff14;
+      animation: scoreToxic 1.25s cubic-bezier(0.2, 0.9, 0.3, 1) forwards;
+    }
+    @keyframes scoreToxic {
+      0%   { opacity: 0; transform: translate(-50%, 12px) scale(0.7); filter: hue-rotate(0deg); }
+      15%  { opacity: 1; transform: translate(-50%, -4px) scale(1.2); filter: hue-rotate(20deg); }
+      40%  { opacity: 1; transform: translate(-50%, -16px) scale(1.05); filter: hue-rotate(-10deg); }
+      100% { opacity: 0; transform: translate(-50%, -50px) scale(0.92); filter: hue-rotate(30deg); }
+    }
+    .score-float.sf-legend {
+      font-weight: 900;
+      background: linear-gradient(90deg, var(--legend-a, #ffe566), var(--legend-b, #ff9ecd), var(--legend-c, #a78bfa), var(--legend-d, #5ee7ff));
+      background-size: 240% 100%;
+      -webkit-background-clip: text;
+      background-clip: text;
+      -webkit-text-fill-color: transparent;
+      filter: drop-shadow(0 0 12px color-mix(in srgb, var(--legend-a, #ffd666) 60%, transparent));
+      animation: scoreLegendFloat 1.45s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+    }
+    .score-float.sf-legend-gold {
+      font-weight: 900;
+      background: linear-gradient(90deg, #ffd700, #fff3a0, #ffb703, #ffe566, #ffd700);
+      background-size: 260% 100%;
+      -webkit-background-clip: text;
+      background-clip: text;
+      -webkit-text-fill-color: transparent;
+      filter: drop-shadow(0 0 14px rgba(255,215,0,0.75));
+      animation: scoreLegendFloat 1.5s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+    }
+    .score-float.sf-legend-cyber {
+      font-weight: 900;
+      color: #0aff99;
+      text-shadow: 0 0 8px #0aff99, 0 0 16px #00f5ff, 0 0 24px #7b2ff7;
+      letter-spacing: 0.06em;
+      animation: scoreCyber 1.4s cubic-bezier(0.2, 0.95, 0.3, 1) forwards;
+    }
+    @keyframes scoreCyber {
+      0%   { opacity: 0; transform: translate(-50%, 12px) scale(0.6); filter: brightness(1.8); }
+      10%  { opacity: 1; transform: translate(-50%, -4px) scale(1.28); filter: brightness(2); }
+      22%  { opacity: 0.7; filter: brightness(1.1); }
+      30%  { opacity: 1; filter: brightness(1.6); }
+      50%  { opacity: 1; transform: translate(-50%, -18px) scale(1.08); }
+      100% { opacity: 0; transform: translate(-50%, -58px) scale(0.95); filter: brightness(1.4); }
+    }
+    .score-float.sf-legend-midnight {
+      font-weight: 900;
+      color: #e0e1dd;
+      text-shadow: 0 0 10px rgba(94,231,255,0.7), 0 0 20px rgba(124,92,255,0.55), 0 0 8px rgba(201,173,167,0.4);
+      animation: scoreMidnight 1.45s cubic-bezier(0.18, 0.95, 0.28, 1) forwards;
+    }
+    @keyframes scoreMidnight {
+      0%   { opacity: 0; transform: translate(-50%, 14px) scale(0.7); filter: blur(3px); }
+      15%  { opacity: 1; transform: translate(-50%, -4px) scale(1.22); filter: blur(0); }
+      45%  { opacity: 1; transform: translate(-50%, -18px) scale(1.06); }
+      100% { opacity: 0; transform: translate(-50%, -56px) scale(0.92); filter: blur(1px); }
+    }
+    .score-float.chain {
+      font-size: 0.95em;
+    }
+    /* Combo banner skin classes — ONLY with .show so animation restarts each combo */
+    .combo-banner.show.cb-legend {
+      animation: comboLegend 1.85s cubic-bezier(0.16, 1, 0.3, 1) forwards !important;
+      background: linear-gradient(90deg, var(--legend-a, #ffd666), var(--legend-b, #fff6c8), var(--legend-c, #c77dff), var(--legend-d, #5ee7ff), var(--legend-a, #ffd666));
+      background-size: 280% 100%;
+      -webkit-background-clip: text;
+      background-clip: text;
+      -webkit-text-fill-color: transparent;
+      color: transparent;
+      filter:
+        drop-shadow(0 0 16px color-mix(in srgb, var(--legend-a, #ffd666) 75%, transparent))
+        drop-shadow(0 0 28px color-mix(in srgb, var(--legend-c, #c77dff) 50%, transparent));
+    }
+    .combo-banner.show.cb-epic {
+      animation: comboGloss 0.85s cubic-bezier(0.25, 0.7, 0.25, 1) forwards !important;
+      text-shadow: 0 0 14px rgba(255,255,255,0.55), 0 0 24px rgba(199,125,255,0.5), 0 1px 8px rgba(0,0,0,0.45);
+      color: #f0e0ff;
+      -webkit-text-fill-color: #f0e0ff;
+    }
+    .combo-banner.show.cb-rare {
+      color: #7af0ff; -webkit-text-fill-color: #7af0ff;
+      text-shadow: 0 0 12px rgba(94,231,255,0.7), 0 0 20px rgba(94,231,255,0.4);
+    }
+    .combo-banner.show.cb-rare-neon {
+      color: #39ff14; -webkit-text-fill-color: #39ff14;
+      text-shadow: 0 0 8px #39ff14, 0 0 16px #ff00ff, 0 0 22px #00f5ff;
+    }
+    .combo-banner.show.cb-rare-ice {
+      color: #e0f7ff; -webkit-text-fill-color: #e0f7ff;
+      text-shadow: 0 0 10px rgba(165,243,252,0.9), 0 0 18px rgba(34,211,238,0.5);
+    }
+    .combo-banner.show.cb-rare-sunset {
+      color: #ffd166; -webkit-text-fill-color: #ffd166;
+      text-shadow: 0 0 10px rgba(255,107,53,0.7), 0 0 16px rgba(239,71,111,0.4);
+    }
+    .combo-banner.show.cb-rare-candy {
+      color: #ff8fab; -webkit-text-fill-color: #ff8fab;
+      text-shadow: 0 0 10px rgba(255,143,171,0.75), 0 0 16px rgba(189,224,254,0.35);
+    }
+    .combo-banner.show.cb-epic,
+    .combo-banner.show.cb-epic-lava,
+    .combo-banner.show.cb-epic-royal,
+    .combo-banner.show.cb-epic-aurora,
+    .combo-banner.show.cb-epic-sakura,
+    .combo-banner.show.cb-epic-toxic {
+      animation: comboGloss 0.85s cubic-bezier(0.25, 0.7, 0.25, 1) forwards !important;
+    }
+    .combo-banner.show.cb-epic { color: #f0e0ff; -webkit-text-fill-color: #f0e0ff;
+      text-shadow: 0 0 14px rgba(199,125,255,0.55), 0 0 20px rgba(255,214,102,0.3); }
+    .combo-banner.show.cb-epic-lava { color: #ff6b35; -webkit-text-fill-color: #ff6b35;
+      text-shadow: 0 0 12px rgba(255,69,0,0.8), 0 0 22px rgba(255,140,0,0.45); }
+    .combo-banner.show.cb-epic-royal { color: #f5e6a8; -webkit-text-fill-color: #f5e6a8;
+      text-shadow: 0 0 12px rgba(199,125,255,0.65), 0 0 18px rgba(255,214,102,0.4); }
+    .combo-banner.show.cb-epic-aurora { color: #80ffdb; -webkit-text-fill-color: #80ffdb;
+      text-shadow: 0 0 12px rgba(94,231,255,0.7), 0 0 20px rgba(199,125,255,0.4); }
+    .combo-banner.show.cb-epic-sakura { color: #ffb7c5; -webkit-text-fill-color: #ffb7c5;
+      text-shadow: 0 0 12px rgba(255,143,171,0.75), 0 0 18px rgba(255,200,220,0.4); }
+    .combo-banner.show.cb-epic-toxic { color: #b8ff3d; -webkit-text-fill-color: #b8ff3d;
+      text-shadow: 0 0 12px rgba(132,204,22,0.8), 0 0 20px rgba(34,197,94,0.4); }
+    .combo-banner.show.cb-legend-cyber {
+      animation: comboLegend 1.85s cubic-bezier(0.16, 1, 0.3, 1) forwards !important;
+      color: #0aff99; -webkit-text-fill-color: #0aff99;
+      text-shadow: 0 0 10px #0aff99, 0 0 20px #00f5ff, 0 0 28px #7b2ff7;
+    }
+    .combo-banner.show.cb-legend-midnight {
+      animation: comboLegend 1.85s cubic-bezier(0.16, 1, 0.3, 1) forwards !important;
+      color: #e0e1dd; -webkit-text-fill-color: #e0e1dd;
+      text-shadow: 0 0 12px rgba(94,231,255,0.7), 0 0 22px rgba(124,92,255,0.5);
+    }
+    .combo-banner.show.cb-legend-gold {
+      animation: comboLegend 1.85s cubic-bezier(0.16, 1, 0.3, 1) forwards !important;
+      background: linear-gradient(90deg, #ffd700, #fff3a0, #ffb703, #ffe566, #ffd700);
+      background-size: 280% 100%;
+      -webkit-background-clip: text;
+      background-clip: text;
+      -webkit-text-fill-color: transparent;
+      color: transparent;
+      filter: drop-shadow(0 0 16px rgba(255,215,0,0.7));
+    }
+    /* Score floats: class-based always wins over any leftover body rules */
+    .score-float.sf-legend {
+      background: linear-gradient(90deg, var(--legend-a, #ffe566), var(--legend-b, #ff9ecd), var(--legend-c, #a78bfa), var(--legend-d, #5ee7ff)) !important;
+      background-size: 240% 100% !important;
+      -webkit-background-clip: text !important;
+      background-clip: text !important;
+      -webkit-text-fill-color: transparent !important;
+      color: transparent !important;
+      animation: scoreLegendFloat 1.45s cubic-bezier(0.16, 1, 0.3, 1) forwards !important;
+      filter: drop-shadow(0 0 12px color-mix(in srgb, var(--legend-a, #ffd666) 60%, transparent)) !important;
+      font-weight: 900 !important;
+    }
+    .score-float.sf-epic {
+      color: #e8d4ff !important;
+      text-shadow: 0 0 12px rgba(199,125,255,0.65), 0 0 18px rgba(255,214,102,0.25) !important;
+      animation: scoreEpicFloat 1.2s cubic-bezier(0.22, 1.1, 0.36, 1) forwards !important;
+    }
+    /* Versus: even quieter */
+    .player-panel .combo-banner { font-size: 0.88rem; }
+    .player-panel .score-float { font-size: 0.7rem; }
+
+    

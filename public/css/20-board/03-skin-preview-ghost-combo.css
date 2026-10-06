@@ -1,0 +1,213 @@
+/* css/20-board/03-skin-preview-ghost-combo.css — Skin preview modal, ghost, combo banners. */
+/* Skin field preview modal */
+    #skinPreviewModal.overlay { z-index: 130; }
+    #skinPreviewModal .modal {
+      max-width: 340px;
+      padding: 18px 16px 16px;
+      border-radius: 20px;
+      position: relative;
+      overflow: hidden;
+    }
+    #skinPreviewModal .modal.rarity-common {
+      border: 1px solid var(--border);
+      box-shadow: 0 16px 40px rgba(0,0,0,0.45);
+    }
+    #skinPreviewModal .modal.rarity-rare {
+      border: 1px solid rgba(94,231,255,0.45);
+      box-shadow: 0 16px 44px rgba(0,0,0,0.5), 0 0 28px rgba(94,231,255,0.18);
+    }
+    #skinPreviewModal .modal.rarity-epic {
+      border: 1px solid rgba(199,125,255,0.5);
+      box-shadow: 0 16px 44px rgba(0,0,0,0.5), 0 0 32px rgba(199,125,255,0.22);
+    }
+    #skinPreviewModal .modal.rarity-legendary {
+      border: 1px solid rgba(255,214,102,0.55);
+      box-shadow: 0 16px 48px rgba(0,0,0,0.55), 0 0 36px rgba(255,214,102,0.28);
+    }
+    .skin-prev-board-wrap {
+      margin: 10px auto 12px;
+      padding: 8px;
+      border-radius: 14px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      width: fit-content;
+      box-shadow: var(--shadow);
+      position: relative;
+    }
+    .skin-prev-board-wrap.rarity-common {
+      border-color: color-mix(in srgb, var(--border) 80%, #9aa0a6);
+    }
+    .skin-prev-board-wrap.rarity-rare {
+      border-color: rgba(94,231,255,0.5);
+      box-shadow: 0 8px 24px rgba(0,0,0,0.35), 0 0 18px rgba(94,231,255,0.2);
+    }
+    .skin-prev-board-wrap.rarity-epic {
+      border-color: rgba(199,125,255,0.55);
+      box-shadow: 0 8px 24px rgba(0,0,0,0.35), 0 0 22px rgba(199,125,255,0.25);
+    }
+    .skin-prev-board-wrap.rarity-legendary {
+      border-color: rgba(255,214,102,0.6);
+      box-shadow: 0 8px 28px rgba(0,0,0,0.4), 0 0 26px rgba(255,214,102,0.3);
+    }
+    .skin-prev-board {
+      display: grid;
+      grid-template-columns: repeat(8, 1fr);
+      gap: 2.5px;
+      width: min(72vw, 260px);
+      aspect-ratio: 1;
+    }
+    .skin-prev-board .cell {
+      background: var(--cell-empty);
+      border-radius: 4px;
+      position: relative;
+      overflow: hidden;
+    }
+    .skin-prev-board .cell.filled {
+      border-radius: 3.5px;
+    }
+    /* Preview board inherits body.skin-fx-* the same way as live boards */
+    
+    /* Preview cells use the SAME rules as #board / #boardMe (styles-home.css).
+       Do not add separate .skin-prev-board filled FX — they diverged from in-game look. */
+
+    .skin-prev-actions {
+      display: flex;
+      gap: 8px;
+      justify-content: center;
+      flex-wrap: wrap;
+    }
+    .skin-prev-actions button { flex: 1 1 120px; min-height: 40px; }
+    .skin-prev-combo {
+      position: absolute;
+      left: 50%;
+      top: 50%;
+      transform: translate(-50%, -50%) scale(0.72);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 0.35em;
+      min-width: min(78%, 220px);
+      padding: 0.55em 1.15em;
+      border-radius: 999px;
+      font-size: clamp(1.05rem, 4.2vw, 1.35rem);
+      font-weight: 900;
+      letter-spacing: 0.04em;
+      text-align: center;
+      line-height: 1.15;
+      white-space: nowrap;
+      pointer-events: none;
+      opacity: 0;
+      z-index: 8;
+      color: #e8fff8;
+      background: linear-gradient(145deg, rgba(0, 212, 170, 0.92), rgba(16, 120, 100, 0.88));
+      border: 1px solid rgba(180, 255, 230, 0.45);
+      box-shadow:
+        0 10px 28px rgba(0, 0, 0, 0.45),
+        0 0 24px rgba(0, 212, 170, 0.35),
+        inset 0 1px 0 rgba(255, 255, 255, 0.22);
+      text-shadow: 0 1px 2px rgba(0, 0, 0, 0.35);
+    }
+    .skin-prev-combo.show,
+    #skinPreviewModal.purchase-celebrate .skin-prev-combo {
+      opacity: 1;
+      animation: skinPrevBoughtIn 0.55s cubic-bezier(0.22, 1.25, 0.36, 1) both;
+    }
+    .skin-prev-combo .bp-bought-check {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 1.15em;
+      height: 1.15em;
+      border-radius: 50%;
+      background: rgba(255, 255, 255, 0.22);
+      font-size: 0.92em;
+      line-height: 1;
+      animation: skinPrevCheckPop 0.5s cubic-bezier(0.22, 1.4, 0.36, 1) 0.12s both;
+    }
+    .skin-prev-combo .bp-bought-text {
+      display: inline-block;
+      animation: skinPrevTextShine 2.2s ease-in-out 0.35s infinite;
+    }
+    @keyframes skinPrevBoughtIn {
+      0% {
+        opacity: 0;
+        transform: translate(-50%, -50%) scale(0.55);
+        filter: blur(4px);
+      }
+      55% {
+        opacity: 1;
+        transform: translate(-50%, -50%) scale(1.08);
+        filter: blur(0);
+      }
+      100% {
+        opacity: 1;
+        transform: translate(-50%, -50%) scale(1);
+        filter: blur(0);
+      }
+    }
+    @keyframes skinPrevCheckPop {
+      0% { transform: scale(0); opacity: 0; }
+      60% { transform: scale(1.25); opacity: 1; }
+      100% { transform: scale(1); opacity: 1; }
+    }
+    @keyframes skinPrevTextShine {
+      0%, 100% { filter: brightness(1); }
+      50% { filter: brightness(1.18); }
+    }
+
+    #ghost {
+      position: fixed; pointer-events: none; z-index: 50; display: none; opacity: 0;
+      left: 0; top: 0;
+      filter: drop-shadow(0 10px 18px rgba(0,0,0,0.55));
+      /* Position via translate3d (compositor); -50% centers the piece on the aim point */
+      transform: translate3d(0,0,0) translate(-50%,-50%) scale(0.7);
+      transition:
+        opacity 0.18s ease,
+        transform 0.22s cubic-bezier(0.22,1.15,0.36,1);
+      will-change: transform;
+    }
+    #ghost.visible { opacity: 0.95; transform: translate3d(var(--gx, 0px), var(--gy, 0px), 0) translate(-50%,-50%) scale(1); }
+    #ghost.no-glide {
+      transition:
+        opacity 0.18s ease,
+        transform 0.01ms linear;
+    }
+    #ghost.cell-glide {
+      transition:
+        opacity 0.18s ease,
+        transform 0.14s cubic-bezier(0.25, 0.8, 0.3, 1);
+    }
+    #ghost .piece-grid { gap: 2px; }
+    #ghost .piece-cell { /* size set inline to match board cells */ border-radius: 5px; }
+
+    #aiGhost {
+      position: fixed; pointer-events: none; z-index: 45; display: none; opacity: 0.92;
+      filter: drop-shadow(0 8px 14px rgba(124,92,255,0.45));
+      transform: translate(-50%,-50%) scale(1);
+      transition: left 0.38s cubic-bezier(0.25, 0.1, 0.25, 1), top 0.38s cubic-bezier(0.25, 0.1, 0.25, 1), opacity 0.15s ease;
+    }
+    #aiGhost .piece-grid { gap: inherit; }
+    #aiGhost .piece-cell { /* size set inline to match board cells */ border-radius: 4px; }
+
+    .combo-banner {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      font-size: 1.05rem;
+      font-weight: 900;
+      color: #fff;
+      text-shadow: 0 0 10px rgba(0,212,170,0.45), 0 2px 8px rgba(0,0,0,0.5);
+      pointer-events: none;
+      opacity: 0;
+      z-index: 28;
+      white-space: nowrap;
+      letter-spacing: 0.04em;
+      max-width: 95%;
+      text-align: center;
+      line-height: 1.1;
+      /* left/top overridden in JS to last piece center */
+    }
+
+
+    

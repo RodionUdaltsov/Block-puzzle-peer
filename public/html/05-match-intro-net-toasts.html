@@ -1,0 +1,103 @@
+  <!-- Match intro (classic / versus) -->
+  <div id="matchIntro" aria-hidden="true">
+    <div class="mi-ring"></div>
+    <div class="mi-ring r2"></div>
+    <div class="mi-core">
+      <div class="mi-label" id="miLabel" data-i18n="intro.prep">Подготовка</div>
+      <div class="mi-title" id="miTitle" data-i18n="intro.start">Старт</div>
+      <div class="mi-sub" id="miSub"></div>
+      <div class="mi-blocks" aria-hidden="true">
+        <span></span><span></span><span></span><span></span><span></span>
+      </div>
+    </div>
+  </div>
+
+  <div id="matchEndFreeze" aria-hidden="true">
+    <div class="mef-flash" aria-hidden="true"></div>
+    <div class="mef-core">
+      <div class="mef-label" id="mefLabel" data-i18n="intro.match">Матч</div>
+      <div class="mef-title" id="mefTitle" data-i18n="intro.end">Конец</div>
+      <div class="mef-sub" id="mefSub"></div>
+      <div class="mef-scores" id="mefScores" aria-hidden="true">
+        <span class="mef-sc me" id="mefScoreMe">0</span>
+        <span class="mef-colon">:</span>
+        <span class="mef-sc opp" id="mefScoreOpp">0</span>
+      </div>
+      <div class="mef-bars" aria-hidden="true"><span></span><span></span><span></span></div>
+    </div>
+  </div>
+
+  <div class="net-status-pill ok" id="netStatusPill" aria-hidden="true"></div>
+
+<div class="info-toast" id="infoToast" aria-live="polite">
+      <div class="info-toast-label" id="infoToastLabel"></div>
+      <div class="info-toast-text" id="infoToastText"></div>
+    </div>
+
+<div class="ch-toast" id="chToast" aria-live="polite">
+      <div class="ch-toast-shine"></div>
+      <div class="ch-toast-head">
+        <div class="ch-toast-av" id="chToastAv">?</div>
+        <div style="min-width:0;flex:1">
+          <div class="ch-toast-label" data-i18n="toast.challenge">⚔️ Вызов на матч</div>
+          <div class="ch-toast-name" id="chToastName">—</div>
+          <div class="ch-toast-meta" id="chToastMeta"></div>
+        </div>
+      </div>
+      <div class="ch-toast-actions">
+        <button class="primary" id="chBtnAccept" data-i18n="toast.accept">Принять</button>
+        <button class="ghost" id="chBtnDecline" data-i18n="toast.decline">Отклонить</button>
+      </div>
+      <div class="fr-toast-hint" id="chToastCountdown" data-i18n="toast.hideIn">Скроется через 5 с</div>
+    </div>
+
+<div class="rm-toast" id="rmToast" aria-live="polite">
+      <div class="rm-toast-shine"></div>
+      <div class="rm-toast-head">
+        <div class="rm-toast-av" id="rmToastAv">↻</div>
+        <div style="min-width:0;flex:1">
+          <div class="rm-toast-label" data-i18n="toast.rematch">Реванш</div>
+          <div class="rm-toast-name" id="rmToastName">—</div>
+          <div class="rm-toast-meta" id="rmToastMeta" data-i18n="toast.rematch.meta">Предлагает ещё один матч</div>
+        </div>
+      </div>
+      <div class="rm-toast-actions">
+        <button class="primary" id="rmBtnAccept" data-i18n="toast.accept">Принять</button>
+        <button class="ghost" id="rmBtnDecline" data-i18n="toast.decline">Отклонить</button>
+      </div>
+      <div class="fr-toast-hint" id="rmToastCountdown" data-i18n="toast.hideIn15">Скроется через 15 с</div>
+    </div>
+
+<div class="fr-toast" id="frToast" aria-live="polite">
+      <div class="fr-toast-shine"></div>
+      <button type="button" class="fr-toast-dismiss" id="frToastDismiss" title="Скрыть" aria-label="Скрыть" data-i18n-title="common.hide" data-i18n-aria="common.hide">×</button>
+      <div class="fr-toast-head">
+        <div class="fr-toast-av" id="frToastAv">?</div>
+        <div style="min-width:0;flex:1">
+          <div class="fr-toast-label" data-i18n="toast.friendReq">Запрос в друзья</div>
+          <div class="fr-toast-name" id="frToastName">—</div>
+          <div class="fr-toast-meta" id="frToastMeta"></div>
+        </div>
+      </div>
+      <div class="fr-toast-actions">
+        <button class="primary" id="frToastAccept" data-i18n="toast.accept">Принять</button>
+        <button class="ghost" id="frToastDecline" data-i18n="toast.decline">Отклонить</button>
+      </div>
+      <div class="fr-toast-hint" id="frToastCountdown" data-i18n="toast.hideIn15">Скроется через 15 с</div>
+    </div>
+
+<div class="rj-toast" id="rjToast" aria-live="polite">
+      <div class="rj-toast-head">
+        <div class="rj-toast-av" id="rjToastAv">?</div>
+        <div style="min-width:0;flex:1">
+          <div class="rj-toast-label" data-i18n="toast.roomJoin">Вход в комнату</div>
+          <div class="rj-toast-name" id="rjToastName">—</div>
+          <div class="rj-toast-meta" id="rjToastMeta"></div>
+        </div>
+      </div>
+      <div class="rj-toast-actions">
+        <button class="primary" id="rjToastAccept" data-i18n="toast.admit">Пустить</button>
+        <button class="ghost" id="rjToastDecline" data-i18n="toast.decline">Отклонить</button>
+      </div>
+      <div class="fr-toast-hint" id="rjToastCountdown" data-i18n="toast.hideIn">Скроется через 5 с</div>
+    </div>

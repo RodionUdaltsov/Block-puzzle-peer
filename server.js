@@ -9,8 +9,6 @@
 'use strict';
 const path = require('path');
 const http = require('http');
-const fs = require('fs');
-const zlib = require('zlib');
 const crypto = require('crypto');
 const { WebSocketServer } = require('./vendor/ws');
 const { createStore, ROOM_TTL_LIVE, ROOM_TTL_ENDED, TOKEN_TTL, QUEUE_TTL, PRESENCE_TTL } = require('./lib/store');
@@ -22,6 +20,7 @@ const { WS_ORIGINS, applySecurityHeaders, isOriginAllowed, getClientIp, startupW
 const { createAccounts } = require('./lib/accounts');
 const { createMatchRoomClass } = require('./lib/match-room');
 const { createHttpRequestListener } = require('./lib/http-api');
+const { createStaticServer } = require('./lib/static-files');
 const { attachWsHandlers } = require('./lib/ws-handlers');
 const { createDeviceApi, DEVICE_GUEST_MARK, DEVICE_HAD_MARK } = require('./lib/device');
 const { createIdentityApi } = require('./lib/identity');
@@ -328,85 +327,7 @@ function forgetRoom(roomId, tokens) {
   }
 }
 
-const MIME = {
-  '.html': 'text/html; charset=utf-8',
-  '.js': 'application/javascript; charset=utf-8',
-  '.css': 'text/css; charset=utf-8',
-  '.json': 'application/json',
-  '.webmanifest': 'application/manifest+json',
-  '.png': 'image/png',
-  '.jpg': 'image/jpeg',
-  '.svg': 'image/svg+xml',
-  '.ico': 'image/x-icon',
-  '.woff2': 'font/woff2',
-  '.map': 'application/json',
-  '.txt': 'text/plain; charset=utf-8'
-};
-
-/** Extensions eligible for on-the-fly gzip (text-like assets). */
-const COMPRESSIBLE = new Set([
-  '.html', '.js', '.css', '.json', '.svg', '.webmanifest', '.txt', '.map'
-]);
-
-
-/**
- * Serve a static file with optional gzip when the client accepts it.
- * @param {import('http').IncomingMessage} req
- * @param {import('http').ServerResponse} res
- * @param {string} filePath
- */
-function sendFile(req, res, filePath) {
-  fs.readFile(filePath, (err, data) => {
-    if (err) {
-      applySecurityHeaders(res);
-      res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' });
-      res.end('Not found');
-      return;
-    }
-    const ext = path.extname(filePath).toLowerCase();
-    const base = path.basename(filePath).toLowerCase();
-    const headers = { 'Content-Type': MIME[ext] || 'application/octet-stream' };
-    // Service worker must not be long-cached or browsers keep a stale install path
-    if (base === 'sw.js') {
-      headers['Cache-Control'] = 'no-store, no-cache, must-revalidate';
-      headers['Pragma'] = 'no-cache';
-      headers['Service-Worker-Allowed'] = '/';
-    } else if (ext === '.html' || ext === '.js' || ext === '.css' || ext === '.webmanifest') {
-      // Prevent stale mobile WebView cache of gameplay/CSS/manifest
-      headers['Cache-Control'] = 'no-store, no-cache, must-revalidate';
-      headers['Pragma'] = 'no-cache';
-    } else if (ext === '.svg' || ext === '.woff2' ||
-               ext === '.png' || ext === '.jpg' || ext === '.ico') {
-      headers['Cache-Control'] = 'public, max-age=86400';
-    }
-
-    // Copy security headers into the response map before writeHead
-    applySecurityHeaders({
-      setHeader(k, v) { headers[k] = v; }
-    });
-
-    const accept = String((req && req.headers && req.headers['accept-encoding']) || '');
-    const wantGzip = COMPRESSIBLE.has(ext) && data.length > 512 && /\bgzip\b/.test(accept);
-
-    if (wantGzip) {
-      zlib.gzip(data, { level: 6 }, (zerr, compressed) => {
-        if (zerr || !compressed || compressed.length >= data.length) {
-          res.writeHead(200, headers);
-          res.end(data);
-          return;
-        }
-        headers['Content-Encoding'] = 'gzip';
-        headers['Vary'] = 'Accept-Encoding';
-        res.writeHead(200, headers);
-        res.end(compressed);
-      });
-      return;
-    }
-
-    res.writeHead(200, headers);
-    res.end(data);
-  });
-}
+const { sendFile } = createStaticServer({ applySecurityHeaders });
 
 const rooms = new Map();
 /** queue key → waiting players */

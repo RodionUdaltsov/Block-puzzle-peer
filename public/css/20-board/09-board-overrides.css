@@ -1,0 +1,105 @@
+/* css/20-board/09-board-overrides.css — Late board/preview overrides. */
+#screenFriends {
+      justify-content: flex-start;
+      padding-top: max(10px, env(safe-area-inset-top, 0px));
+      padding-bottom: max(16px, env(safe-area-inset-bottom, 0px));
+      gap: 0;
+      overflow-y: auto;
+    }
+    #screenFriends .friends-section {
+      margin: 8px 0 2px;
+    }
+    #screenFriends .friends-section-head {
+      padding: 0 2px 6px;
+    }
+    #screenFriends .friend-list {
+      max-height: min(42vh, 320px);
+      overflow-x: hidden;
+      overflow-y: auto;
+      -webkit-overflow-scrolling: touch;
+      overscroll-behavior: contain;
+      margin-bottom: 6px;
+      gap: 6px;
+      padding-right: 2px;
+      scroll-behavior: smooth;
+      scrollbar-width: none;
+      -ms-overflow-style: none;
+    }
+    #screenFriends .friend-list::-webkit-scrollbar { width: 0; height: 0; display: none; }
+
+
+/* Preview uses real board-wrap pipeline */
+.skin-prev-board-wrap.board-wrap {
+  background: var(--field-surface, var(--surface));
+  border: 1px solid var(--field-border, var(--border));
+  box-shadow: var(--shadow);
+}
+.skin-prev-board-wrap.board-wrap .board.skin-prev-board {
+  background: transparent;
+}
+.skin-prev-board-wrap.board-wrap .cell {
+  background: var(--field-empty, var(--cell-empty, #16191f));
+  border-radius: 4px;
+}
+.skin-prev-board-wrap.board-wrap .cell.filled {
+  /* skin FX from body.skin-fx-* applies the same as in-game */
+}
+
+
+/* Shop preview: clip legendary FX so they never cover Buy button */
+#skinPreviewModal #skinPrevWrap.board-wrap {
+  overflow: hidden !important;
+  isolation: isolate;
+  max-width: min(72vw, 280px);
+  margin-left: auto;
+  margin-right: auto;
+}
+#skinPreviewModal #skinPrevWrap.board-wrap::before,
+#skinPreviewModal #skinPrevWrap.board-wrap::after {
+  /* keep FX but contained */
+  pointer-events: none;
+}
+#skinPreviewModal .skin-prev-actions {
+  position: relative;
+  z-index: 20;
+}
+#skinPreviewModal .modal {
+  overflow: hidden;
+}
+#skinPreviewModal #skinPrevBoard.board {
+  width: 100% !important;
+  max-width: 100%;
+  aspect-ratio: 1;
+  min-height: 160px;
+}
+
+/* Held piece must not flicker — keep opacity locked, but ALLOW soft cell-glide on transform */
+body.is-dragging #ghost,
+body.is-dragging #ghost.visible {
+  opacity: 1 !important;
+  visibility: visible !important;
+  display: block !important;
+  pointer-events: none !important;
+  animation: none !important;
+  filter: none !important;
+}
+body.is-dragging #ghost.cell-glide {
+  transition:
+    opacity 0s linear,
+    transform 0.14s cubic-bezier(0.25, 0.8, 0.3, 1) !important;
+}
+body.is-dragging #ghost.no-glide {
+  transition:
+    opacity 0s linear,
+    transform 0.01ms linear !important;
+}
+body.is-dragging #ghost .piece-cell {
+  opacity: 1 !important;
+  visibility: visible !important;
+  animation: none !important;
+}
+body.touch-ui.is-dragging #ghost {
+  /* Touch uses JS lerp for position — no CSS transform transition */
+  transition: opacity 0s linear, transform 0s linear !important;
+  opacity: 1 !important;
+}

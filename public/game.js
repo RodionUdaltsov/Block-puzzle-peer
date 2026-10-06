@@ -1,51 +1,49 @@
 /**
- * LEGACY — not used in production.
+ * LEGACY / DEV ONLY — not used in production.
  *
  * Production loads only `dist/client.bundle.js` from index.html.
- * Kept for offline/dev fallback if the bundle is missing and modules are
- * included as separate <script> tags. Safe to delete once you no longer
- * need the unbundled multi-script load path.
+ * This loader pulls the same modules unbundled (handy for debugging with
+ * readable stack traces). The load order comes from `js/modules.json`, the
+ * single source of truth shared with scripts/bundle-client.js.
+ *
+ * Usage (temporary, dev): replace the bundle <script> in index.html with
+ *   <script src="game.js"></script>
  */
 (function () {
   'use strict';
   if (window.__BP_MODULES_LOADED) return;
-  if (document.querySelector('script[src*="js/01-cosmetics"]')) {
+  if (document.querySelector('script[src*="dist/client.bundle"]')) {
     window.__BP_MODULES_LOADED = true;
     return;
   }
-  var scripts = [
-    'js/01-cosmetics.js',
-    'js/02-bots-achievements-settings.js',
-    'js/03-audio.js',
-    'js/04-profile-friends.js',
-    'js/05-soft-render.js',
-    'js/06-match-liveness.js',
-    'js/07-match-flow-ui.js',
-    'js/08-screens-gameplay.js',
-    'js/09-offline-and-ranked.js',
-    'js/10-match-handlers.js',
-    'js/11-private-rooms-ui.js',
-    'js/12-boot.js'
-  ];
   var base = '';
   try {
     var cur = document.currentScript && document.currentScript.src;
     if (cur) base = cur.replace(/[^/]+$/, '');
   } catch (_) {}
-  function loadNext(i) {
-    if (i >= scripts.length) {
+
+  function loadNext(list, i) {
+    if (i >= list.length) {
       window.__BP_MODULES_LOADED = true;
       return;
     }
     var s = document.createElement('script');
-    s.src = base + scripts[i];
+    s.src = base + list[i];
     s.async = false;
-    s.onload = function () { loadNext(i + 1); };
+    s.onload = function () { loadNext(list, i + 1); };
     s.onerror = function () {
-      console.error('[BP] module failed', scripts[i]);
-      loadNext(i + 1);
+      console.error('[BP] module failed', list[i]);
+      loadNext(list, i + 1);
     };
     (document.head || document.documentElement).appendChild(s);
   }
-  loadNext(0);
+
+  fetch(base + 'js/modules.json', { cache: 'no-store' })
+    .then(function (r) { return r.json(); })
+    .then(function (man) {
+      // Manifest paths are repo-relative ("public/js/..."); the site root is public/.
+      var list = (man.modules || []).map(function (m) { return m.replace(/^public\//, ''); });
+      loadNext(list, 0);
+    })
+    .catch(function (e) { console.error('[BP] cannot load js/modules.json', e); });
 })();

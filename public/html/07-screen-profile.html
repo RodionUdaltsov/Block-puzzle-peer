@@ -1,0 +1,70 @@
+  <div class="screen" id="screenProfile" role="region" aria-label="Профиль" data-i18n-aria="profile.title">
+    <div class="profile-top">
+      <button type="button" class="ghost screen-back" id="btnProfileBack" data-i18n="common.back">← Назад</button>
+      <h1 data-i18n="profile.title">Профиль</h1>
+      <button type="button" class="primary" id="btnProfileSave" style="min-height:36px;padding:6px 14px;font-size:0.82rem" data-i18n="common.save">Сохранить</button>
+    </div>
+    <div class="profile-scroll">
+    <div class="profile-hero">
+      <div class="profile-av-big" id="profileAvBig">?</div>
+      <div class="profile-hero-text">
+        <div class="profile-hero-name" id="profileHeroName" data-i18n="menu.guest">Гость</div>
+        <div class="profile-guest-pill" id="profileGuestPill" data-i18n="profile.guestPill">👤 Гость</div>
+        <div class="profile-status-preview" id="profileStatusPreview"></div>
+      </div>
+    </div>
+
+    <div class="profile-card">
+      <h3 data-i18n="profile.avatar">Аватар</h3>
+      <div class="profile-avatars" id="profileAvatarGrid" role="listbox" aria-label="Выбор аватара" data-i18n-aria="profile.avatar.pick"></div>
+      <input type="file" id="profileAvatarFile" accept="image/*" />
+    </div>
+
+    <div class="profile-card">
+      <h3 data-i18n="profile.nameStatus">Имя и статус</h3>
+      <div class="profile-field">
+        <label for="profileNickInput" data-i18n="profile.nick">Никнейм</label>
+        <input id="profileNickInput" maxlength="9" placeholder="Твой ник" data-i18n-placeholder="profile.nick.ph" autocomplete="nickname" spellcheck="false" />
+        <div class="hint" data-i18n="profile.nick.hint">2–9 символов</div>
+      </div>
+      <div class="profile-field">
+        <label for="profileStatusInput" data-i18n="profile.status">Статус</label>
+        <input id="profileStatusInput" maxlength="48" placeholder="Необязательно" data-i18n-placeholder="profile.status.ph" />
+      </div>
+    </div>
+
+    <div class="profile-card">
+      <h3 data-i18n="profile.stats">Статистика</h3>
+      <div class="profile-stats-row">
+        <div class="profile-stat"><div class="v" id="profStatTrophies">0</div><div class="l" data-i18n="menu.trophies">Трофеи</div></div>
+        <div class="profile-stat"><div class="v" id="profStatDiamonds">0</div><div class="l" data-i18n="menu.diamonds">Алмазы</div></div>
+        <div class="profile-stat"><div class="v" id="profStatBest">0</div><div class="l" data-i18n="menu.record">Рекорд</div></div>
+        <div class="profile-stat"><div class="v" id="profStatStars">0</div><div class="l">☆</div></div>
+      </div>
+    </div>
+
+    <div class="profile-card">
+      <h3 data-i18n="profile.friendCode">Код друга</h3>
+      <div class="profile-code-row">
+        <span class="profile-code" id="profileFriendCode">————</span>
+        <button type="button" class="ghost" id="btnProfileCopyCode" style="min-height:36px;padding:6px 12px" data-i18n="profile.copy">Копировать</button>
+      </div>
+    </div>
+
+    <div class="profile-card profile-bind">
+      <h3 data-i18n="profile.account">Аккаунт</h3>
+      <div id="accountGuestBlock">
+        <div style="font-size:0.82rem;font-weight:700;color:var(--text)" data-i18n="profile.guestAccess">Гостевой доступ · данные на устройстве</div>
+        <div class="hint" style="margin-top:6px">Зарегистрируйся, чтобы сохранять кубки и профиль на сервере</div>
+        <button type="button" class="primary" id="btnProfileBind" style="width:100%;margin-top:10px;min-height:40px" onclick="try{openAuthModal('login')}catch(e){console.error(e)}">Войти / Регистрация</button>
+      </div>
+      <div id="accountLoggedBlock" hidden>
+        <div style="font-size:0.82rem;font-weight:700;color:var(--accent)">✓ Аккаунт на сервере</div>
+        <div class="hint" id="accountLoginLabel" style="margin-top:4px"></div>
+        <button type="button" class="ghost" id="btnAccountLogout" style="width:100%;margin-top:10px;min-height:38px">Выйти</button>
+        <button type="button" class="ghost" id="btnAccountDelete" style="width:100%;margin-top:8px;min-height:38px;color:#ff6b7a;border-color:rgba(255,107,122,0.35)">Удалить аккаунт</button>
+      </div>
+    </div>
+    </div>
+  </div>
+

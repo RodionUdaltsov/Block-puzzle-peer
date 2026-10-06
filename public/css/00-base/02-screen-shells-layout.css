@@ -1,0 +1,530 @@
+/* css/00-base/02-screen-shells-layout.css — Screen transitions and classic/versus/difficulty/history layout shells. */
+@media (min-width: 900px) {
+      body::before {
+        background-size: cover;
+        background-position: center center;
+      }
+      body {
+        background-attachment: fixed;
+        background-size: cover;
+      }
+    }
+    .screen {
+      display: none;
+      width: 100%;
+      max-width: 920px;
+      flex-direction: column;
+      align-items: center;
+      margin: 0 auto;
+      flex: 1 1 auto;
+      min-height: 0;
+      padding-bottom: 8px;
+      opacity: 0;
+      transform: translateY(14px) scale(0.985);
+    }
+    .screen.active {
+      display: flex;
+      /* Default: no heavy blur animation on every tab switch (was freezing low-end phones) */
+      animation: none;
+      opacity: 1;
+      transform: none;
+      filter: none;
+    }
+    /* Soft fade only when explicitly requested for menu navigation */
+    .screen.active.screen-enter-soft {
+      animation: screenInSoft 0.2s ease-out forwards;
+    }
+    @keyframes screenInSoft {
+      0%   { opacity: 0.65; transform: translateY(6px); }
+      100% { opacity: 1; transform: translateY(0); }
+    }
+    /* Full entrance reserved for play screens (classic / versus) via .screen-enter */
+    .screen.active.screen-enter {
+      animation: screenIn 0.36s cubic-bezier(0.22, 1.05, 0.36, 1) forwards;
+    }
+    @keyframes screenIn {
+      0%   { opacity: 0; transform: translateY(12px) scale(0.985); }
+      100% { opacity: 1; transform: translateY(0) scale(1); }
+    }
+    /* Staggered content rise on key menu screens */
+    .screen.active.screen-enter > .menu-logo,
+    .screen.active.screen-enter > .menu-sub,
+    .screen.active.screen-enter > .home-top,
+    .screen.active.screen-enter > .home-hero,
+    .screen.active.screen-enter > .home-modes,
+    .screen.active.screen-enter > .home-nav,
+    .screen.active.screen-enter > .home-deco-row,
+    .screen.active.screen-enter > .friends-screen-top,
+    .screen.active.screen-enter > .fr-panel,
+    .screen.active.screen-enter > .friends-section,
+    .screen.active.screen-enter > .friends-actions-bar,
+    .screen.active.screen-enter > .note-box,
+    .screen.active.screen-enter > .settings-top,
+    .screen.active.screen-enter > .settings-list,
+    .screen.active.screen-enter > .dur-hero,
+    .screen.active.screen-enter > .dur-grid,
+    .screen.active.screen-enter > .dur-start-btn,
+    .screen.active.screen-enter > .bot-random-row,
+    .screen.active.screen-enter > .bot-list,
+    .screen.active.screen-enter > .controls,
+    .screen.active.screen-enter > .history-list,
+    .screen.active.screen-enter > .ach-list,
+    .screen.active.screen-enter > .header,
+    .screen.active.screen-enter > .classic-mode,
+    .screen.active.screen-enter > .pieces-area,
+    .screen.active.screen-enter > .footer,
+    .screen.active.screen-enter > .comp-hero,
+    .screen.active.screen-enter > .comp-cards,
+    .screen.active.screen-enter > .shop-top,
+    .screen.active.screen-enter > .inv-top,
+    .screen.active.screen-enter > .shop-grid,
+    .screen.active.screen-enter > .inv-grid,
+    .screen.active.screen-enter > .shop-tabs {
+      animation: screenChildIn 0.48s cubic-bezier(0.22, 1.1, 0.36, 1) both;
+    }
+    @keyframes screenChildIn {
+      from { opacity: 0; transform: translateY(16px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+    .screen.active.screen-enter > *:nth-child(1) { animation-delay: 0.04s; }
+    .screen.active.screen-enter > *:nth-child(2) { animation-delay: 0.09s; }
+    .screen.active.screen-enter > *:nth-child(3) { animation-delay: 0.14s; }
+    .screen.active.screen-enter > *:nth-child(4) { animation-delay: 0.19s; }
+    .screen.active.screen-enter > *:nth-child(5) { animation-delay: 0.24s; }
+    .screen.active.screen-enter > *:nth-child(6) { animation-delay: 0.28s; }
+    .screen.active.screen-enter > *:nth-child(7) { animation-delay: 0.32s; }
+    .screen.active.screen-enter > *:nth-child(8) { animation-delay: 0.36s; }
+    .screen.active.screen-enter > *:nth-child(9) { animation-delay: 0.4s; }
+    /* Cards / list items cascade */
+    .screen.active.screen-enter .bot-card,
+    .screen.active.screen-enter .history-item,
+    .screen.active.screen-enter .ach-card,
+    .screen.active.screen-enter .dur-card,
+    .screen.active.screen-enter .comp-card,
+    .screen.active.screen-enter .settings-row,
+    .screen.active.screen-enter .home-mode,
+    .screen.active.screen-enter .home-nav-btn,
+    .screen.active.screen-enter .skin-card {
+      animation: screenItemIn 0.52s cubic-bezier(0.22, 1, 0.36, 1) both;
+    }
+    /* friend-card / friend-req-card: only their own friend-enter / friend-added
+       (avoid double animation with screen-enter cascade) */
+    /* Bot cards: soft fade + gentle rise, staggered evenly */
+    .screen.active.screen-enter .bot-card {
+      animation-name: botCardIn;
+      animation-duration: 0.55s;
+      animation-timing-function: cubic-bezier(0.25, 0.8, 0.25, 1);
+      animation-fill-mode: both;
+      animation-delay: calc(0.04s + var(--bot-i, 0) * 0.022s);
+    }
+    @keyframes screenItemIn {
+      from { opacity: 0; transform: translateY(10px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+    @keyframes botCardIn {
+      from { opacity: 0; transform: translateY(8px); filter: blur(2px); }
+      to   { opacity: 1; transform: translateY(0); filter: blur(0); }
+    }
+    .screen.active.screen-enter .home-mode:nth-child(1) { animation-delay: 0.08s; }
+    .screen.active.screen-enter .home-mode:nth-child(2) { animation-delay: 0.14s; }
+    .screen.active.screen-enter .home-nav-btn:nth-child(1) { animation-delay: 0.16s; }
+    .screen.active.screen-enter .home-nav-btn:nth-child(2) { animation-delay: 0.2s; }
+    .screen.active.screen-enter .home-nav-btn:nth-child(3) { animation-delay: 0.24s; }
+    .screen.active.screen-enter .home-nav-btn:nth-child(4) { animation-delay: 0.28s; }
+    .screen.active.screen-enter .home-nav-btn:nth-child(5) { animation-delay: 0.32s; }
+    .screen.active.screen-enter .home-nav-btn:nth-child(6) { animation-delay: 0.36s; }
+    .screen.active.screen-enter .comp-card:nth-child(1) { animation-delay: 0.1s; }
+    .screen.active.screen-enter .comp-card:nth-child(2) { animation-delay: 0.18s; }
+    .screen.active.screen-enter .skin-card:nth-child(1) { animation-delay: 0.08s; }
+    .screen.active.screen-enter .skin-card:nth-child(2) { animation-delay: 0.12s; }
+    .screen.active.screen-enter .skin-card:nth-child(3) { animation-delay: 0.16s; }
+    .screen.active.screen-enter .skin-card:nth-child(4) { animation-delay: 0.2s; }
+    .screen.active.screen-enter .skin-card:nth-child(5) { animation-delay: 0.24s; }
+    .screen.active.screen-enter .skin-card:nth-child(6) { animation-delay: 0.28s; }
+    .screen.active.screen-enter .skin-card:nth-child(7) { animation-delay: 0.32s; }
+    .screen.active.screen-enter .skin-card:nth-child(8) { animation-delay: 0.36s; }
+    .screen.active.screen-enter .skin-card:nth-child(n+9) { animation-delay: 0.4s; }
+    .screen.active.screen-enter .history-item:nth-child(1),
+    .screen.active.screen-enter .dur-card:nth-child(1),
+    .screen.active.screen-enter .settings-row:nth-child(1),
+    .screen.active.screen-enter .friend-card:nth-child(1) { animation-delay: 0.12s; }
+    .screen.active.screen-enter .history-item:nth-child(2),
+    .screen.active.screen-enter .dur-card:nth-child(2),
+    .screen.active.screen-enter .settings-row:nth-child(2),
+    .screen.active.screen-enter .friend-card:nth-child(2) { animation-delay: 0.16s; }
+    .screen.active.screen-enter .history-item:nth-child(3),
+    .screen.active.screen-enter .dur-card:nth-child(3),
+    .screen.active.screen-enter .settings-row:nth-child(3),
+    .screen.active.screen-enter .friend-card:nth-child(3) { animation-delay: 0.2s; }
+    .screen.active.screen-enter .history-item:nth-child(4),
+    .screen.active.screen-enter .settings-row:nth-child(4),
+    .screen.active.screen-enter .friend-card:nth-child(4) { animation-delay: 0.24s; }
+    .screen.active.screen-enter .history-item:nth-child(5),
+    .screen.active.screen-enter .settings-row:nth-child(5),
+    .screen.active.screen-enter .friend-card:nth-child(5) { animation-delay: 0.28s; }
+    .screen.active.screen-enter .history-item:nth-child(n+6),
+    .screen.active.screen-enter .settings-row:nth-child(n+6),
+    .screen.active.screen-enter .friend-card:nth-child(n+6) { animation-delay: 0.32s; }
+    /* Respect reduced motion */
+    @media (prefers-reduced-motion: reduce) {
+      .screen.active,
+      .screen.active.screen-enter > *,
+      .screen.active.screen-enter .bot-card,
+      .screen.active.screen-enter .history-item,
+      .screen.active.screen-enter .dur-card,
+      .screen.active.screen-enter .settings-row,
+      .screen.active.screen-enter .friend-card {
+        animation: none !important;
+        opacity: 1 !important;
+        transform: none !important;
+        filter: none !important;
+      }
+    }
+    /* Hide trophies during replay / review */
+    body.replay-ui .trophies,
+    body.replay-ui #trophiesLive {
+      display: none !important;
+      visibility: hidden !important;
+    }
+    /* Scrollable game screens on short phones */
+    #screenVersus, #screenClassic, #screenDifficulty, #screenHistory, #screenAchievements {
+      max-height: calc(100dvh - var(--safe-top) - var(--safe-bottom));
+      overflow: hidden;
+      touch-action: manipulation;
+    }
+    body.fit-lock {
+      overflow: hidden !important;
+      position: fixed;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      height: 100dvh;
+      overscroll-behavior: none;
+    }
+    body.fit-lock #screenVersus,
+    body.fit-lock #screenClassic,
+    body.fit-lock #screenDifficulty,
+    body.fit-lock #screenHistory,
+    body.fit-lock #screenAchievements {
+      height: 100%;
+      max-height: 100%;
+      overflow: hidden;
+    }
+    #screenVersus {
+      justify-content: flex-start;
+      gap: 0;
+      padding-bottom: max(4px, env(safe-area-inset-bottom, 0px));
+    }
+    #screenVersus .header { margin-bottom: 2px; flex-shrink: 0; }
+    #screenVersus .versus-layout {
+      flex: 0 0 auto !important;
+      min-height: 0;
+      gap: 6px !important;
+      justify-content: flex-start !important;
+      width: 100%;
+      align-items: center;
+    }
+    #screenVersus .player-panel {
+      gap: 2px !important;
+      width: auto;
+      max-width: 100%;
+      flex: 0 0 auto !important;
+      margin: 0 !important;
+      height: auto !important;
+      align-items: center;
+    }
+    /* Nickname always glued to the board, independent of scale */
+    #screenVersus .board-wrap {
+      margin: 0 auto !important;
+      padding: 3px 4px 4px !important;
+      display: flex !important;
+      flex-direction: column !important;
+      align-items: stretch !important;
+      width: fit-content !important;
+      max-width: 100% !important;
+      height: auto !important;
+      flex: 0 0 auto !important;
+      gap: 1px !important;
+    }
+    #screenVersus .board-wrap > .player-label {
+      order: -1;
+      position: relative !important;
+      top: auto !important;
+      left: auto !important;
+      width: 100% !important;
+      max-width: 100% !important;
+      margin: 0 !important;
+      padding: 0 3px 0 !important;
+      box-sizing: border-box;
+      line-height: 1.15;
+      flex: 0 0 auto !important;
+      align-self: stretch;
+      justify-content: space-between;
+    }
+    #screenVersus .board-wrap > .board {
+      flex: 0 0 auto !important;
+      margin: 0 !important;
+    }
+    #screenVersus .player-label {
+      max-width: 100% !important;
+      width: 100% !important;
+      margin: 0 auto !important;
+      padding: 0 3px !important;
+      box-sizing: border-box;
+      line-height: 1.15;
+      flex-shrink: 0;
+      justify-content: space-between;
+    }
+    #screenVersus .pieces-area {
+      margin-top: 2px;
+      /* Keep tray height stable even when all slots are .used (width/height 0) */
+      min-height: var(--versus-slot, 58px);
+      gap: 5px;
+      flex-shrink: 0;
+      align-items: center;
+    }
+    #screenVersus .pieces-area.opp-pieces {
+      margin-top: 2px;
+      min-height: var(--opp-slot, 44px);
+      height: var(--opp-slot, 44px);
+      align-items: center;
+    }
+    #screenVersus .piece-slot {
+      width: var(--versus-slot, 58px); height: var(--versus-slot, 58px); min-width: var(--versus-slot, 58px);
+    }
+    #screenVersus .piece-cell { width: var(--versus-piece, 12px); height: var(--versus-piece, 12px); }
+    #screenVersus .pieces-area.opp-pieces .piece-slot {
+      width: var(--opp-slot, 44px); height: var(--opp-slot, 44px); min-width: var(--opp-slot, 44px);
+    }
+    #screenVersus .pieces-area.opp-pieces .piece-cell { width: var(--opp-piece, 10px); height: var(--opp-piece, 10px); }
+    #screenVersus .opp-pieces-label { margin-top: 2px; margin-bottom: 0; font-size: 0.6rem; }
+    #screenVersus .status-banner {
+      margin: 4px auto 2px;
+      padding: 6px 12px;
+      font-size: 0.72rem;
+      flex-shrink: 0;
+      position: relative;
+      z-index: 5;
+      pointer-events: none; /* never block piece placement */
+      order: 0;
+    }
+    /* Keep AFK / need-move / disconnect toasts in the document flow under the boards,
+       never as floating overlays on the field */
+    #screenVersus #disconnectBanner,
+    #screenVersus #stuckWait,
+    #screenVersus #oppStuckWait {
+      position: relative !important;
+      inset: auto !important;
+      transform: none !important;
+      max-width: min(92vw, 360px);
+      width: 100%;
+    }
+    #screenVersus #vsFooter { display: none; }
+    #screenClassic {
+      justify-content: center;
+      overflow: hidden;
+      padding-top: max(12px, env(safe-area-inset-top, 0px));
+      padding-bottom: max(12px, env(safe-area-inset-bottom, 0px));
+    }
+    #screenClassic .pieces-area {
+      margin-top: 8px;
+      /* Keep height when all three slots collapse to .used — stops board jump */
+      min-height: var(--classic-slot, 84px);
+      align-items: center;
+      flex-shrink: 0;
+    }
+    #screenClassic .piece-slot {
+      width: var(--classic-slot, 84px); height: var(--classic-slot, 84px); min-width: var(--classic-slot, 84px);
+    }
+    #screenClassic .piece-cell {
+      width: var(--classic-piece, 16px); height: var(--classic-piece, 16px);
+    }
+    #screenDifficulty {
+      justify-content: flex-start;
+      overflow: hidden;
+      max-height: calc(100dvh - var(--safe-top) - var(--safe-bottom));
+      position: relative;
+      background:
+        radial-gradient(ellipse 110% 55% at 50% -12%, var(--glow-b), transparent 72%),
+        radial-gradient(ellipse 60% 40% at 100% 50%, var(--glow-a), transparent 70%),
+        transparent;
+    }
+    #screenDifficulty .menu-logo {
+      background: linear-gradient(135deg, #fff 20%, var(--accent2));
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+    #screenDifficulty .bot-random-row button {
+      box-shadow: 0 8px 22px var(--glow-b);
+    }
+    #screenDifficulty .bot-card.selected {
+      border-color: var(--accent);
+      background: var(--accent-soft);
+      box-shadow: 0 0 0 1px var(--accent-border), 0 8px 20px var(--glow-a);
+    }
+    #screenDifficulty .bot-list {
+      flex: 1 1 auto;
+      max-height: none;
+      min-height: 0;
+      overflow-y: auto;
+      -webkit-overflow-scrolling: touch;
+      overscroll-behavior: contain;
+    }
+    /* History: fixed chrome, only the list scrolls */
+    #screenHistory {
+      justify-content: flex-start;
+      overflow: hidden;
+      max-height: calc(100dvh - var(--safe-top) - var(--safe-bottom));
+      width: 100%;
+      max-width: 520px;
+    }
+    #screenHistory .menu-logo,
+    #screenHistory .menu-sub,
+    #screenHistory .controls {
+      flex-shrink: 0;
+    }
+    #screenHistory .history-list {
+      flex: 1 1 auto;
+      max-height: none;
+      min-height: 0;
+      overflow-y: auto;
+      -webkit-overflow-scrolling: touch;
+      overscroll-behavior: contain;
+      width: 100%;
+      margin: 8px 0 10px;
+    }
+    /* Classic: centered playfield with soft theme atmosphere */
+    #screenClassic {
+      align-items: center;
+      justify-content: center;
+      text-align: center;
+      width: 100%;
+      max-width: 420px;
+      margin-left: auto;
+      margin-right: auto;
+      gap: 8px;
+      position: relative;
+      overflow: hidden;
+      background:
+        radial-gradient(ellipse 110% 60% at 50% -15%, var(--glow-a), transparent 72%),
+        radial-gradient(ellipse 70% 45% at 90% 70%, var(--glow-b), transparent 70%),
+        transparent;
+    }
+    #screenClassic::before {
+      content: '';
+      position: absolute;
+      top: 18%; left: 50%;
+      width: min(360px, 90vw); height: min(360px, 90vw);
+      transform: translateX(-50%);
+      background: radial-gradient(circle, var(--glow-mid), transparent 68%);
+      filter: blur(36px);
+      opacity: 0.55;
+      pointer-events: none;
+      z-index: 0;
+    }
+    #screenClassic > * { position: relative; z-index: 1; }
+    #screenClassic .header {
+      justify-content: space-between;
+      gap: 10px;
+      max-width: min(94vw, 380px);
+      width: 100%;
+      flex-shrink: 0;
+      padding: 8px 10px;
+      margin-bottom: 4px;
+      border-radius: 16px;
+      background: linear-gradient(160deg, color-mix(in srgb, var(--surface) 92%, var(--accent) 8%), var(--surface));
+      border: 1px solid var(--accent-border);
+      box-shadow: 0 8px 22px rgba(0,0,0,0.22), inset 0 1px 0 rgba(255,255,255,0.06);
+      backdrop-filter: blur(8px);
+      -webkit-backdrop-filter: blur(8px);
+    }
+    #screenClassic .logo {
+      font-size: clamp(0.95rem, 3.2vw, 1.1rem);
+    }
+    #screenClassic .logo span {
+      -webkit-text-fill-color: color-mix(in srgb, var(--accent) 70%, var(--text-dim));
+      opacity: 0.9;
+    }
+    #screenClassic .stat-value {
+      color: var(--accent);
+    }
+    #screenClassic .classic-mode {
+      display: flex;
+      justify-content: center;
+      width: 100%;
+      flex-shrink: 0;
+    }
+    #screenClassic .board-wrap {
+      border-radius: 18px;
+      padding: 8px;
+      border: 1px solid var(--field-border, var(--accent-border));
+      background: var(--field-surface, linear-gradient(165deg, color-mix(in srgb, var(--surface) 90%, var(--accent) 10%), var(--surface)));
+      box-shadow:
+        0 12px 36px rgba(0,0,0,0.35),
+        0 0 40px var(--glow-a),
+        inset 0 1px 0 rgba(255,255,255,0.06);
+    }
+    /* Themed fields: full FX from .board-fx-* rules (no classic override) */
+
+    #screenClassic .pieces-area,
+    #screenClassic .controls,
+    #screenClassic .footer {
+      margin-left: auto;
+      margin-right: auto;
+      flex-shrink: 0;
+    }
+    #screenClassic .pieces-area {
+      margin-top: 10px;
+      gap: 10px;
+      min-height: var(--classic-slot, 84px);
+      align-items: center;
+      flex-shrink: 0;
+    }
+    #screenClassic .piece-slot {
+      background: linear-gradient(160deg, color-mix(in srgb, var(--surface2) 90%, var(--accent) 10%), var(--surface));
+      border: 1px solid var(--accent-border);
+      border-radius: 14px;
+      box-shadow: 0 6px 16px rgba(0,0,0,0.2), inset 0 1px 0 rgba(255,255,255,0.05);
+    }
+    #screenClassic .controls {
+      margin-top: 12px;
+      gap: 10px;
+    }
+    #screenClassic .controls .primary {
+      box-shadow: 0 6px 18px var(--glow-a);
+    }
+    #screenClassic .controls .diamond-btn {
+      background: linear-gradient(145deg, color-mix(in srgb, var(--diamond) 16%, transparent), var(--surface2));
+      border-color: color-mix(in srgb, var(--diamond) 40%, transparent);
+      color: var(--diamond);
+      box-shadow: 0 4px 14px color-mix(in srgb, var(--diamond) 12%, transparent);
+    }
+    #screenClassic .controls .ghost {
+      background: color-mix(in srgb, var(--surface2) 85%, transparent);
+      border-color: color-mix(in srgb, var(--border) 80%, var(--accent) 20%);
+    }
+    #screenClassic .footer {
+      margin-top: 6px;
+      padding: 8px 12px;
+      max-width: min(92vw, 360px);
+      border-radius: 12px;
+      background: color-mix(in srgb, var(--surface) 80%, transparent);
+      border: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
+      color: var(--text-dim);
+      font-size: 0.7rem;
+    }
+    /* Main menu layout controlled in home section below */
+    #screenMenu .menu-logo { margin-top: 0; }
+    /* Competition layout in section below */
+    #screenCompType .menu-logo { margin-top: 0; }
+
+    /* Menu screens already centered; tighten max width */
+    #screenMenu, #screenCompType, #screenDifficulty, #screenAchievements,
+    #screenDuration, #screenHistory, #screenFriends, #screenMatch, #screenSettings,
+    #screenShop, #screenInventory {
+      max-width: 520px;
+      margin-left: auto;
+      margin-right: auto;
+    }
+    

@@ -1,0 +1,115 @@
+  <div class="screen" id="screenHistory" role="region" aria-label="История" data-i18n-aria="history.title">
+    <div class="screen-chrome hist-top">
+      <button type="button" class="ghost screen-back" id="btnHistoryBack" data-i18n="common.back">← Назад</button>
+      <h1 data-i18n="history.title">История</h1>
+      <button type="button" class="ghost screen-action" id="btnHistoryClear" title="Очистить" data-i18n-title="history.clear">🗑</button>
+    </div>
+    <p class="screen-hint" data-i18n="history.hint">Прошлые матчи</p>
+    <div class="history-list screen-scroll" id="historyList"></div>
+  </div>
+
+  <div class="screen" id="screenCompType" role="region" aria-label="Соревнование" data-i18n-aria="comp.title">
+    <div class="comp-hero">
+      <div class="comp-hero-top">
+        <button type="button" class="ghost comp-back" id="btnBackFromComp" data-i18n="common.back">← Назад</button>
+        <div class="comp-badge">PvP</div>
+      </div>
+      <h1 data-i18n="comp.title">Соревнование</h1>
+      <p data-i18n="comp.pickArena">Выбери арену: рейтинговый матч или тренировка с ботами</p>
+    </div>
+    <div class="comp-cards">
+      <div class="comp-card ranked" id="cardOnline" role="button" tabindex="0">
+        <div class="comp-card-glow"></div>
+        <div class="comp-card-top">
+          <div class="comp-card-icon">🏆</div>
+          <div class="comp-card-chip" data-i18n="comp.ranked.chip">Рейтинг</div>
+        </div>
+        <h3 data-i18n="comp.ranked">Рейтинговый режим</h3>
+        <p data-i18n="comp.ranked.desc">Подбор соперника по уровню. Победа приносит трофеи.</p>
+        <div class="comp-card-stat">
+          <span class="comp-stat-label" data-i18n="comp.scoreRecord">Рекорд очков</span>
+          <span class="comp-stat-value" id="menuRankedBest">0</span>
+        </div>
+      </div>
+      <div class="comp-card bots" id="cardBots" role="button" tabindex="0">
+        <div class="comp-card-glow"></div>
+        <div class="comp-card-top">
+          <div class="comp-card-icon">🤖</div>
+          <div class="comp-card-chip alt" data-i18n="comp.bots.chip">Тренировка</div>
+        </div>
+        <h3 data-i18n="comp.bots">Боты</h3>
+        <p data-i18n="comp.bots.desc">110 соперников со стилем и характером. Коллекционируй ☆ звёзды.</p>
+        <div class="comp-card-stat muted">
+          <span class="comp-stat-label" data-i18n="comp.silverStars">Серебряные звёзды</span>
+          <span class="comp-stat-value" id="compSilverHint">☆</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="screen" id="screenDifficulty" role="region" aria-label="Боты" data-i18n-aria="bots.title">
+    <div class="screen-chrome diff-top">
+      <button type="button" class="ghost screen-back" id="btnBackDiff" data-i18n="common.back">← Назад</button>
+      <h1 data-i18n="bots.title">Боты</h1>
+      <div class="ach-top-spacer" aria-hidden="true"></div>
+    </div>
+    <p class="screen-hint" data-i18n="bots.hint">★ победа на 1 / 2 / 3 мин · выбери соперника</p>
+    <div class="bot-random-row">
+      <button type="button" id="btnRandomBot" data-i18n="bots.random">🎲 Случайный</button>
+    </div>
+    <div class="bot-list screen-scroll" id="botList"></div>
+    <div class="screen-footer-bar">
+      <button class="primary" id="btnDiffNext" style="width:100%;max-width:440px" data-i18n="bots.next">Далее · время матча</button>
+    </div>
+  </div>
+
+  <div class="bot-pick-overlay" id="botPickOverlay" aria-hidden="true">
+    <div class="bot-pick-card">
+      <div class="bot-pick-label" id="botPickLabel" data-i18n="bots.pick">Выбор соперника…</div>
+      <div class="bot-pick-avatar spin" id="botPickAvatar"></div>
+      <div class="bot-pick-name" id="botPickName">—</div>
+      <div class="bot-pick-meta" id="botPickMeta"></div>
+      <div class="bot-pick-stars" id="botPickStars"></div>
+    </div>
+  </div>
+
+  <div class="screen" id="screenAchievements" role="region" aria-label="Награды" data-i18n-aria="ach.title">
+    <div class="screen-chrome ach-top">
+      <button type="button" class="ghost screen-back" id="btnAchBack" data-i18n="common.back">← Назад</button>
+      <h1 data-i18n="ach.title">Награды</h1>
+      <button type="button" class="ach-claim-all-btn" id="btnClaimAllAch" style="display:none" data-i18n-title="ach.claimAll" title="Собрать все награды" data-i18n-title="ach.claimAll">
+        <span class="ach-claim-all-ico">✦</span>
+        <span class="ach-claim-all-meta" id="achClaimAllMeta"></span>
+      </button>
+      <div class="ach-top-spacer" id="achTopSpacer" aria-hidden="true"></div>
+    </div>
+    <p class="screen-hint" data-i18n="ach.hint">Выполняй задания — получай алмазы 💎</p>
+    <div class="ach-list screen-scroll" id="achList"></div>
+  </div>
+
+  <div class="screen" id="screenDuration" role="region" aria-label="Время матча" data-i18n-aria="duration.title">
+    <div class="dur-hero">
+      <button type="button" class="ghost comp-back" id="btnBackMenu" data-i18n="common.back">← Назад</button>
+      <h1 data-i18n="duration.title">Время матча</h1>
+      <p data-i18n="duration.pick">Кто наберёт больше очков до конца таймера — победит</p>
+    </div>
+    <div class="dur-grid">
+      <button type="button" class="dur-card" data-sec="60">
+        <span class="dur-card-time">1</span>
+        <span class="dur-card-unit" data-i18n="duration.unit1">минута</span>
+        <span class="dur-card-hint" data-i18n="duration.fast">Быстрый бой</span>
+      </button>
+      <button type="button" class="dur-card selected" data-sec="120">
+        <span class="dur-card-time">2</span>
+        <span class="dur-card-unit" data-i18n="duration.unit2">минуты</span>
+        <span class="dur-card-hint" data-i18n="duration.std">Стандарт</span>
+      </button>
+      <button type="button" class="dur-card" data-sec="180">
+        <span class="dur-card-time">3</span>
+        <span class="dur-card-unit" data-i18n="duration.unit2">минуты</span>
+        <span class="dur-card-hint" data-i18n="duration.long">Долгая дуэль</span>
+      </button>
+    </div>
+    <button type="button" class="primary dur-start-btn" id="btnStartMatch" data-i18n="match.find">Найти соперника</button>
+  </div>
+

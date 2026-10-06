@@ -1,0 +1,139 @@
+  <div id="ghost"></div>
+  <div id="aiGhost"></div>
+
+  <div class="overlay" id="skinPreviewModal" aria-hidden="true">
+    <div class="modal" id="skinPrevModalInner">
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:4px">
+        <h2 id="skinPrevTitle" style="margin:0;font-size:1.1rem;font-weight:800">—</h2>
+        <button type="button" class="ghost" id="skinPrevClose" style="min-height:32px;padding:6px 10px;font-size:0.85rem">✕</button>
+      </div>
+      <p class="skin-prev-meta" id="skinPrevMeta"></p>
+      <div class="board-wrap skin-prev-board-wrap" id="skinPrevWrap">
+        <div class="board skin-prev-board" id="skinPrevBoard"></div>
+        <div class="skin-prev-combo" id="skinPrevCombo"></div>
+      </div>
+      <div class="skin-prev-actions">
+        <button type="button" class="primary" id="skinPrevAction" data-i18n="skin.equip">Надеть</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="overlay" id="gameOver">
+    <div class="modal">
+      <h2 data-i18n="match.gameOver">Игра окончена</h2>
+      <p id="gameOverMsg" data-i18n="gameOver.noSpace">Места больше нет</p>
+      <div class="big-score" id="finalScore">0</div>
+      <button class="primary" id="btnRestart" style="width:100%;margin-bottom:8px" data-i18n="gameOver.again">Играть снова</button>
+      <button class="ghost" id="btnOverMenu" style="width:100%" data-i18n="gameOver.menu">В меню</button>
+    </div>
+  </div>
+  <div class="overlay" id="stuckOffer">
+    <div class="modal">
+      <h2 data-i18n="match.noMoves">Нет ходов</h2>
+      <p data-i18n="gameOver.reliefHint">Можно очистить часть поля за 1 алмаз</p>
+      <div class="stuck-actions">
+        <button class="diamond-btn" id="btnUseDiamond" style="width:100%" data-i18n="gameOver.reliefBtn">💎 Очистить (−1)</button>
+        <button id="btnGiveUp" style="width:100%" data-i18n="gameOver.giveUp">Сдаться</button>
+      </div>
+    </div>
+  </div>
+    <div class="overlay" id="leaveMatchConfirm">
+    <div class="modal">
+      <h2 data-i18n="match.leave">Покинуть матч?</h2>
+      <p id="leaveMatchConfirmMsg" data-i18n="leave.msg">Сейчас идёт матч. Если принять приглашение, матч будет засчитан как поражение.</p>
+      <div class="stuck-actions">
+        <button class="primary" id="btnLeaveMatchYes" data-i18n="leave.yes">Да, принять и проиграть</button>
+        <button class="ghost" id="btnLeaveMatchNo" data-i18n="leave.no">Нет, продолжить матч</button>
+      </div>
+    </div>
+  </div>
+
+<div class="overlay" id="forfeitConfirm">
+    <div class="modal">
+      <h2 data-i18n="match.surrender">Сдаться?</h2>
+      <p data-i18n="forfeit.msg">Матч будет проигран.</p>
+      <div class="stuck-actions">
+        <button class="primary" id="btnForfeitYes" style="width:100%" data-i18n="forfeit.yes">Да, сдаюсь</button>
+        <button class="ghost" id="btnForfeitNo" style="width:100%" data-i18n="common.cancel">Отмена</button>
+      </div>
+    </div>
+  </div>
+  <div class="overlay" id="rematchOffer">
+    <div class="modal">
+      <h2 data-i18n="match.rematch">Реванш?</h2>
+      <p id="rematchOfferText" data-i18n="rematch.offer">Соперник предлагает ещё матч</p>
+      <div class="stuck-actions">
+        <button class="primary" id="btnRematchAccept" style="width:100%" data-i18n="toast.accept">Принять</button>
+        <button class="ghost" id="btnRematchDecline" style="width:100%" data-i18n="rematch.decline">Отказаться</button>
+      </div>
+    </div>
+  </div>
+  <div class="overlay" id="rematchWait">
+    <div class="modal">
+      <h2 data-i18n="match.rematch.title">Реванш</h2>
+      <p data-i18n="rematch.wait">Ожидаем ответ соперника…</p>
+      <div class="stuck-actions">
+        <button class="ghost" id="btnRematchCancel" style="width:100%" data-i18n="common.cancel">Отмена</button>
+      </div>
+    </div>
+  </div>
+  <!-- Achievement claim ceremony -->
+  <div class="ach-claim-overlay" id="achClaimOverlay" aria-hidden="true">
+    <div class="ach-claim-card">
+      <div class="ach-claim-particles" id="achClaimParticles"></div>
+      <div class="ach-claim-badge" id="achClaimBadge">✓</div>
+      <div class="ach-claim-label" id="achClaimLabel" data-i18n="ach.got">Достижение получено</div>
+      <div class="ach-claim-count-badge" id="achClaimCount" style="display:none"></div>
+      <div class="ach-claim-title" id="achClaimTitle">—</div>
+      <div class="ach-claim-desc" id="achClaimDesc"></div>
+      <div class="ach-claim-list" id="achClaimList" style="display:none"></div>
+      <div class="ach-claim-reward" id="achClaimReward">+0 💎</div>
+      <div class="ach-claim-hint" data-i18n="ach.tapClose">Нажми, чтобы закрыть</div>
+    </div>
+  </div>
+
+  <!-- Post-match score comparison -->
+  <div class="score-duel-overlay" id="scoreDuelOverlay" aria-hidden="true">
+    <div class="score-duel-row">
+      <div class="score-duel-side me" id="duelSideMe">
+        <div class="score-duel-av-wrap">
+          <span class="score-duel-crown" aria-hidden="true">👑</span>
+          <div class="score-duel-av me-av" id="duelAvMe">
+            <span id="duelAvMeInner" data-i18n="vs.you">Ты</span>
+          </div>
+        </div>
+        <div class="score-duel-name" id="duelNameMe" data-i18n="vs.you">Ты</div>
+        <div class="score-duel-score" id="duelScoreMe">0</div>
+      </div>
+      <div class="score-duel-vs">VS</div>
+      <div class="score-duel-side opp" id="duelSideOpp">
+        <div class="score-duel-av-wrap">
+          <span class="score-duel-crown" aria-hidden="true">👑</span>
+          <div class="score-duel-av" id="duelAvOpp">
+            <span id="duelAvOppInner">?</span>
+          </div>
+        </div>
+        <div class="score-duel-name" id="duelNameOpp" data-i18n="vs.opp">Соперник</div>
+        <div class="score-duel-score" id="duelScoreOpp">0</div>
+      </div>
+    </div>
+    <div class="score-duel-verdict" id="duelVerdict"></div>
+    <div class="score-duel-skip" data-i18n="duel.tapContinue">Нажми, чтобы продолжить</div>
+  </div>
+
+  <div class="overlay" id="versusResult">
+    <div class="modal">
+      <h2 id="vsTitle" data-i18n="match.victory">Победа!</h2>
+      <div class="vs-result">
+        <div class="side"><div data-i18n="vs.you">Ты</div><div class="s" id="vsMyScore">0</div></div>
+        <div class="side"><div id="vsOppLabel" data-i18n="vs.opp">Соперник</div><div class="s" id="vsOppScore">0</div></div>
+      </div>
+      <div class="trophy-delta" id="vsTrophyDelta">+25 🏆</div>
+      <p id="vsTimeLeftInfo" style="font-size:0.82rem;color:var(--text-dim);margin-bottom:14px"></p>
+      <button class="primary" id="btnVsReview" style="width:100%;margin-bottom:8px" data-i18n="vs.review">Смотреть повтор</button>
+      <button class="primary" id="btnVsRematch" style="width:100%;margin-bottom:8px;display:none" data-i18n="vs.rematchBtn">Реванш</button>
+      <button class="ghost" id="btnVsAgain" style="width:100%;margin-bottom:8px" data-i18n="vs.again">Ещё матч</button>
+      <button class="ghost" id="btnVsMenu" style="width:100%" data-i18n="gameOver.menu">В меню</button>
+    </div>
+  </div>
+

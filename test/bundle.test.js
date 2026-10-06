@@ -26,7 +26,7 @@ describe('client bundler', () => {
     const joined = MODULES.join(' ');
     assert.ok(joined.includes('00-state'));
     assert.ok(joined.includes('00-perf'));
-    assert.ok(joined.includes('05-soft-render'));
+    assert.ok(joined.includes('05-render-and-match-state/01-soft-render'));
     assert.ok(joined.includes('10-match-handlers'));
     assert.ok(joined.includes('shared/rules'));
   });

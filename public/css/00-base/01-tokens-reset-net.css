@@ -1,0 +1,164 @@
+/* css/00-base/01-tokens-reset-net.css — Design tokens, resets, network banner, body shell. */
+    /* Cross-platform base */
+    html {
+      -webkit-text-size-adjust: 100%;
+      text-size-adjust: 100%;
+    }
+    body, button, input {
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
+    }
+    input, textarea, button {
+      font-family: inherit;
+      font-size: max(16px, 100%); /* iOS: avoid focus zoom on inputs */
+    }
+    .net-banner {
+      position: fixed;
+      left: 50%;
+      bottom: max(12px, env(safe-area-inset-bottom, 0px));
+      transform: translateX(-50%) translateY(120%);
+      z-index: 400;
+      width: min(94vw, 380px);
+      background: rgba(18, 22, 30, 0.96);
+      border: 1px solid rgba(255, 92, 122, 0.45);
+      border-radius: 14px;
+      padding: 12px 14px;
+      font-size: 0.82rem;
+      line-height: 1.4;
+      color: var(--text);
+      box-shadow: 0 12px 36px rgba(0,0,0,0.5);
+      opacity: 0;
+      pointer-events: none;
+      transition: transform 0.35s cubic-bezier(0.22,1.1,0.36,1), opacity 0.3s;
+      text-align: left;
+    }
+    .net-banner.visible {
+      opacity: 1;
+      transform: translateX(-50%) translateY(0);
+      pointer-events: auto;
+    }
+    .net-banner strong { color: var(--danger); }
+    /* Network: hidden when online; small red ring top-left when offline */
+    .net-status-pill {
+      position: fixed;
+      top: max(10px, env(safe-area-inset-top, 0px));
+      left: max(10px, env(safe-area-inset-left, 0px));
+      z-index: 360;
+      width: 12px;
+      height: 12px;
+      padding: 0;
+      border-radius: 50%;
+      pointer-events: none;
+      opacity: 0;
+      visibility: hidden;
+      font-size: 0;
+      color: transparent;
+      background: #ff5c7a;
+      border: 2px solid rgba(255, 255, 255, 0.85);
+      box-shadow: 0 0 0 2px rgba(255, 92, 122, 0.35), 0 2px 8px rgba(0,0,0,0.35);
+      transition: opacity 0.25s ease, visibility 0.25s;
+    }
+    .net-status-pill.bad {
+      opacity: 0.95;
+      visibility: visible;
+    }
+    .net-status-pill.ok,
+    .net-status-pill.ok.compact {
+      opacity: 0;
+      visibility: hidden;
+      pointer-events: none;
+    }
+    .net-banner .nb-actions {
+      display: flex; gap: 8px; margin-top: 10px;
+    }
+    .net-banner .nb-actions button {
+      flex: 1; min-height: 36px; font-size: 0.8rem;
+    }
+
+    :root {
+      --bg: #0f1115;
+      --surface: #1a1d24;
+      --surface2: #242830;
+      --border: #2e333d;
+      --text: #e8eaed;
+      --text-dim: #9aa0a6;
+      --accent: #00d4aa;
+      --accent2: #7c5cff;
+      --danger: #ff5c7a;
+      --cell-empty: #16191f;
+      --diamond: #5ee7ff;
+      --trophy: #ffd666;
+      --shadow: 0 8px 32px rgba(0,0,0,0.45);
+      /* Soft atmospheric glows (theme-aware) */
+      --glow-a: rgba(0, 212, 170, 0.11);
+      --glow-b: rgba(124, 92, 255, 0.09);
+      --glow-c: rgba(94, 231, 255, 0.06);
+      --glow-mid: rgba(0, 212, 170, 0.08);
+      --accent-soft: rgba(0, 212, 170, 0.18);
+      --accent2-soft: rgba(124, 92, 255, 0.18);
+      --accent-border: rgba(0, 212, 170, 0.28);
+      --accent2-border: rgba(124, 92, 255, 0.32);
+      --safe-top: env(safe-area-inset-top, 0px);
+      --safe-bottom: env(safe-area-inset-bottom, 0px);
+      --safe-left: env(safe-area-inset-left, 0px);
+      --safe-right: env(safe-area-inset-right, 0px);
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; user-select: none; }
+    html {
+      height: 100%;
+      min-height: 100%;
+      min-height: 100dvh;
+      min-height: -webkit-fill-available;
+      background: var(--bg);
+      background-color: var(--bg);
+    }
+    html, body {
+      width: 100%;
+      min-height: 100%;
+      min-height: 100dvh;
+      min-height: -webkit-fill-available;
+    }
+    body {
+      font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+      /* Full-viewport ambient wash — scales to device screen (phone + PC) */
+      background-color: var(--bg);
+      background-image:
+        radial-gradient(ellipse 140% 90% at 50% -30%, var(--glow-a), transparent 72%),
+        radial-gradient(ellipse 100% 80% at 110% 15%, var(--glow-b), transparent 68%),
+        radial-gradient(ellipse 90% 70% at -10% 85%, var(--glow-c), transparent 65%);
+      background-repeat: no-repeat;
+      background-size: 100% 100%;
+      background-position: center top;
+      /* fixed on desktop; scroll on mobile (iOS bugs with background-attachment:fixed) */
+      background-attachment: scroll;
+      color: var(--text);
+      min-height: 100dvh;
+      min-height: -webkit-fill-available;
+      display: flex; flex-direction: column; align-items: center; justify-content: flex-start;
+      padding: max(10px, var(--safe-top)) max(10px, var(--safe-right)) max(10px, var(--safe-bottom)) max(10px, var(--safe-left));
+      overflow-x: hidden;
+      overflow-y: auto;
+      -webkit-overflow-scrolling: touch;
+      touch-action: manipulation;
+      position: relative;
+    }
+    /* Fixed full-screen backdrop layer — always covers device viewport */
+    body::before {
+      content: '';
+      position: fixed;
+      inset: 0;
+      width: 100vw;
+      height: 100vh;
+      height: 100dvh;
+      z-index: -1;
+      pointer-events: none;
+      background-color: var(--bg);
+      background-image:
+        radial-gradient(ellipse 140% 90% at 50% -30%, var(--glow-a), transparent 72%),
+        radial-gradient(ellipse 100% 80% at 110% 15%, var(--glow-b), transparent 68%),
+        radial-gradient(ellipse 90% 70% at -10% 85%, var(--glow-c), transparent 65%);
+      background-repeat: no-repeat;
+      background-size: 100% 100%;
+      background-position: center top;
+    }
+    

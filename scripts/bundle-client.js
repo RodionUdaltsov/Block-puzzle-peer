@@ -21,27 +21,14 @@ const ROOT = path.join(__dirname, '..');
 const OUT_DIR = path.join(ROOT, 'public', 'dist');
 const MINIFY = !process.argv.includes('--no-minify');
 
-const MODULES = [
-  'public/shared/rules.js',
-  'public/match-client.js',
-  'public/js/00-state.js',
-  'public/js/00-perf.js',
-  'public/js/00-i18n.js',
-  'public/js/01-cosmetics.js',
-  'public/js/02-bots-achievements-settings.js',
-  'public/js/03-audio.js',
-  'public/js/04-profile-friends.js',
-  'public/js/05-soft-render.js',
-  'public/js/06-match-liveness.js',
-  'public/js/07-match-flow-ui.js',
-  'public/js/08-screens-gameplay.js',
-  'public/js/09-offline-and-ranked.js',
-  'public/js/10-match-handlers.js',
-  'public/js/11-private-rooms-ui.js',
-  'public/js/12-boot.js',
-  'public/js/13-performance.js',
-  'public/js/14-settings-ui.js'
-];
+/**
+ * Load order lives in public/js/modules.json (single source of truth, also read by
+ * scripts/check.js and the dev loader public/game.js). All modules share one IIFE scope,
+ * so ORDER MATTERS: top-level const/let must be declared before any module that touches
+ * them at load time.
+ */
+const MODULES_FILE = path.join(ROOT, 'public', 'js', 'modules.json');
+const MODULES = JSON.parse(fs.readFileSync(MODULES_FILE, 'utf8')).modules;
 
 /** Reserved for future true code-split (modules must not rely on shared IIFE scope). */
 const DEFERRED_MODULES = [];
@@ -262,7 +249,7 @@ function watch() {
   console.log('[bundle] watch mode');
   build();
   let t = null;
-  for (const rel of MODULES) {
+  for (const rel of MODULES.concat([path.relative(ROOT, MODULES_FILE)])) {
     try {
       fs.watch(path.join(ROOT, rel), () => {
         if (t) clearTimeout(t);
@@ -279,4 +266,4 @@ if (require.main === module) {
   else build();
 }
 
-module.exports = { build, MODULES, OUT_DIR, lightMinify };
+module.exports = { build, MODULES, MODULES_FILE, OUT_DIR, lightMinify };

@@ -19,7 +19,7 @@
   <link rel="apple-touch-icon" href="/icons/icon-192.svg" />
   <link rel="manifest" href="/site.webmanifest" />
   <!-- Multiplayer: WebSocket MatchClient -->
-  <link rel="stylesheet" href="styles.css?v3959" />
+  <link rel="stylesheet" href="styles.css?v=3.11.0" />
 </head>
 <body class="bp-booting">
 
@@ -554,6 +554,7 @@
     <div class="settings-tabs" id="settingsTabs" role="tablist" aria-label="Разделы настроек" data-i18n-aria="settings.tabs">
       <button type="button" class="settings-tab on" data-stab="field" role="tab" aria-selected="true"><span class="tab-ico">📐</span><span data-i18n="settings.tab.field">Поле</span></button>
       <button type="button" class="settings-tab" data-stab="look" role="tab" aria-selected="false"><span class="tab-ico">🎨</span><span data-i18n="settings.tab.look">Вид</span></button>
+      <button type="button" class="settings-tab" data-stab="gfx" role="tab" aria-selected="false"><span class="tab-ico">⚡</span><span data-i18n="settings.tab.gfx">Графика</span></button>
       <button type="button" class="settings-tab" data-stab="sound" role="tab" aria-selected="false"><span class="tab-ico">🔊</span><span data-i18n="settings.tab.sound">Звук</span></button>
       <button type="button" class="settings-tab" data-stab="feel" role="tab" aria-selected="false"><span class="tab-ico">🤖</span><span data-i18n="settings.tab.bots">Боты</span></button>
       <button type="button" class="settings-tab" data-stab="play" role="tab" aria-selected="false"><span class="tab-ico">🎮</span><span data-i18n="settings.tab.play">Игра</span></button>
@@ -625,6 +626,81 @@
           </div>
         </div>
         <!-- Подсветка превью удалена из игры -->
+      </div>
+
+      <div class="settings-section" data-stab="gfx">
+        <div class="settings-section-title" data-i18n="settings.gfx.title">Графика и производительность</div>
+        <div class="settings-row">
+          <div class="settings-label">
+            <span data-i18n="settings.gfx.preset">Качество</span>
+            <span class="settings-hint" data-i18n="settings.gfx.preset.hint">Авто подбирает под устройство и сама снижает нагрузку, если игра тормозит</span>
+          </div>
+          <div class="settings-ctrl">
+            <button type="button" class="set-chip" data-set="gfx" data-val="auto" data-i18n="settings.gfx.auto">Авто</button>
+            <button type="button" class="set-chip" data-set="gfx" data-val="high" data-i18n="settings.gfx.high">Макс</button>
+            <button type="button" class="set-chip" data-set="gfx" data-val="balanced" data-i18n="settings.gfx.balanced">Баланс</button>
+            <button type="button" class="set-chip" data-set="gfx" data-val="low" data-i18n="settings.gfx.low">Эконом</button>
+          </div>
+        </div>
+        <div class="settings-row settings-row-note"><span class="settings-hint" id="gfxAutoInfo">&nbsp;</span></div>
+        <div class="settings-row">
+          <div class="settings-label">
+            <span data-i18n="settings.gfx.skin">Блеск скинов</span>
+            <span class="settings-hint" data-i18n="settings.gfx.skin.hint">Переливы клеток. «Лёгкая» — анимация в руке и поле без вращения на каждой клетке</span>
+          </div>
+          <div class="settings-ctrl">
+            <button type="button" class="set-chip" data-set="gfxSkin" data-val="auto" data-i18n="settings.gfx.auto">Авто</button>
+            <button type="button" class="set-chip" data-set="gfxSkin" data-val="full" data-i18n="settings.gfx.full">Полная</button>
+            <button type="button" class="set-chip" data-set="gfxSkin" data-val="tray" data-i18n="settings.gfx.lite">Лёгкая</button>
+            <button type="button" class="set-chip" data-set="gfxSkin" data-val="off" data-i18n="common.off">Выкл</button>
+          </div>
+        </div>
+        <div class="settings-row">
+          <div class="settings-label">
+            <span data-i18n="settings.gfx.field">Эффекты полей</span>
+            <span class="settings-hint" data-i18n="settings.gfx.field.hint">Анимация фона и рамки купленных полей</span>
+          </div>
+          <div class="settings-ctrl">
+            <button type="button" class="set-chip" data-set="gfxField" data-val="auto" data-i18n="settings.gfx.auto">Авто</button>
+            <button type="button" class="set-chip" data-set="gfxField" data-val="full" data-i18n="settings.gfx.full">Полная</button>
+            <button type="button" class="set-chip" data-set="gfxField" data-val="lite" data-i18n="settings.gfx.lite">Лёгкая</button>
+            <button type="button" class="set-chip" data-set="gfxField" data-val="off" data-i18n="common.off">Выкл</button>
+          </div>
+        </div>
+        <div class="settings-row">
+          <div class="settings-label">
+            <span data-i18n="settings.gfx.fx">Частицы и искры</span>
+            <span class="settings-hint" data-i18n="settings.gfx.fx.hint">Осколки и искры при очистке линий</span>
+          </div>
+          <div class="settings-ctrl">
+            <button type="button" class="set-chip" data-set="gfxFx" data-val="auto" data-i18n="settings.gfx.auto">Авто</button>
+            <button type="button" class="set-chip" data-set="gfxFx" data-val="full" data-i18n="settings.gfx.many">Много</button>
+            <button type="button" class="set-chip" data-set="gfxFx" data-val="lite" data-i18n="settings.gfx.few">Мало</button>
+            <button type="button" class="set-chip" data-set="gfxFx" data-val="off" data-i18n="common.off">Выкл</button>
+          </div>
+        </div>
+        <div class="settings-row">
+          <div class="settings-label">
+            <span data-i18n="settings.gfx.glow">Свечение и размытие</span>
+            <span class="settings-hint" data-i18n="settings.gfx.glow.hint">Ореолы вокруг клеток и размытие фона окон</span>
+          </div>
+          <div class="settings-ctrl">
+            <button type="button" class="set-chip" data-set="gfxGlow" data-val="auto" data-i18n="settings.gfx.auto">Авто</button>
+            <button type="button" class="set-chip" data-set="gfxGlow" data-val="full" data-i18n="settings.gfx.full">Полная</button>
+            <button type="button" class="set-chip" data-set="gfxGlow" data-val="lite" data-i18n="settings.gfx.lite">Лёгкая</button>
+            <button type="button" class="set-chip" data-set="gfxGlow" data-val="off" data-i18n="common.off">Выкл</button>
+          </div>
+        </div>
+        <div class="settings-row">
+          <div class="settings-label">
+            <span data-i18n="settings.gfx.fps">Счётчик FPS</span>
+            <span class="settings-hint" data-i18n="settings.gfx.fps.hint">Показывать кадры в секунду поверх игры</span>
+          </div>
+          <div class="settings-ctrl">
+            <button type="button" class="set-chip" data-set="gfxFps" data-val="0" data-i18n="common.off">Выкл</button>
+            <button type="button" class="set-chip" data-set="gfxFps" data-val="1" data-i18n="common.on">Вкл</button>
+          </div>
+        </div>
       </div>
 
       <div class="settings-section" data-stab="sound">
@@ -1383,7 +1459,7 @@
   </div>
 
   <!-- Client bundle (ESM pipeline → dist/client.bundle.js). Sources: public/js/* -->
-  <script src="dist/client.bundle.js?v3959"></script>
+  <script src="dist/client.bundle.js?v=3.11.0"></script>
   <script>
   /* menu-delegate: clicks work even if late game.js bindings failed */
   (function () {

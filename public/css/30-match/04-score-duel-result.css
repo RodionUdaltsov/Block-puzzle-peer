@@ -1,0 +1,265 @@
+/* css/30-match/04-score-duel-result.css — Score duel and versus result. */
+/* ===== Post-match score duel ===== */
+    .score-duel-overlay {
+      position: fixed; inset: 0; z-index: 310;
+      display: flex; flex-direction: column; align-items: center; justify-content: center;
+      background: rgba(8,10,14,0);
+      backdrop-filter: blur(0);
+      -webkit-backdrop-filter: blur(0);
+      opacity: 0; visibility: hidden;
+      transition: opacity 0.28s ease, visibility 0.28s, background 0.28s, backdrop-filter 0.28s;
+      padding: max(20px, env(safe-area-inset-top)) 16px max(20px, env(safe-area-inset-bottom));
+      pointer-events: none;
+      cursor: pointer;
+    }
+    .score-duel-overlay.visible {
+      opacity: 1; visibility: visible;
+      background: rgba(8,10,14,0.82);
+      backdrop-filter: blur(14px);
+      -webkit-backdrop-filter: blur(14px);
+      pointer-events: auto;
+    }
+    .score-duel-row {
+      display: flex; align-items: center; justify-content: center;
+      gap: clamp(12px, 4vw, 28px);
+      width: 100%; max-width: 420px;
+    }
+    .score-duel-side {
+      flex: 1; min-width: 0;
+      display: flex; flex-direction: column; align-items: center; gap: 8px;
+      transform: scale(0.85); opacity: 0;
+      transition: transform 0.4s cubic-bezier(0.22,1.1,0.36,1), opacity 0.35s ease, filter 0.45s ease;
+    }
+    .score-duel-overlay.visible .score-duel-side { opacity: 1; transform: scale(1); }
+    .score-duel-overlay.visible .score-duel-side.me { transition-delay: 0.05s; }
+    .score-duel-overlay.visible .score-duel-side.opp { transition-delay: 0.12s; }
+    .score-duel-av-wrap {
+      position: relative;
+      width: 64px;
+      height: 64px;
+      /* room above for crown so it is not clipped */
+      margin-top: 18px;
+      flex-shrink: 0;
+    }
+    .score-duel-av {
+      width: 64px; height: 64px; border-radius: 18px;
+      overflow: hidden;
+      background: var(--surface2);
+      box-shadow: 0 0 0 2px var(--border);
+      display: flex; align-items: center; justify-content: center;
+      font-weight: 800; font-size: 1.1rem; color: #041018;
+      position: relative;
+      z-index: 1;
+    }
+    .score-duel-av.me-av {
+      background: linear-gradient(135deg, var(--accent), var(--accent2));
+      color: #04120e;
+    }
+    .score-duel-av img, .score-duel-av svg {
+      width: 100%; height: 100%;
+      object-fit: cover;
+      object-position: center;
+      display: block;
+      border-radius: inherit;
+    }
+    /* Crown sits ABOVE the avatar, outside overflow:hidden */
+    .score-duel-crown {
+      position: absolute;
+      top: -20px;
+      left: 50%;
+      transform: translateX(-50%) scale(0);
+      font-size: 1.45rem;
+      line-height: 1;
+      filter: drop-shadow(0 2px 6px rgba(0,0,0,0.45));
+      opacity: 0;
+      z-index: 3;
+      pointer-events: none;
+    }
+    .score-duel-side.winner .score-duel-crown {
+      animation: crownDrop 0.5s cubic-bezier(0.22,1.3,0.36,1) 0.55s forwards;
+    }
+    @keyframes crownDrop {
+      0% { opacity: 0; transform: translateX(-50%) translateY(-12px) scale(0.4); }
+      70% { opacity: 1; transform: translateX(-50%) translateY(2px) scale(1.15); }
+      100% { opacity: 1; transform: translateX(-50%) translateY(0) scale(1); }
+    }
+    .score-duel-side.winner .score-duel-av {
+      box-shadow: 0 0 0 3px rgba(255,214,102,0.55), 0 0 28px rgba(255,214,102,0.35);
+      animation: winnerPulse 1.2s ease 0.5s infinite;
+    }
+    @keyframes winnerPulse {
+      0%, 100% { box-shadow: 0 0 0 3px rgba(255,214,102,0.55), 0 0 24px rgba(255,214,102,0.3); }
+      50% { box-shadow: 0 0 0 4px rgba(255,214,102,0.7), 0 0 36px rgba(255,214,102,0.45); }
+    }
+    .score-duel-side.loser {
+      filter: grayscale(0.55) brightness(0.78);
+      opacity: 0.75 !important;
+      transform: scale(0.92) !important;
+    }
+    .score-duel-side.draw .score-duel-av {
+      box-shadow: 0 0 0 2px rgba(154,160,166,0.45);
+    }
+    .score-duel-name {
+      font-size: 0.78rem; font-weight: 700; color: var(--text);
+      max-width: 120px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+      text-align: center;
+    }
+    .score-duel-score {
+      font-size: clamp(1.8rem, 8vw, 2.4rem);
+      font-weight: 800; font-variant-numeric: tabular-nums;
+      color: var(--text);
+      line-height: 1;
+      min-height: 1.1em;
+    }
+    .score-duel-side.me .score-duel-score { color: var(--accent); }
+    .score-duel-side.opp .score-duel-score { color: var(--accent2); }
+    .score-duel-side.winner .score-duel-score {
+      color: var(--trophy);
+      text-shadow: 0 0 20px rgba(255,214,102,0.35);
+    }
+    .score-duel-vs {
+      flex-shrink: 0;
+      font-size: 0.85rem; font-weight: 800;
+      color: var(--text-dim);
+      letter-spacing: 0.08em;
+      opacity: 0; transform: scale(0.6);
+      transition: opacity 0.3s ease 0.2s, transform 0.35s cubic-bezier(0.22,1.2,0.36,1) 0.2s;
+    }
+    .score-duel-overlay.visible .score-duel-vs { opacity: 1; transform: scale(1); }
+    .score-duel-verdict {
+      margin-top: 22px;
+      font-size: 1.15rem; font-weight: 800;
+      letter-spacing: 0.02em;
+      opacity: 0; transform: translateY(10px);
+      transition: opacity 0.35s ease, transform 0.4s cubic-bezier(0.22,1.1,0.36,1);
+      text-align: center;
+      min-height: 1.4em;
+    }
+    .score-duel-overlay.show-verdict .score-duel-verdict {
+      opacity: 1; transform: translateY(0) scale(1);
+      animation: duelVerdictIn 0.65s cubic-bezier(0.22,1.2,0.36,1) both;
+    }
+    .score-duel-verdict.win {
+      color: var(--trophy);
+      text-shadow: 0 0 28px rgba(255,214,102,0.45);
+    }
+    .score-duel-verdict.lose {
+      color: var(--danger);
+      text-shadow: 0 0 22px rgba(255,92,122,0.35);
+    }
+    .score-duel-verdict.draw { color: var(--text-dim); }
+    @keyframes duelVerdictIn {
+      0% { opacity: 0; transform: translateY(18px) scale(0.85); filter: blur(4px); }
+      60% { opacity: 1; filter: blur(0); }
+      100% { opacity: 1; transform: translateY(0) scale(1); filter: blur(0); }
+    }
+    .score-duel-overlay.show-verdict::before {
+      content: '';
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+      background: radial-gradient(ellipse 60% 40% at 50% 45%, rgba(255,214,102,0.12), transparent 70%);
+      animation: duelGlowFlash 1.2s ease both;
+      opacity: 0;
+    }
+    .score-duel-overlay.show-verdict.duel-win::before {
+      background: radial-gradient(ellipse 65% 45% at 50% 40%, rgba(255,214,102,0.22), transparent 68%);
+      opacity: 1;
+    }
+    .score-duel-overlay.show-verdict.duel-lose::before {
+      background: radial-gradient(ellipse 65% 45% at 50% 40%, rgba(255,92,122,0.16), transparent 68%);
+      opacity: 1;
+    }
+    @keyframes duelGlowFlash {
+      0% { opacity: 0; }
+      30% { opacity: 1; }
+      100% { opacity: 0.55; }
+    }
+    .score-duel-side.winner .score-duel-score {
+      animation: duelScorePop 0.55s cubic-bezier(0.22,1.3,0.36,1) both;
+    }
+    @keyframes duelScorePop {
+      0% { transform: scale(1); }
+      40% { transform: scale(1.18); }
+      100% { transform: scale(1.06); }
+    }
+    .score-duel-confetti {
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+      overflow: hidden;
+      z-index: 1;
+    }
+    .score-duel-confetti b {
+      position: absolute;
+      top: -12px;
+      width: 8px; height: 8px;
+      border-radius: 2px;
+      opacity: 0;
+      animation: duelConfetti 1.4s ease-out forwards;
+    }
+    @keyframes duelConfetti {
+      0% { opacity: 0; transform: translateY(0) rotate(0deg); }
+      15% { opacity: 1; }
+      100% { opacity: 0; transform: translateY(110vh) rotate(520deg); }
+    }
+    /* Result modal entrance boost */
+    #versusResult.visible .modal {
+      animation: vsResultModalIn 0.55s cubic-bezier(0.22,1.15,0.36,1) both;
+    }
+    @keyframes vsResultModalIn {
+      0% { opacity: 0; transform: translateY(24px) scale(0.92); filter: blur(6px); }
+      100% { opacity: 1; transform: translateY(0) scale(1); filter: blur(0); }
+    }
+    #versusResult.visible #vsTitle {
+      animation: vsTitlePop 0.6s cubic-bezier(0.22,1.2,0.36,1) 0.08s both;
+    }
+    @keyframes vsTitlePop {
+      0% { opacity: 0; transform: scale(0.85) translateY(8px); }
+      100% { opacity: 1; transform: scale(1) translateY(0); }
+    }
+    #versusResult.visible .vs-result {
+      animation: vsResultModalIn 0.5s 0.12s cubic-bezier(0.22,1.1,0.36,1) both;
+    }
+    #versusResult.visible .trophy-delta,
+    #versusResult.visible #vsTrophyDelta {
+      animation: vsResultModalIn 0.5s 0.2s cubic-bezier(0.22,1.1,0.36,1) both;
+    }
+    #versusResult.visible .modal > button {
+      animation: vsResultModalIn 0.45s cubic-bezier(0.22,1.05,0.36,1) both;
+    }
+    #versusResult.visible .modal > button:nth-of-type(1) { animation-delay: 0.28s; }
+    #versusResult.visible .modal > button:nth-of-type(2) { animation-delay: 0.34s; }
+    #versusResult.visible .modal > button:nth-of-type(3) { animation-delay: 0.4s; }
+    #versusResult.visible .modal > button:nth-of-type(4) { animation-delay: 0.46s; }
+    .score-duel-skip {
+      position: absolute;
+      bottom: max(18px, env(safe-area-inset-bottom));
+      left: 50%; transform: translateX(-50%);
+      font-size: 0.72rem; color: var(--text-dim);
+      opacity: 0;
+      transition: opacity 0.3s ease 0.6s;
+      pointer-events: none;
+    }
+    .score-duel-overlay.visible .score-duel-skip { opacity: 0.65; }
+
+    .trophy-line {
+      font-size: 1.15rem;
+      font-weight: 700;
+      margin-bottom: 14px;
+      font-variant-numeric: tabular-nums;
+    }
+    .trophy-line .muted { color: var(--text-dim); font-weight: 600; }
+
+    @media (max-width: 700px) {
+      .board { width: min(44vw, 200px); }
+      .classic-mode .board { width: min(92vw, 340px); }
+      .piece-slot { width: 88px; height: 88px; min-width: 88px; }
+      .piece-cell { width: 14px; height: 14px; }
+    }
+    @media (max-width: 400px) {
+      .board { width: min(46vw, 170px); }
+      .piece-slot { width: 80px; height: 80px; min-width: 80px; }
+    }
+
+    

@@ -1,0 +1,102 @@
+  <div class="screen" id="screenClassic" role="region" aria-label="Классика" data-i18n-aria="menu.classic">
+    <div class="header">
+      <div class="logo">Block Puzzle <span>Classic</span></div>
+      <div class="stats">
+        <div class="diamonds"><span>💎</span><span id="diamonds">3</span></div>
+        <div class="stat"><div class="stat-label" data-i18n="classic.score">Счёт</div><div class="stat-value" id="score">0</div></div>
+        <div class="stat"><div class="stat-label" data-i18n="classic.best">Рекорд</div><div class="stat-value" id="best">0</div></div>
+      </div>
+    </div>
+    <div class="classic-mode">
+      <div class="board-wrap">
+        <div class="board" id="board"></div>
+        <div class="combo-banner" id="comboBanner"></div>
+      </div>
+    </div>
+    <div class="pieces-area" id="piecesArea"></div>
+    <div class="controls">
+      <button class="primary" id="btnNew" data-i18n="classic.new">Новая игра</button>
+      <button class="diamond-btn" id="btnRelief" data-i18n="classic.clear">💎 Очистить</button>
+      <button class="ghost" id="btnClassicMenu" data-i18n="classic.menu">Меню</button>
+    </div>
+    <div class="footer" data-i18n="classic.footer">Алмазы за ×4+ линий сразу (за один ход). Застрял — очисти поле за 💎.</div>
+  </div>
+
+  <div class="screen" id="screenVersus" role="region" aria-label="Соревнование" data-i18n-aria="menu.versus">
+    <div class="header">
+      <div class="logo">Block Puzzle <span>Versus</span></div>
+      <div class="stats">
+        <div class="timer" id="timer">2:00</div>
+        <div class="trophies"><span>🏆</span><span id="trophiesLive">0</span></div>
+        <button type="button" class="flag-btn" id="btnForfeit" title="Сдаться" aria-label="Сдаться" data-i18n-title="match.forfeit" data-i18n-aria="match.forfeit">🏳️</button>
+      </div>
+    </div>
+    <div class="versus-layout">
+      <div class="player-panel opp">
+        <div class="bot-speech" id="botSpeech"><span class="bot-speech-name"></span><span class="bot-speech-text"></span></div>
+        <div class="board-wrap">
+          <div class="player-label"><span class="name" id="oppName" data-i18n="vs.opp">Соперник</span><span class="score-live" id="oppScore">0</span></div>
+          <div class="board" id="boardOpp"></div>
+          <div class="combo-banner" id="comboBannerOpp"></div>
+        </div>
+        <div class="opp-pieces-label" data-i18n="vs.oppPieces">Фигуры соперника</div>
+        <div class="pieces-area opp-pieces" id="piecesAreaOpp"></div>
+      </div>
+      <div class="player-panel">
+        <div class="board-wrap">
+          <div class="player-label">
+            <span class="name vs-me-name" id="myNameLabel">
+              <span class="vs-me-av">?</span>
+              <span class="vs-me-nick" data-i18n="vs.you">Ты</span>
+            </span>
+            <span class="score-live" id="myScore">0</span>
+          </div>
+          <div class="board" id="boardMe"></div>
+          <div class="combo-banner" id="comboBannerMe"></div>
+          <div class="flag-break" id="flagBreak" aria-hidden="true">🏳️</div>
+        </div>
+      </div>
+    </div>
+    <div id="stuckWait" class="status-banner status-danger" style="display:none">
+      <span data-i18n="vs.noMovesWait">Нет ходов — ожидай соперника...</span>
+    </div>
+    <div id="oppStuckWait" class="status-banner status-info" style="display:none">
+      <span data-i18n="vs.oppStuck">Соперник без ходов — доигрывай!</span>
+    </div>
+
+    <div id="disconnectBanner" class="status-banner status-danger" style="display:none">
+      <span data-i18n="vs.disconnect">📡 Отсоединение…</span>
+    </div>
+    <div class="opp-pieces-label" style="margin-top:6px" data-i18n="vs.myPieces">Твои фигуры</div>
+    <div class="pieces-area" id="piecesAreaVs"></div>
+    <div class="controls" id="vsLiveControls" style="display:none"></div>
+    <!-- Replay: full-width scrubber under the boards -->
+    <div id="replayScrubBar" class="replay-scrub-bar" style="display:none" aria-hidden="true">
+      <input type="range" class="replay-scrub-range" id="replayProgress" min="0" max="100" value="0" step="1" title="Перемотка" data-i18n-title="replay.progress" />
+      <div class="replay-scrub-meta">
+        <span id="replayProgressLabel">0/0</span>
+        <span id="replayScrubHint" data-i18n="replay.scrub">перемотка</span>
+      </div>
+    </div>
+    <!-- Replay end summary — compact centered panel -->
+    <div id="replayEndCard" class="replay-end-card" style="display:none" aria-hidden="true">
+      <div class="replay-end-panel">
+        <button type="button" class="replay-end-close" id="btnReplayEndClose" title="Закрыть" data-i18n-title="common.close">✕</button>
+        <div class="replay-end-title" id="replayEndTitle" data-i18n="match.victory">Победа!</div>
+        <div class="replay-end-scores">
+          <div class="replay-end-side">
+            <span class="replay-end-who" data-i18n="vs.you">Ты</span>
+            <span class="replay-end-pts" id="replayEndMy">0</span>
+          </div>
+          <div class="replay-end-sep">:</div>
+          <div class="replay-end-side">
+            <span class="replay-end-who" id="replayEndOppLabel" data-i18n="vs.opp">Соперник</span>
+            <span class="replay-end-pts" id="replayEndOpp">0</span>
+          </div>
+        </div>
+        <div class="replay-end-meta" id="replayEndMeta"></div>
+      </div>
+    </div>
+    <div class="footer" id="vsFooter" data-i18n="vs.footer">Алмазы отключены. Успей набрать больше очков!</div>
+  </div>
+

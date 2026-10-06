@@ -16,8 +16,8 @@ COPY scripts ./scripts
 COPY docs ./docs
 COPY README.md LICENSE ./
 
-# Ensure client bundle is present and up to date
-RUN node scripts/bundle-client.js
+# Build generated assets (index.html, styles.css, client bundle) from their modular sources
+RUN npm run build
 
 ENV NODE_ENV=production
 ENV PORT=9000

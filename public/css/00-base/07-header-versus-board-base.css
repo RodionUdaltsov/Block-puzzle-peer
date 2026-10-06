@@ -1,0 +1,461 @@
+/* css/00-base/07-header-versus-board-base.css — Header, versus player panels, base board. */
+.header {
+      width: 100%; max-width: 920px;
+      display: flex; justify-content: space-between; align-items: center;
+      margin-bottom: 6px; padding: 4px 4px 2px;
+      flex-wrap: wrap; gap: 6px;
+      flex-shrink: 0;
+      position: sticky;
+      top: 0;
+      z-index: 40;
+      background: linear-gradient(to bottom, var(--bg) 70%, transparent);
+      padding-top: 2px;
+    }
+    .logo {
+      font-size: clamp(0.95rem, 3.5vw, 1.15rem); font-weight: 700;
+      background: linear-gradient(135deg, var(--accent), var(--accent2));
+      -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+      line-height: 1.2;
+    }
+    .logo span { font-weight: 500; font-size: 0.65rem; -webkit-text-fill-color: var(--text-dim); }
+    .stats { display: flex; gap: 8px; font-variant-numeric: tabular-nums; align-items: center; flex-wrap: wrap; }
+    .stat { text-align: right; }
+    .stat-label { font-size: 0.55rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-dim); }
+    .stat-value { font-size: 1.05rem; font-weight: 700; }
+    .diamonds, .trophies {
+      display: flex; align-items: center; gap: 5px; border-radius: 20px; padding: 4px 10px 4px 8px; font-weight: 700; font-size: 0.95rem;
+    }
+    .diamonds { background: rgba(94,231,255,0.12); border: 1px solid rgba(94,231,255,0.3); color: var(--diamond); }
+    .trophies { background: rgba(255,214,102,0.12); border: 1px solid rgba(255,214,102,0.35); color: var(--trophy); }
+    .timer {
+      font-size: clamp(1.1rem, 4vw, 1.35rem); font-weight: 800; font-variant-numeric: tabular-nums;
+      min-width: 56px; text-align: center; color: var(--accent);
+    }
+    .timer.urgent { color: var(--danger); animation: pulse 0.6s ease infinite; }
+    @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.55} }
+
+    .versus-layout {
+      display: flex; flex-direction: column; flex-wrap: nowrap;
+      gap: 10px; justify-content: flex-start; align-items: center;
+      width: 100%; max-width: 420px; margin: 0 auto;
+      flex: 1 1 auto;
+    }
+    .player-panel { display: flex; flex-direction: column; align-items: center; gap: 4px; width: 100%; }
+    .player-label {
+      font-size: 0.72rem; font-weight: 600; color: var(--text-dim);
+      display: flex; align-items: center; gap: 6px; width: 100%;
+      max-width: 100%; justify-content: space-between; padding: 0 2px;
+      position: relative; z-index: 20; pointer-events: auto;
+      overflow: visible;
+      box-sizing: border-box;
+    }
+    /* Opponent panel: speech bubble must stack above avatar/name */
+    .player-panel.opp .player-label { z-index: 20; }
+    .player-panel.opp .bot-speech { z-index: 90; }
+    .player-label .name {
+      color: var(--text);
+      flex: 1 1 auto;
+      min-width: 0;
+      text-align: left;
+      padding-left: 6px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      max-width: 100%;
+    }
+    .player-label .name > span:first-of-type:not(.vs-me-av):not(.vs-opp-av) {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      min-width: 0;
+    }
+    .player-label .vs-me-av,
+    .player-label .vs-opp-av {
+      flex-shrink: 0 !important;
+      overflow: hidden !important;
+      min-width: 22px !important;
+      width: 22px !important;
+      height: 22px !important;
+    }
+    .player-label .score-live { font-variant-numeric: tabular-nums; font-weight: 700; color: var(--accent); flex-shrink: 0; padding-right: 4px; }
+
+    .vs-me-name {
+      display: inline-flex !important;
+      align-items: center;
+      gap: 6px;
+      min-width: 0;
+      max-width: 100%;
+    }
+    .vs-me-av {
+      width: 22px;
+      height: 22px;
+      border-radius: 7px;
+      flex-shrink: 0;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 0.72rem;
+      font-weight: 800;
+      line-height: 1;
+      overflow: hidden;
+      background-size: cover !important;
+      background-position: center !important;
+      box-shadow: 0 0 0 1px var(--accent-border), 0 2px 6px rgba(0,0,0,0.3);
+    }
+    .vs-me-nick {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      font-weight: 800;
+    }
+    #screenVersus .player-label .name.vs-me-name {
+      flex: 1 1 auto;
+      min-width: 0;
+      max-width: calc(100% - 48px);
+      color: var(--text) !important;
+      opacity: 1 !important;
+      visibility: visible !important;
+      z-index: 25;
+    }
+    #screenVersus .vs-me-nick {
+      color: var(--text) !important;
+      font-weight: 800 !important;
+      font-size: 0.78rem !important;
+    }
+    #screenVersus .vs-me-av,
+    #screenVersus .vs-opp-av {
+      display: inline-flex !important;
+      visibility: visible !important;
+      opacity: 1 !important;
+    }
+    #screenVersus .player-label {
+      min-height: 26px;
+      z-index: 30 !important;
+    }
+    .vs-opp-name {
+      display: inline-flex !important;
+      align-items: center;
+      gap: 6px;
+      min-width: 0;
+      max-width: 100%;
+    }
+    .vs-opp-av {
+      width: 22px;
+      height: 22px;
+      border-radius: 7px;
+      flex-shrink: 0;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 0.72rem;
+      font-weight: 800;
+      line-height: 1;
+      overflow: hidden;
+      background-size: cover !important;
+      background-position: center !important;
+      box-shadow: 0 0 0 1px rgba(124,92,255,0.4), 0 2px 6px rgba(0,0,0,0.3);
+    }
+    .vs-opp-nick {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      font-weight: 800;
+    }
+
+    .player-panel.opp .player-label .score-live { color: var(--accent2); }
+    .player-label .score-row { flex-shrink: 0; display: inline-flex; align-items: center; gap: 6px; padding-right: 2px; }
+    .board-wrap {
+      position: relative; background: var(--surface); border-radius: 14px; padding: 6px;
+      box-shadow: var(--shadow); border: 1px solid var(--border);
+    }
+    /* Opp default frame only without a field theme — themed boards keep their own border */
+    .player-panel.opp .board-wrap.board-fx-none { border-color: rgba(124,92,255,0.35); }
+    .board {
+      display: grid; grid-template-columns: repeat(8, 1fr); gap: 2px;
+      width: min(72vw, 280px); aspect-ratio: 1;
+    }
+    .classic-mode .board { gap: 3px; }
+    .cell { background: var(--cell-empty); border-radius: 4px;
+      transition: transform 0.28s cubic-bezier(0.33, 0, 0.2, 1), opacity 0.24s ease, background 0.2s ease, filter 0.22s ease, box-shadow 0.22s ease;
+      contain: layout style;
+    }
+    .cell.filled {
+      border-radius: 4px;
+      position: relative;
+      overflow: hidden;
+      /* isolate pseudo-effects so color matches tray regardless of board backdrop */
+      isolation: isolate;
+    }
+
+
+    /* ========== Board field themes (поля) — стиль САМОЙ сетки ========== */
+    .board-wrap {
+      position: relative;
+      overflow: visible;
+      transition: border-color 0.25s, box-shadow 0.3s, background 0.3s;
+    }
+    .board-wrap .board {
+      position: relative;
+      z-index: 2;
+      transition: gap 0.2s, padding 0.2s, background 0.25s, border-radius 0.2s;
+    }
+    /* Empty cells: flat color only for unthemed / common; rarer fields set their own gradients */
+    .board-wrap.board-fx-none .cell:not(.filled):not(.preview-ok):not(.preview-bad) {
+      background: var(--field-empty, var(--cell-empty)) !important;
+      background-color: var(--field-empty, var(--cell-empty)) !important;
+    }
+    .board-wrap .cell:not(.filled):not(.preview-ok):not(.preview-bad) {
+      transition: background 0.22s ease, box-shadow 0.22s ease, border-radius 0.2s, transform 0.28s cubic-bezier(0.33, 0, 0.2, 1), filter 0.22s ease;
+    }
+
+    /* —— Common: only palette, no FX —— */
+    .board-wrap.board-fx-none {
+      background: var(--field-surface, var(--surface));
+      border-color: var(--field-border, var(--border));
+      box-shadow: var(--shadow);
+    }
+    .board-wrap.board-fx-none .board {
+      background: transparent;
+      gap: 2.5px;
+    }
+    .board-wrap.board-fx-none .cell:not(.filled):not(.preview-ok):not(.preview-bad) {
+      border-radius: 5px;
+      box-shadow: none;
+    }
+
+    /* —— Rare: soft tint, accent rim, mild filled glow —— */
+    .board-wrap.board-fx-soft {
+      position: relative;
+      background:
+        linear-gradient(165deg, color-mix(in srgb, var(--field-accent) 12%, var(--field-surface, #1a1d24)), var(--field-surface2, #242830));
+      border-color: color-mix(in srgb, var(--field-accent) 55%, var(--border));
+      box-shadow:
+        0 10px 28px rgba(0,0,0,0.35),
+        0 0 0 1px color-mix(in srgb, var(--field-accent) 30%, transparent),
+        0 0 18px color-mix(in srgb, var(--field-accent) 14%, transparent);
+    }
+    .board-wrap.board-fx-soft .board {
+      background: color-mix(in srgb, var(--field-accent) 8%, transparent);
+      border-radius: 10px;
+      padding: 3px;
+      gap: 3px;
+      box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--field-accent) 18%, transparent);
+    }
+    .board-wrap.board-fx-soft .cell:not(.filled):not(.preview-ok):not(.preview-bad) {
+      border-radius: 5px;
+      background: color-mix(in srgb, var(--field-empty, #16191f) 92%, var(--field-accent)) !important;
+      box-shadow:
+        inset 0 0 0 1.5px color-mix(in srgb, var(--field-accent) 40%, transparent),
+        inset 0 2px 4px rgba(0,0,0,0.25),
+        inset 0 1px 0 rgba(255,255,255,0.06);
+    }
+    .board-wrap.board-fx-soft .cell.filled {
+      /* field theme must NOT flatten piece volume — skin/hand volume wins */
+    }
+
+    /* —— Epic pulse / crystal: soft energy breathe —— */
+    .board-wrap.board-fx-pulse {
+      position: relative;
+      background: linear-gradient(160deg, var(--field-surface2, #1a1628), #0c0a12);
+      border-color: color-mix(in srgb, var(--field-accent) 65%, #fff);
+      border-width: 2px;
+      box-shadow:
+        0 12px 28px rgba(0,0,0,0.38),
+        0 0 0 1px color-mix(in srgb, var(--field-accent) 35%, transparent),
+        0 0 28px color-mix(in srgb, var(--field-accent) 22%, transparent),
+        inset 0 0 20px color-mix(in srgb, var(--field-accent) 8%, transparent);
+      overflow: visible;
+    }
+    .board-wrap.board-fx-pulse::before {
+      content: '';
+      position: absolute;
+      inset: -4px;
+      border-radius: 16px;
+      border: 1.5px solid color-mix(in srgb, var(--field-accent) 40%, transparent);
+      pointer-events: none;
+      z-index: 0;
+      animation: fieldPulseRing 4s ease-in-out infinite;
+    }
+    .board-wrap.board-fx-pulse::after {
+      content: '';
+      position: absolute;
+      inset: -8px;
+      border-radius: 18px;
+      border: 1px solid color-mix(in srgb, var(--field-accent) 22%, transparent);
+      pointer-events: none;
+      z-index: 0;
+      animation: fieldPulseRing 4s ease-in-out infinite 1.4s;
+    }
+    @keyframes fieldPulseRing {
+      0%, 100% { opacity: 0.25; transform: scale(0.98); }
+      50% { opacity: 0.6; transform: scale(1.02); }
+    }
+    .board-wrap.board-fx-pulse .board {
+      position: relative;
+      z-index: 1;
+      background:
+        linear-gradient(90deg, color-mix(in srgb, var(--field-accent) 18%, transparent) 1px, transparent 1px),
+        linear-gradient(0deg, color-mix(in srgb, var(--field-accent) 18%, transparent) 1px, transparent 1px),
+        radial-gradient(ellipse 75% 55% at 50% 40%, color-mix(in srgb, var(--field-accent) 12%, transparent), transparent 70%),
+        #0a0810;
+      background-size: 12.5% 100%, 100% 12.5%, 100% 100%, 100% 100%;
+      border-radius: 8px;
+      padding: 4px;
+      gap: 2.5px;
+      animation: fieldGridPulse 6s ease-in-out infinite;
+      box-shadow: inset 0 0 18px color-mix(in srgb, var(--field-accent) 12%, transparent);
+      overflow: hidden;
+    }
+    @keyframes fieldGridPulse {
+      0%, 100% { filter: brightness(1) saturate(1); }
+      50% { filter: brightness(1.1) saturate(1.12); }
+    }
+    .board-wrap.board-fx-pulse .board::before {
+      content: '';
+      position: absolute;
+      width: 28%;
+      height: 2px;
+      left: -15%;
+      top: 42%;
+      background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--field-accent) 80%, #fff), transparent);
+      box-shadow: 0 0 10px var(--field-accent);
+      animation: fieldPulseSpark 8s ease-in-out infinite;
+      pointer-events: none;
+      z-index: 3;
+      border-radius: 2px;
+      opacity: 0;
+    }
+    @keyframes fieldPulseSpark {
+      0%, 20% { transform: translate(0, 0); opacity: 0; }
+      30% { opacity: 0.7; }
+      70% { transform: translate(380%, -15%); opacity: 0.5; }
+      85%, 100% { transform: translate(400%, -18%); opacity: 0; }
+    }
+    .board-wrap.board-fx-pulse .cell:not(.filled):not(.preview-ok):not(.preview-bad) {
+      border-radius: 4px;
+      background: linear-gradient(160deg, color-mix(in srgb, var(--field-accent) 12%, #14101c), #0c0a12) !important;
+      box-shadow:
+        inset 0 0 0 1.5px color-mix(in srgb, var(--field-accent) 40%, transparent),
+        inset 0 0 10px color-mix(in srgb, var(--field-accent) 14%, transparent);
+      animation: none !important;
+    }
+    .board-wrap.board-fx-pulse .cell:not(.filled):nth-child(odd) { animation: none !important; }
+    @keyframes fieldPulseCell {
+      0%, 100% { filter: brightness(1); }
+      50% { filter: brightness(1.1); }
+    }
+    .board-wrap.board-fx-pulse .cell.filled {
+      /* field theme must NOT flatten piece volume — skin/hand volume wins */
+    }
+
+    /* —— Epic magma: lava wells, heat shimmer, crack glow —— */
+    .board-wrap.board-fx-magma {
+      position: relative;
+      background: linear-gradient(180deg, #2e1208, #100604);
+      border-color: rgba(255, 130, 40, 0.9);
+      border-width: 2px;
+      box-shadow:
+        0 12px 36px rgba(0,0,0,0.5),
+        0 0 0 1px rgba(255,170,60,0.4),
+        0 0 45px rgba(255,80,20,0.4),
+        inset 0 -24px 48px rgba(255,50,10,0.15);
+      overflow: visible;
+    }
+    .board-wrap.board-fx-magma::before {
+      content: '';
+      position: absolute;
+      inset: -3px;
+      border-radius: inherit;
+      background: linear-gradient(90deg, #ff6a20, #ffd060, #ff4500, #ff8c00, #ff6a20);
+      background-size: 200% 100%;
+      -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+      mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+      -webkit-mask-composite: xor;
+      mask-composite: exclude;
+      padding: 2px;
+      animation: fieldBorderFlow 3s linear infinite;
+      pointer-events: none;
+      z-index: 0;
+      opacity: 0.85;
+    }
+    .board-wrap.board-fx-magma::after {
+      content: '';
+      position: absolute;
+      inset: 0;
+      border-radius: inherit;
+      pointer-events: none;
+      z-index: 3;
+      background:
+        linear-gradient(115deg, transparent 35%, rgba(255,140,40,0.2) 48%, transparent 58%),
+        linear-gradient(65deg, transparent 30%, rgba(255,70,20,0.15) 45%, transparent 55%);
+      background-size: 200% 200%;
+      animation: fieldMagmaFlow 4s ease-in-out infinite;
+      mix-blend-mode: screen;
+    }
+    @keyframes fieldMagmaFlow {
+      0%, 100% { background-position: 0% 40%, 100% 60%; opacity: 0.55; }
+      50% { background-position: 100% 60%, 0% 40%; opacity: 1; }
+    }
+    .board-wrap.board-fx-magma .board {
+      position: relative;
+      z-index: 1;
+      background:
+        radial-gradient(ellipse 95% 55% at 50% 100%, rgba(255,90,20,0.42), transparent 52%),
+        radial-gradient(ellipse 40% 25% at 30% 20%, rgba(255,160,40,0.12), transparent 50%),
+        linear-gradient(180deg, #1c0c06, #100604);
+      gap: 3px;
+      padding: 4px;
+      border-radius: 8px;
+      box-shadow: inset 0 0 28px rgba(255,60,10,0.18);
+    }
+    .board-wrap.board-fx-magma .cell:not(.filled):not(.preview-ok):not(.preview-bad) {
+      border-radius: 5px;
+      background:
+        radial-gradient(ellipse 85% 55% at 50% 95%, rgba(255,110,30,0.4), transparent 48%),
+        linear-gradient(180deg, #3e1a10, #1a0a06) !important;
+      box-shadow:
+        inset 0 -4px 10px rgba(255, 100, 25, 0.5),
+        inset 0 0 0 1.5px rgba(255, 150, 55, 0.45),
+        0 0 10px rgba(255,80,20,0.18);
+      /* static lava look — no per-cell box-shadow/filter animation */
+      animation: none !important;
+    }
+    .board-wrap.board-fx-magma .cell:not(.filled):nth-child(odd) { animation: none !important; }
+    .board-wrap.board-fx-magma .cell:not(.filled):nth-child(3n) { animation: none !important; }
+    .board-wrap.board-fx-magma .cell.filled {
+      /* field theme must NOT flatten piece volume — skin/hand volume wins */
+    }
+    @keyframes fieldCellEmber {
+      0%, 100% {
+        box-shadow: inset 0 -3px 8px rgba(255,80,20,0.4), inset 0 0 0 1.5px rgba(255,130,45,0.35), 0 0 6px rgba(255,80,20,0.12);
+        filter: brightness(1);
+      }
+      50% {
+        box-shadow: inset 0 -6px 16px rgba(255,130,30,0.75), inset 0 0 0 2px rgba(255,190,70,0.6), 0 0 16px rgba(255,110,30,0.4);
+        filter: brightness(1.15);
+      }
+    }
+
+    /* ========== LEGENDARY: unmistakable premium fields ========== */
+
+    /* NEBULA — soft drifting space, gentle stars */
+    .board-wrap.board-fx-nebula {
+      position: relative;
+      background:
+        radial-gradient(ellipse 100% 80% at 50% -20%, rgba(130,85,255,0.32), transparent 55%),
+        radial-gradient(ellipse 45% 35% at 15% 75%, rgba(70,35,180,0.28), transparent 50%),
+        radial-gradient(ellipse 40% 30% at 85% 55%, rgba(180,90,255,0.15), transparent 50%),
+        linear-gradient(165deg, #0c0a18, #05030c);
+      border: 2px solid rgba(160,130,255,0.7);
+      border-radius: 14px;
+      box-shadow:
+        0 0 0 2px rgba(140,100,240,0.35),
+        0 14px 40px rgba(0,0,0,0.5),
+        0 0 50px rgba(120,80,255,0.28),
+        inset 0 0 40px rgba(90,45,200,0.1);
+      overflow: visible;
+    }
+

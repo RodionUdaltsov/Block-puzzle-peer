@@ -1,0 +1,341 @@
+/* css/20-board/07-history-bots.css — Match history and bot UI. */
+.history-list {
+      width: 100%;
+      max-width: 420px;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      margin: 12px 0 16px;
+      padding: 0 4px;
+      overscroll-behavior: contain;
+      -webkit-overflow-scrolling: touch;
+    }
+    .history-item {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 12px 14px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 10px;
+      font-size: 0.85rem;
+    }
+    .history-item .hi-left { text-align: left; }
+    .history-item .hi-opp { font-weight: 700; color: var(--text); }
+    .history-item .hi-meta { color: var(--text-dim); font-size: 0.72rem; margin-top: 3px; }
+    .history-item .hi-result {
+      font-weight: 800;
+      font-size: 0.9rem;
+      white-space: nowrap;
+    }
+    .history-item .hi-result.win { color: var(--accent); }
+    .history-item .hi-result.lose { color: var(--danger); }
+    .history-item .hi-result.draw { color: var(--text-dim); }
+    .history-item .hi-delta {
+      font-size: 0.75rem;
+      font-weight: 700;
+      color: var(--text-dim);
+      display: inline-block;
+      margin-top: 2px;
+    }
+    .history-item .hi-delta.muted { opacity: 0.75; }
+    .history-item .hi-delta.up {
+      color: var(--trophy);
+      text-shadow: 0 0 10px color-mix(in srgb, var(--trophy) 35%, transparent);
+    }
+    .history-item .hi-delta.down {
+      color: var(--danger);
+    }
+    .history-item .hi-stars {
+      display: inline-flex;
+      gap: 2px;
+      font-size: 0.78rem;
+      letter-spacing: 0.02em;
+      color: #c8d0dc;
+    }
+    .history-item .hi-stars span {
+      opacity: 0.28;
+      filter: grayscale(1);
+    }
+    .history-item .hi-stars span.on {
+      opacity: 1;
+      filter: none;
+      color: #d0d8e4;
+      text-shadow: 0 0 6px rgba(200, 210, 230, 0.35);
+    }
+    .history-empty {
+      color: var(--text-dim);
+      text-align: center;
+      padding: 24px;
+      font-size: 0.9rem;
+    }
+
+    .bot-list {
+      width: 100%;
+      max-width: 480px;
+      overflow-y: auto;
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 8px;
+      margin: 10px 0 14px;
+      padding: 2px 4px 8px;
+      overscroll-behavior: contain;
+      -webkit-overflow-scrolling: touch;
+      align-content: start;
+    }
+    @media (max-width: 380px) {
+      .bot-list { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 7px; }
+    }
+    @media (min-width: 520px) {
+      .bot-list { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+    }
+    .ach-list {
+      width: 100%;
+      max-width: 420px;
+      max-height: 52vh;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      margin: 10px 0 14px;
+      padding: 0 4px;
+    }
+    /* Compact chess.com-style bot tile: name / avatar / cups+tier */
+    .bot-card {
+      background: linear-gradient(165deg,
+        color-mix(in srgb, var(--surface2) 88%, #fff 6%) 0%,
+        var(--surface) 100%);
+      border: 1px solid color-mix(in srgb, var(--border) 80%, #fff 8%);
+      border-radius: 14px;
+      padding: 8px 6px 9px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: flex-start;
+      gap: 4px;
+      cursor: pointer;
+      transition: border-color 0.15s, background 0.15s, transform 0.12s, box-shadow 0.15s;
+      text-align: center;
+      min-width: 0;
+      box-shadow:
+        0 1px 0 rgba(255,255,255,0.08) inset,
+        0 -2px 4px rgba(0,0,0,0.18) inset,
+        0 5px 14px rgba(0,0,0,0.22);
+    }
+    .bot-card:hover, .bot-card.selected {
+      border-color: var(--accent);
+      background: linear-gradient(165deg, var(--accent-soft), color-mix(in srgb, var(--surface) 90%, transparent));
+    }
+    .bot-card.selected {
+      box-shadow:
+        0 1px 0 rgba(255,255,255,0.12) inset,
+        0 0 0 1px var(--accent-border),
+        0 6px 16px var(--glow-a);
+      transform: translateY(-1px);
+    }
+    .bot-card:active {
+      transform: translateY(1px) scale(0.98);
+    }
+    .bot-card .bot-name {
+      font-weight: 800;
+      font-size: 0.72rem;
+      line-height: 1.15;
+      background: linear-gradient(135deg, #ffffff 20%, color-mix(in srgb, var(--text) 60%, var(--accent) 40%) 100%);
+      -webkit-background-clip: text;
+      background-clip: text;
+      -webkit-text-fill-color: transparent;
+      color: transparent;
+      max-width: 100%;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      order: 1;
+      width: 100%;
+      padding: 0 2px;
+    }
+    .bot-card .bot-icon {
+      width: 44px; height: 44px; border-radius: 12px;
+      display: flex; align-items: center; justify-content: center;
+      background: var(--surface2);
+      flex-shrink: 0;
+      overflow: hidden;
+      box-shadow: inset 0 0 0 1px rgba(255,255,255,0.06);
+      order: 2;
+      margin: 1px 0 2px;
+    }
+    .bot-card .bot-icon svg, .bot-avatar svg {
+      width: 100%; height: 100%; display: block;
+    }
+    .bot-avatar {
+      width: 26px; height: 26px; border-radius: 8px;
+      display: inline-block; vertical-align: middle;
+      overflow: hidden; margin-right: 5px;
+      flex-shrink: 0;
+    }
+    .bot-card .bot-cups {
+      font-size: 0.65rem; color: var(--trophy); font-weight: 700;
+      line-height: 1.15; order: 3;
+    }
+    .bot-card .bot-title {
+      font-size: 0.58rem; color: var(--text-dim); font-weight: 600;
+      line-height: 1.15; order: 4;
+      max-width: 100%;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      padding: 0 2px;
+    }
+    .bot-card .bot-tier {
+      font-size: 0.58rem; color: var(--text-dim); margin-top: 0;
+    }
+    .bot-card .bot-info { display: none; }
+    .bot-card .bot-stars {
+      order: 5;
+      display: flex;
+      gap: 2px;
+      justify-content: center;
+      margin-top: 2px;
+      line-height: 1;
+    }
+    .bot-card .bot-stars span {
+      font-size: 0.62rem;
+      opacity: 0.28;
+      filter: grayscale(1);
+      transition: opacity 0.15s, filter 0.15s, transform 0.15s;
+    }
+    .bot-card .bot-stars span.on {
+      opacity: 1;
+      filter: none;
+      transform: scale(1.08);
+      color: #d0d8e4;
+      text-shadow: 0 0 5px rgba(200, 210, 230, 0.3);
+    }
+    .bot-random-row {
+      width: 100%;
+      max-width: 480px;
+      display: flex;
+      justify-content: center;
+      padding: 0 4px 4px;
+      flex-shrink: 0;
+    }
+    .bot-random-row button {
+      width: 100%;
+      max-width: 280px;
+      background: linear-gradient(135deg, rgba(124,92,255,0.2), rgba(0,212,170,0.15));
+      border: 1px solid rgba(124,92,255,0.45);
+      color: var(--text);
+      border-radius: 14px;
+      padding: 12px 16px;
+      font-size: 0.92rem;
+      font-weight: 700;
+    }
+    .bot-random-row button:hover {
+      border-color: var(--accent2);
+      background: linear-gradient(135deg, rgba(124,92,255,0.3), rgba(0,212,170,0.22));
+    }
+    /* Random bot roulette overlay */
+    .bot-pick-overlay {
+      position: fixed; inset: 0;
+      background: rgba(10,12,16,0.82);
+      backdrop-filter: blur(8px);
+      -webkit-backdrop-filter: blur(8px);
+      display: flex; align-items: center; justify-content: center;
+      z-index: 220;
+      opacity: 0; visibility: hidden;
+      transition: opacity 0.25s, visibility 0.25s;
+      padding: 20px;
+    }
+    .bot-pick-overlay.visible {
+      opacity: 1; visibility: visible;
+    }
+    .bot-pick-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 20px;
+      padding: 28px 24px 22px;
+      text-align: center;
+      max-width: 280px; width: 100%;
+      box-shadow: 0 16px 48px rgba(0,0,0,0.45);
+      transform: scale(0.92);
+      transition: transform 0.3s cubic-bezier(0.22, 1.05, 0.36, 1);
+    }
+    .bot-pick-overlay.visible .bot-pick-card {
+      transform: scale(1);
+    }
+    .bot-pick-label {
+      font-size: 0.75rem;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--text-dim);
+      margin-bottom: 14px;
+      font-weight: 700;
+    }
+    .bot-pick-avatar {
+      width: 72px; height: 72px;
+      border-radius: 18px;
+      margin: 0 auto 12px;
+      overflow: hidden;
+      background: var(--surface2);
+      box-shadow: 0 0 0 2px rgba(124,92,255,0.35);
+      transition: transform 0.12s;
+    }
+    .bot-pick-avatar.spin {
+      animation: botPickSpin 0.18s ease infinite;
+    }
+    @keyframes botPickSpin {
+      0% { transform: scale(1) rotate(-2deg); }
+      50% { transform: scale(1.06) rotate(2deg); }
+      100% { transform: scale(1) rotate(-2deg); }
+    }
+    .bot-pick-name {
+      font-size: 1.25rem;
+      font-weight: 800;
+      margin-bottom: 4px;
+      background: linear-gradient(135deg, var(--accent), var(--accent2));
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+    .bot-pick-meta {
+      font-size: 0.82rem;
+      color: var(--text-dim);
+      font-weight: 600;
+    }
+    .bot-pick-stars {
+      margin-top: 10px;
+      font-size: 0.95rem;
+      letter-spacing: 2px;
+    }
+    .bot-speech {
+      /* Overlay near opponent board — above avatar/label */
+      position: absolute;
+      left: 50%;
+      top: 2px;
+      transform: translateX(-50%);
+      z-index: 80;
+      display: block;
+      visibility: hidden;
+      pointer-events: none;
+      max-width: min(88vw, 280px);
+      width: max-content;
+      padding: 8px 12px;
+      background: rgba(20, 18, 32, 0.96);
+      border: 1px solid rgba(124, 92, 255, 0.5);
+      border-radius: 12px;
+      font-size: 0.76rem;
+      color: #cbb8ff;
+      text-align: center;
+      line-height: 1.35;
+      opacity: 0;
+      transition: opacity 0.2s ease, visibility 0.2s;
+      box-shadow: 0 8px 24px rgba(0,0,0,0.5);
+    }
+    .bot-speech.visible {
+      visibility: visible;
+      opacity: 1;
+    }
+    .bot-speech .bot-speech-name {
+      font-weight: 700; color: var(--text); margin-right: 4px;
+    }
+    

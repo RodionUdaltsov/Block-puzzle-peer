@@ -1,0 +1,59 @@
+  <div class="screen active" id="screenMenu" role="main" aria-label="Главное меню" data-i18n-aria="menu.main">
+    <div class="home-top">
+      <button type="button" class="home-profile" id="btnHomeProfile" title="Профиль" aria-label="Профиль" data-i18n-title="menu.profile" data-i18n-aria="menu.profile">
+
+        <div class="home-profile-av" id="homeProfileAv">?</div>
+        <div class="home-profile-meta">
+          <div class="home-profile-name" id="homeProfileName" data-i18n="menu.guest">Гость</div>
+          <div class="home-profile-badge guest" data-i18n="menu.guest">Гость</div>
+        </div>
+        <span class="home-profile-chev" aria-hidden="true">›</span>
+      </button>
+      <div class="home-pills">
+        <span class="offline-chip" id="offlineChip" title="Нет сети — доступны классика и боты" data-i18n="menu.offline">📡 Оффлайн</span>
+        <div class="home-pill silver-star" title="Серебряные звёзды за победы над ботами (1/2/3 мин)" data-i18n-title="menu.stars.hint">☆ <span id="menuSilverStars">0/0</span></div>
+        <div class="home-pill trophy" title="Трофеи" data-i18n-title="menu.trophies">🏆 <span id="menuTrophies">0</span></div>
+        <div class="home-pill diamond" title="Алмазы" data-i18n-title="menu.diamonds">💎 <span id="menuDiamonds">3</span></div>
+      </div>
+    </div>
+    <div class="home-hero">
+      <h1 data-i18n="menu.hero">Играй. Побеждай.</h1>
+      <p data-i18n="menu.hero.sub">Линии на поле · рекорды · дуэли с друзьями и ботами</p>
+    </div>
+    <div class="home-deco-row" aria-hidden="true">
+      <span class="home-deco-cell"></span>
+      <span class="home-deco-cell"></span>
+      <span class="home-deco-cell"></span>
+      <span class="home-deco-cell"></span>
+      <span class="home-deco-cell"></span>
+    </div>
+    <div class="home-modes">
+      <div class="home-mode" id="cardClassic" role="button" tabindex="0" data-i18n-aria="menu.classic" aria-label="Классика">
+        <div class="home-mode-icon">🎮</div>
+        <div class="home-mode-body">
+          <h3 data-i18n="menu.classic">Классика</h3>
+          <p data-i18n="menu.classic.desc">Бесконечная игра. Очищай линии и бей свой рекорд.</p>
+          <div class="home-mode-meta gold-star" title="Рекорд классики" data-i18n-title="menu.record.hint"><span data-i18n="menu.record">★ Рекорд</span> <strong id="menuBest">0</strong></div>
+        </div>
+        <div class="home-mode-arrow">›</div>
+      </div>
+      <div class="home-mode versus" id="cardVersus" role="button" tabindex="0" data-i18n-aria="menu.versus" aria-label="Соревнование">
+        <div class="home-mode-icon">⚔️</div>
+        <div class="home-mode-body">
+          <h3 data-i18n="menu.versus">Соревнование</h3>
+          <p data-i18n="menu.versus.desc">Дуэль на время. Трофеи за победу над игроками и ботами.</p>
+        </div>
+        <div class="home-mode-arrow">›</div>
+      </div>
+    </div>
+    <div class="home-nav">
+      <button type="button" class="home-nav-btn" id="btnFriends"><span class="ico">👥</span><span data-i18n="menu.friends">Друзья</span></button>
+      <button type="button" class="home-nav-btn" id="btnShop"><span class="ico">🛒</span><span data-i18n="menu.shop">Магазин</span></button>
+      <button type="button" class="home-nav-btn" id="btnInventory"><span class="ico">🎒</span><span data-i18n="menu.inventory">Инвентарь</span></button>
+      <button type="button" class="home-nav-btn" id="btnHistory"><span class="ico">📋</span><span data-i18n="menu.history">История</span></button>
+      <button type="button" class="home-nav-btn" id="btnAchievements"><span class="ico">🏅</span><span data-i18n="menu.achievements">Награды</span></button>
+      <button type="button" class="home-nav-btn" id="btnSettings"><span class="ico">⚙️</span><span data-i18n="menu.settings">Ещё</span></button>
+    </div>
+  </div>
+
+

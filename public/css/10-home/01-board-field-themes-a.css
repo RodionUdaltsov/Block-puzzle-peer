@@ -1,0 +1,200 @@
+/* css/10-home/01-board-field-themes-a.css — Board field themes (first layer). */
+    .board-wrap.board-fx-nebula::before {
+      content: '';
+      position: absolute;
+      inset: -3px;
+      border-radius: 16px;
+      padding: 2px;
+      background: linear-gradient(135deg, #a78bfa, #7c5cff, #c084fc, #6366f1, #a78bfa);
+      background-size: 250% 250%;
+      -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+      mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+      -webkit-mask-composite: xor;
+      mask-composite: exclude;
+      animation: fieldBorderFlow 10s ease-in-out infinite;
+      pointer-events: none;
+      z-index: 0;
+      opacity: 0.75;
+    }
+    .board-wrap.board-fx-nebula::after {
+      content: '';
+      position: absolute;
+      inset: 0;
+      border-radius: 14px;
+      pointer-events: none;
+      z-index: 3;
+      background:
+        radial-gradient(ellipse 50% 40% at 25% 35%, rgba(150,80,255,0.22), transparent 55%),
+        radial-gradient(ellipse 40% 30% at 75% 65%, rgba(230,100,200,0.14), transparent 50%);
+      animation: fieldNebulaDrift 14s ease-in-out infinite alternate;
+      mix-blend-mode: screen;
+    }
+    @keyframes fieldNebulaDrift {
+      0% { transform: translate(0, 0) scale(1); opacity: 0.55; }
+      100% { transform: translate(3%, -2%) scale(1.05); opacity: 0.9; }
+    }
+    .board-wrap.board-fx-nebula .board {
+      position: relative;
+      z-index: 1;
+      background:
+        radial-gradient(1.4px 1.4px at 14% 20%, rgba(255,255,255,0.7), transparent),
+        radial-gradient(1px 1px at 72% 25%, rgba(220,200,255,0.6), transparent),
+        radial-gradient(1.2px 1.2px at 40% 50%, rgba(255,255,255,0.5), transparent),
+        radial-gradient(1px 1px at 85% 60%, rgba(190,170,255,0.5), transparent),
+        radial-gradient(1.3px 1.3px at 28% 78%, rgba(255,255,255,0.55), transparent),
+        radial-gradient(ellipse 70% 50% at 50% 25%, rgba(110,65,240,0.2), transparent 65%),
+        linear-gradient(160deg, #14102a, #0a0818);
+      gap: 3px;
+      padding: 5px;
+      border-radius: 10px;
+      box-shadow: inset 0 0 30px rgba(100,55,230,0.12);
+      animation: fieldNebulaBreathe 9s ease-in-out infinite;
+      overflow: hidden;
+    }
+    @keyframes fieldNebulaBreathe {
+      0%, 100% { filter: brightness(1) saturate(1); }
+      50% { filter: brightness(1.08) saturate(1.1); }
+    }
+    /* Soft shooting star — rare, slow */
+    .board-wrap.board-fx-nebula .board::before {
+      content: '';
+      position: absolute;
+      width: 40%;
+      height: 1.5px;
+      top: 22%;
+      left: -25%;
+      background: linear-gradient(90deg, transparent, rgba(255,255,255,0.75), rgba(200,170,255,0.4), transparent);
+      box-shadow: 0 0 6px rgba(255,255,255,0.35);
+      animation: fieldShootingStar 11s ease-in-out infinite;
+      pointer-events: none;
+      z-index: 4;
+      opacity: 0;
+      border-radius: 2px;
+    }
+    @keyframes fieldShootingStar {
+      0%, 78% { transform: translate(0, 0) rotate(-16deg); opacity: 0; }
+      82% { opacity: 0.85; }
+      95% { transform: translate(160%, 80%) rotate(-16deg); opacity: 0; }
+      100% { opacity: 0; }
+    }
+    .board-wrap.board-fx-nebula .board::after {
+      content: '';
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+      background:
+        radial-gradient(1.2px 1.2px at 20% 30%, rgba(255,255,255,0.6), transparent),
+        radial-gradient(1px 1px at 65% 45%, rgba(220,200,255,0.5), transparent),
+        radial-gradient(1px 1px at 50% 70%, rgba(255,255,255,0.4), transparent);
+      animation: fieldStarTwinkle 6s ease-in-out infinite;
+    }
+
+    /* ===== LEGENDARY FIELDS — amplified beauty ===== */
+    .board-wrap.board-fx-nebula,
+    .board-wrap.board-fx-solar,
+    .board-wrap.board-fx-quantum,
+    .board-wrap.board-fx-abyss,
+    .board-wrap.board-fx-prismfield {
+      isolation: isolate;
+      transform: translateZ(0);
+    }
+    /* Nebula amplified */
+    .board-wrap.board-fx-nebula {
+      box-shadow:
+        0 0 0 2px rgba(167, 139, 255, 0.35),
+        0 0 40px rgba(120, 80, 255, 0.35),
+        0 0 80px rgba(90, 60, 200, 0.2),
+        0 18px 48px rgba(0,0,0,0.55),
+        inset 0 1px 0 rgba(220,200,255,0.12) !important;
+      animation: fieldLegendAura 3.2s ease-in-out infinite, legendFloat 6s ease-in-out infinite;
+    }
+    .board-wrap.board-fx-nebula::after {
+      content: '';
+      position: absolute;
+      inset: -20%;
+      background:
+        radial-gradient(2px 2px at 20% 30%, rgba(255,255,255,0.9), transparent),
+        radial-gradient(1.5px 1.5px at 70% 20%, rgba(200,180,255,0.85), transparent),
+        radial-gradient(2px 2px at 40% 70%, rgba(255,200,255,0.7), transparent),
+        radial-gradient(1px 1px at 85% 60%, rgba(180,220,255,0.9), transparent),
+        radial-gradient(1.5px 1.5px at 15% 80%, rgba(255,255,255,0.6), transparent),
+        radial-gradient(2px 2px at 55% 45%, rgba(160,120,255,0.8), transparent);
+      background-size: 100% 100%;
+      animation: legendStars 8s ease-in-out infinite;
+      pointer-events: none;
+      z-index: 2;
+      opacity: 0.85;
+      mix-blend-mode: screen;
+    }
+    /* Solar amplified */
+    .board-wrap.board-fx-solar {
+      box-shadow:
+        0 0 0 2px rgba(255, 192, 64, 0.4),
+        0 0 36px rgba(255, 160, 40, 0.4),
+        0 0 72px rgba(255, 120, 20, 0.22),
+        0 18px 48px rgba(0,0,0,0.55),
+        inset 0 1px 0 rgba(255,230,160,0.15) !important;
+      animation: fieldLegendAura 2.8s ease-in-out infinite, legendFloat 5.5s ease-in-out infinite;
+    }
+    .board-wrap.board-fx-solar .cell.filled {
+      /* field theme must NOT flatten piece volume — skin/hand volume wins */
+    }
+    /* Quantum amplified */
+    .board-wrap.board-fx-quantum {
+      box-shadow:
+        0 0 0 2px rgba(0, 255, 200, 0.35),
+        0 0 36px rgba(0, 220, 180, 0.32),
+        0 0 70px rgba(0, 180, 255, 0.18),
+        0 18px 48px rgba(0,0,0,0.55),
+        inset 0 1px 0 rgba(160,255,240,0.12) !important;
+      animation: fieldLegendAura 3s ease-in-out infinite, legendFloat 6.5s ease-in-out infinite;
+    }
+    .board-wrap.board-fx-quantum .cell.filled {
+      /* field theme must NOT flatten piece volume — skin/hand volume wins */
+    }
+    /* Abyss amplified */
+    .board-wrap.board-fx-abyss {
+      box-shadow:
+        0 0 0 2px rgba(79, 195, 247, 0.35),
+        0 0 40px rgba(40, 140, 220, 0.35),
+        0 0 80px rgba(20, 80, 160, 0.2),
+        0 18px 48px rgba(0,0,0,0.55),
+        inset 0 1px 0 rgba(180,230,255,0.1) !important;
+      animation: fieldLegendAura 3.4s ease-in-out infinite, legendFloat 7s ease-in-out infinite;
+    }
+    .board-wrap.board-fx-abyss .cell.filled {
+      /* field theme must NOT flatten piece volume — skin/hand volume wins */
+    }
+    /* Prism amplified */
+    .board-wrap.board-fx-prismfield {
+      box-shadow:
+        0 0 0 2px rgba(255, 150, 220, 0.4),
+        0 0 36px rgba(200, 100, 255, 0.35),
+        0 0 70px rgba(80, 200, 255, 0.2),
+        0 18px 48px rgba(0,0,0,0.55),
+        inset 0 1px 0 rgba(255,200,255,0.12) !important;
+      animation: fieldLegendAura 3s ease-in-out infinite, legendFloat 5.8s ease-in-out infinite;
+    }
+    .board-wrap.board-fx-prismfield .cell.filled:not([class*="clearing"]) {
+      /* no ambient field animation on filled cells — keep same volume as hand */
+      animation: none !important;
+    }
+    @keyframes legendFloat {
+      0%, 100% { transform: translateY(0); }
+      50% { transform: translateY(-2px); }
+    }
+    @keyframes legendStars {
+      0%, 100% { opacity: 0.55; transform: scale(1); }
+      50% { opacity: 1; transform: scale(1.04); }
+    }
+    @keyframes legendPrismFill {
+      0%, 100% { filter: hue-rotate(0deg) brightness(1); }
+      50% { filter: hue-rotate(18deg) brightness(1.08); }
+    }
+    /* Stronger legend aura */
+    @keyframes fieldLegendAura {
+      0%, 100% { filter: brightness(1) saturate(1); }
+      50% { filter: brightness(1.1) saturate(1.12); }
+    }
+
+    

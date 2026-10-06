@@ -1,0 +1,241 @@
+/* styles-perf.css — graphics tiers & performance overrides (v3.11)
+ *
+ * Loaded LAST in the bundle. Driven by classes that 13-performance.js puts on <html>:
+ *   bp-q-{high,balanced,low}  bp-skin-{full,tray,off}  bp-field-{full,lite,off}
+ *   bp-fx-{full,lite,off}     bp-glow-{full,lite,off}
+ *
+ * Philosophy: the look stays; what goes away is work the player can't see —
+ * one spinning layer per cell, blur behind opaque panels, glow radii larger than the
+ * cell gap, animations on things that are off-screen or being dragged over.
+ */
+
+/* ---------- settings screen ---------- */
+.settings-row-note { padding-top: 0; margin-top: -6px; border-top: 0 !important; }
+.settings-row-note .settings-hint { opacity: 0.8; }
+
+/* ---------- 0. Free wins on every tier (no visible change) ---------- */
+/* Game headers have an opaque background: the blur behind them was never visible. */
+#screenClassic .header,
+#screenVersus .header {
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
+}
+/* Whole-board 4% opacity "aura" pulse on phones forced the entire board (64 cells + children)
+   to re-composite every frame for an imperceptible change. */
+body.touch-ui .board-wrap.board-fx-solar,
+body.touch-ui .board-wrap.board-fx-nebula,
+body.touch-ui .board-wrap.board-fx-quantum,
+body.touch-ui .board-wrap.board-fx-abyss,
+body.touch-ui .board-wrap.board-fx-prismfield,
+body.touch-ui .board-wrap.board-fx-magma,
+body.touch-ui .board-wrap.board-fx-pulse {
+  animation: none !important;
+}
+/* Nothing decorative runs in a hidden tab. */
+html.bp-page-hidden *,
+html.bp-page-hidden *::before,
+html.bp-page-hidden *::after {
+  animation-play-state: paused !important;
+}
+/* Shop / inventory: don't render (or animate) cards that are scrolled out of view. */
+#shopGrid .skin-item,
+#invGrid .skin-item {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 200px;
+}
+
+/* ---------- 1. Holo sweep: one cheap layer per board (replaces per-cell spin in Light mode) ---------- */
+.bp-holo-sweep {
+  display: none;
+  position: absolute;
+  inset: 6px;
+  border-radius: 10px;
+  overflow: hidden;
+  pointer-events: none;
+  z-index: 3;
+  contain: strict;
+}
+.bp-holo-sweep::before {
+  content: '';
+  position: absolute;
+  top: 0; bottom: 0;
+  left: -60%;
+  width: 220%;
+  background: linear-gradient(105deg,
+    transparent 38%,
+    rgba(255, 255, 255, 0.10) 45%,
+    rgba(255, 255, 255, 0.26) 50%,
+    rgba(255, 255, 255, 0.10) 55%,
+    transparent 62%);
+  transform: translate3d(-34%, 0, 0);
+  animation: bpHoloSweep 4.2s ease-in-out infinite;
+  will-change: transform;
+}
+@keyframes bpHoloSweep {
+  0%   { transform: translate3d(-34%, 0, 0); }
+  55%  { transform: translate3d(34%, 0, 0); }
+  100% { transform: translate3d(34%, 0, 0); }
+}
+html.bp-skin-tray body.skin-fx-prism #board ~ .bp-holo-sweep,
+html.bp-skin-tray body.skin-fx-prism #boardMe ~ .bp-holo-sweep,
+html.bp-skin-tray .player-panel.opp.skin-fx-prism #boardOpp ~ .bp-holo-sweep {
+  display: block;
+}
+
+/* ---------- 2. Skin shimmer: Light / Off ----------
+   Board cells keep the same conic "facets" but frozen at a per-cell angle
+   (looks like a gem, costs nothing). Hand + ghost keep their motion in Light mode. */
+html:not(.bp-skin-full) body.skin-fx-prism #board .cell.filled::before,
+html:not(.bp-skin-full) body.skin-fx-prism #boardMe .cell.filled::before,
+html:not(.bp-skin-full) .player-panel.opp.skin-fx-prism #boardOpp .cell.filled::before {
+  animation: none !important;
+  will-change: auto !important;
+  backface-visibility: visible !important;
+  transform: rotate(var(--holo-r, 38deg)) scale(1.2);
+}
+html:not(.bp-skin-full) body.skin-fx-prism :is(#board, #boardMe, #boardOpp) .cell:nth-child(5n+1) { --holo-r: 8deg; }
+html:not(.bp-skin-full) body.skin-fx-prism :is(#board, #boardMe, #boardOpp) .cell:nth-child(5n+2) { --holo-r: 74deg; }
+html:not(.bp-skin-full) body.skin-fx-prism :is(#board, #boardMe, #boardOpp) .cell:nth-child(5n+3) { --holo-r: 141deg; }
+html:not(.bp-skin-full) body.skin-fx-prism :is(#board, #boardMe, #boardOpp) .cell:nth-child(5n+4) { --holo-r: 208deg; }
+html:not(.bp-skin-full) body.skin-fx-prism :is(#board, #boardMe, #boardOpp) .cell:nth-child(5n)   { --holo-r: 292deg; }
+html:not(.bp-skin-full) .player-panel.opp.skin-fx-prism #boardOpp .cell:nth-child(5n+1) { --holo-r: 8deg; }
+html:not(.bp-skin-full) .player-panel.opp.skin-fx-prism #boardOpp .cell:nth-child(5n+2) { --holo-r: 74deg; }
+html:not(.bp-skin-full) .player-panel.opp.skin-fx-prism #boardOpp .cell:nth-child(5n+3) { --holo-r: 141deg; }
+html:not(.bp-skin-full) .player-panel.opp.skin-fx-prism #boardOpp .cell:nth-child(5n+4) { --holo-r: 208deg; }
+html:not(.bp-skin-full) .player-panel.opp.skin-fx-prism #boardOpp .cell:nth-child(5n)   { --holo-r: 292deg; }
+
+/* Off: hand, ghost and opponent hand are static too. */
+html.bp-skin-off body.skin-fx-prism :is(#piecesArea, #piecesAreaVs, #ghost) .piece-cell::before,
+html.bp-skin-off .player-panel.opp.skin-fx-prism #piecesAreaOpp .piece-cell::before,
+html.bp-skin-off #aiGhost.skin-fx-prism .piece-cell::before {
+  animation: none !important;
+  will-change: auto !important;
+  transform: rotate(38deg) scale(1.2);
+}
+html.bp-skin-off body.skin-fx-gloss :is(#piecesArea, #piecesAreaVs, #ghost) .piece-cell::before,
+html.bp-skin-off .player-panel.opp.skin-fx-gloss #piecesAreaOpp .piece-cell::before,
+html.bp-skin-off #aiGhost.skin-fx-gloss .piece-cell::before {
+  animation: none !important;
+  transform: translateX(120%);
+}
+
+/* Shop & inventory previews: many cards at once → freeze the spinners unless Full. */
+html:not(.bp-skin-full) .skin-item .skin-mini-board i.on::before,
+html:not(.bp-skin-full) .skin-item .skin-mini-board i.on::after,
+html:not(.bp-skin-full) .skin-item[data-rarity="legendary"] .skin-cube,
+html:not(.bp-skin-full) .skin-item[data-rarity="legendary"] .field-mini,
+html:not(.bp-skin-full) .field-mini.fx-prismfield {
+  animation: none !important;
+}
+html:not(.bp-skin-full) .skin-item .skin-mini-board i.on::before { mix-blend-mode: normal; opacity: 0.55; }
+
+/* While a piece is being dragged (balanced / low): park decorative loops under the finger. */
+html:not(.bp-q-high) body.is-dragging .bp-holo-sweep::before,
+html:not(.bp-q-high) body.is-dragging .board-wrap::before,
+html:not(.bp-q-high) body.is-dragging .board-wrap::after,
+html:not(.bp-q-high) body.is-dragging .board-wrap .board::before,
+html:not(.bp-q-high) body.is-dragging .board-wrap .board::after,
+html:not(.bp-q-high) body.is-dragging.skin-fx-prism #board .cell.filled::before,
+html:not(.bp-q-high) body.is-dragging.skin-fx-prism #boardMe .cell.filled::before,
+html:not(.bp-q-high) body.is-dragging .player-panel.opp.skin-fx-prism #boardOpp .cell.filled::before {
+  animation-play-state: paused !important;
+}
+
+/* ---------- 3. Field effects ---------- */
+/* Light: keep the frame/background loops (few big layers), drop the per-cell loops. */
+html.bp-field-lite .board-wrap[class*="board-fx-"] .board,
+html.bp-field-lite .board-wrap[class*="board-fx-"] .cell:not(.filled):not(.placing):not([class*="clearing"]) {
+  animation: none !important;
+  filter: none !important;
+  will-change: auto !important;
+}
+/* Off: handled by the existing html:not(.bp-full-board-fx) block in styles-board.css, plus: */
+html.bp-field-off .board-wrap[class*="board-fx-"] .board,
+html.bp-field-off .board-wrap[class*="board-fx-"] .board::before,
+html.bp-field-off .board-wrap[class*="board-fx-"] .board::after {
+  animation: none !important;
+  filter: none !important;
+}
+html.bp-field-off .field-mini { animation: none !important; }
+
+/* ---------- 4. Particles & debris ---------- */
+html.bp-fx-off .skin-particle,
+html.bp-fx-off .legend-spark,
+html.bp-fx-off .epic-spark,
+html.bp-fx-off .clear-debris,
+html.bp-fx-off .neon-spark,
+html.bp-fx-off .candy-spark,
+html.bp-fx-off .sunset-spark,
+html.bp-fx-off .rare-spark {
+  display: none !important;
+}
+/* Particles carry two big blurred shadows each; the dot is what you actually see. */
+html.bp-fx-lite .skin-particle,
+html.bp-fx-lite .legend-spark,
+html.bp-fx-lite .epic-spark,
+html.bp-fx-lite .clear-debris {
+  box-shadow: none !important;
+  filter: none !important;
+}
+
+/* ---------- 5. Glow & blur ---------- */
+/* Light: legendary glow drops the 28px outer halo (it overlaps its neighbours anyway). */
+html.bp-glow-lite body.skin-fx-prism :is(#board, #boardMe, #piecesArea, #piecesAreaVs, #ghost) :is(.cell.filled, .piece-cell),
+html.bp-glow-lite .player-panel.opp.skin-fx-prism :is(#boardOpp .cell.filled, #piecesAreaOpp .piece-cell),
+html.bp-glow-lite #aiGhost.skin-fx-prism .piece-cell {
+  box-shadow:
+    inset 0 2.5px 0 rgba(255, 255, 255, 0.58),
+    inset 0 -3.5px 7px rgba(0, 0, 0, 0.42),
+    0 0 0 1.3px color-mix(in srgb, var(--cell-base) 65%, #fff),
+    0 0 10px color-mix(in srgb, var(--cell-glow, var(--cell-base)) 70%, transparent) !important;
+}
+/* Backdrop blur: persistent bars lose it, transient modals get a smaller radius. */
+html:is(.bp-glow-lite, .bp-glow-off) .screen-chrome,
+html:is(.bp-glow-lite, .bp-glow-off) .home-pill,
+html:is(.bp-glow-lite, .bp-glow-off) .skin-rarity {
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
+}
+html.bp-glow-lite .overlay.visible,
+html.bp-glow-lite .ach-claim-overlay.visible,
+html.bp-glow-lite .score-duel-overlay.visible,
+html.bp-glow-lite #matchIntro,
+html.bp-glow-lite #matchEndFreeze,
+html.bp-glow-lite #matchRejoinPanel,
+html.bp-glow-lite #rejoinLoading,
+html.bp-glow-lite .bot-pick-overlay,
+html.bp-glow-lite .replay-end-card {
+  -webkit-backdrop-filter: blur(5px) !important;
+  backdrop-filter: blur(5px) !important;
+}
+/* Off: no blur anywhere, no outer glow on skins — flat volume (inset light + rim). */
+html.bp-glow-off *,
+html.bp-glow-off *::before,
+html.bp-glow-off *::after {
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
+}
+html.bp-glow-off .overlay.visible,
+html.bp-glow-off .ach-claim-overlay.visible,
+html.bp-glow-off .score-duel-overlay.visible { background: rgba(8, 10, 14, 0.9) !important; }
+html.bp-glow-off body:is(.skin-fx-rare, .skin-fx-gloss, .skin-fx-prism) :is(#board, #boardMe, #piecesArea, #piecesAreaVs, #ghost) :is(.cell.filled, .piece-cell),
+html.bp-glow-off .player-panel.opp:is(.skin-fx-rare, .skin-fx-gloss, .skin-fx-prism) :is(#boardOpp .cell.filled, #piecesAreaOpp .piece-cell),
+html.bp-glow-off #aiGhost:is(.skin-fx-rare, .skin-fx-gloss, .skin-fx-prism) .piece-cell {
+  box-shadow:
+    inset 0 2px 0 rgba(255, 255, 255, 0.34),
+    inset 0 -2.5px 5px rgba(0, 0, 0, 0.28),
+    0 0 0 1px color-mix(in srgb, var(--cell-base) 55%, #fff) !important;
+}
+
+/* ---------- 6. Battery preset extras ---------- */
+html.bp-q-low .screen.active.screen-enter,
+html.bp-q-low .screen.active.screen-enter-soft,
+html.bp-q-low .screen.active.screen-enter > * {
+  animation-duration: 0.01ms !important;
+}
+html.bp-q-low .cell { transition-duration: 0.12s; }
+
+/* ---------- 7. Reduced motion ---------- */
+@media (prefers-reduced-motion: reduce) {
+  .bp-holo-sweep::before { animation: none; }
+}

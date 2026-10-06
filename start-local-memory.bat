@@ -30,6 +30,7 @@ if not exist "vendor\ws\lib\websocket.js" (
 
 if not exist "public\dist\client.bundle.js" (
   echo Building client...
+  node scripts\bundle-html.js
   node scripts\bundle-css.js
   node scripts\bundle-client.js
   if errorlevel 1 ( pause & exit /b 1 )

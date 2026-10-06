@@ -1,0 +1,370 @@
+/* css/20-board/06-overlays-review-replay.css — Overlays, review bar, replay controls. */
+.overlay {
+      position: fixed; inset: 0; background: rgba(10,12,16,0);
+      backdrop-filter: blur(0px); -webkit-backdrop-filter: blur(0px);
+      display: flex; align-items: center; justify-content: center; z-index: 100;
+      padding: max(16px, var(--safe-top)) max(16px, var(--safe-right)) max(16px, var(--safe-bottom)) max(16px, var(--safe-left));
+      overflow-y: auto; -webkit-overflow-scrolling: touch;
+      pointer-events: none;
+      opacity: 0;
+      visibility: hidden;
+      transition: opacity 0.28s ease, visibility 0.28s ease, backdrop-filter 0.28s ease, background 0.28s ease;
+    }
+    #rematchOffer.overlay,
+    #rematchWait.overlay {
+      z-index: 10050;
+    }
+    #lobbyInviteModal.overlay {
+      z-index: 120;
+    }
+    #lobbyInviteModal.overlay.visible {
+      opacity: 1 !important;
+      visibility: visible !important;
+      pointer-events: auto !important;
+    }
+    #rematchOffer.overlay.visible,
+    #rematchWait.overlay.visible {
+      opacity: 1 !important;
+      visibility: visible !important;
+      pointer-events: auto !important;
+    }
+    .overlay.visible {
+      pointer-events: auto;
+      opacity: 1;
+      visibility: visible;
+      background: rgba(10,12,16,0.78);
+      backdrop-filter: blur(10px);
+      -webkit-backdrop-filter: blur(10px);
+    }
+    .modal {
+      background: var(--surface); border: 1px solid var(--border); border-radius: 20px;
+      padding: 26px 22px; max-width: 360px; width: 100%; text-align: center; box-shadow: var(--shadow);
+      transform: scale(0.94) translateY(14px);
+      opacity: 0;
+      transition: transform 0.34s cubic-bezier(0.22, 1.05, 0.36, 1), opacity 0.28s ease;
+    }
+    .overlay.visible .modal {
+      transform: scale(1) translateY(0);
+      opacity: 1;
+    }
+    .modal h2 {
+      font-size: 1.4rem; margin-bottom: 8px;
+      background: linear-gradient(135deg, var(--accent), var(--accent2));
+      -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+    }
+    .modal p { color: var(--text-dim); margin-bottom: 14px; line-height: 1.45; font-size: 0.92rem; }
+    .modal .big-score { font-size: 2.2rem; font-weight: 800; margin: 6px 0 14px; }
+    .modal .trophy-delta { font-size: 1.3rem; font-weight: 700; margin-bottom: 16px; }
+    .modal .trophy-delta.win { color: var(--trophy); }
+    .modal .trophy-delta.lose { color: var(--danger); }
+    .vs-result { display: flex; justify-content: space-around; margin: 12px 0 18px; font-size: 0.95rem; }
+    .vs-result .side { text-align: center; }
+    .vs-result .side .s { font-size: 1.5rem; font-weight: 800; }
+    .stuck-actions { display: flex; flex-direction: column; gap: 10px; }
+
+    /* Side dock review / replay controls — right edge, boards stay centered */
+    .review-bar {
+      display: none;
+      position: fixed;
+      left: auto;
+      right: max(6px, env(safe-area-inset-right, 0px));
+      top: 50%;
+      bottom: auto;
+      transform: translateY(-50%);
+      width: 52px;
+      padding: 8px 5px;
+      background: rgba(22, 28, 36, 0.96);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      text-align: center;
+      gap: 5px;
+      flex-direction: column;
+      align-items: center;
+      z-index: 200;
+      box-shadow: 0 8px 28px rgba(0,0,0,0.45);
+      pointer-events: auto;
+      max-height: min(440px, calc(100dvh - 48px));
+      overflow-y: auto;
+      -webkit-overflow-scrolling: touch;
+    }
+    .review-bar.visible { display: flex; }
+    .review-bar .review-title {
+      font-size: 0.55rem;
+      font-weight: 700;
+      color: var(--accent);
+      line-height: 1.15;
+      max-width: 44px;
+      word-break: break-word;
+    }
+    .review-bar .review-title:empty,
+    .review-bar .review-meta:empty { display: none; }
+    .review-bar .review-meta {
+      font-size: 0.5rem;
+      color: var(--text-dim);
+      line-height: 1.15;
+      max-width: 44px;
+      word-break: break-word;
+    }
+    .review-bar .controls {
+      margin-top: 2px;
+      gap: 5px;
+      max-width: 100%;
+      flex-direction: column;
+      flex-wrap: nowrap;
+      justify-content: center;
+      width: 100%;
+      pointer-events: auto;
+    }
+    .review-bar .controls button {
+      width: 100%;
+      padding: 6px 2px;
+      font-size: 0.68rem;
+      min-height: 36px;
+      border-radius: 10px;
+      pointer-events: auto;
+      line-height: 1.1;
+      flex: 0 0 auto;
+    }
+    /* Alias kept for replay mode (same side dock) */
+    .review-bar.replay-dock {
+      /* inherits base side-dock styles */
+      width: 56px;
+      padding: 10px 6px;
+    }
+    .review-bar.replay-dock .review-title {
+      display: none;
+    }
+    /* Full-width replay scrubber under fields */
+    .replay-scrub-bar {
+      display: none;
+      width: 100%;
+      max-width: 420px;
+      margin: 10px auto 4px;
+      padding: 10px 12px 8px;
+      box-sizing: border-box;
+      background: rgba(18, 24, 34, 0.92);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      flex-direction: column;
+      gap: 6px;
+      z-index: 40;
+      box-shadow: 0 6px 20px rgba(0,0,0,0.28);
+    }
+    /* Scrub bar only when actively in replay playback (not just post-match result UI).
+       body.replay-ui alone is also set after match end for chrome; do not force-show slider then. */
+    body.replay-ui.replay-playing .replay-scrub-bar {
+      display: flex !important;
+    }
+    .replay-scrub-range {
+      -webkit-appearance: none;
+      appearance: none;
+      width: 100%;
+      height: 10px;
+      border-radius: 999px;
+      background: linear-gradient(90deg, rgba(0,212,170,0.35), rgba(124,92,255,0.4));
+      outline: none;
+      cursor: pointer;
+      margin: 0;
+    }
+    .replay-scrub-range::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      appearance: none;
+      width: 22px;
+      height: 22px;
+      border-radius: 50%;
+      background: linear-gradient(135deg, var(--accent), var(--accent2));
+      border: 2px solid rgba(255,255,255,0.45);
+      box-shadow: 0 2px 10px rgba(0,0,0,0.4);
+      cursor: grab;
+      margin-top: -6px;
+    }
+    .replay-scrub-range::-webkit-slider-runnable-track {
+      height: 10px;
+      border-radius: 999px;
+    }
+    .replay-scrub-range::-moz-range-thumb {
+      width: 22px;
+      height: 22px;
+      border-radius: 50%;
+      background: linear-gradient(135deg, var(--accent), var(--accent2));
+      border: 2px solid rgba(255,255,255,0.45);
+      cursor: grab;
+    }
+    .replay-scrub-range::-moz-range-track {
+      height: 10px;
+      border-radius: 999px;
+      background: linear-gradient(90deg, rgba(0,212,170,0.35), rgba(124,92,255,0.4));
+    }
+    .replay-scrub-meta {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-size: 0.7rem;
+      color: var(--text-dim);
+      font-variant-numeric: tabular-nums;
+      padding: 0 2px;
+    }
+    .replay-scrub-meta #replayProgressLabel {
+      color: var(--text);
+      font-weight: 700;
+    }
+    /* Replay result — compact centered panel (dimmer + card) */
+    .replay-end-card {
+      display: none !important;
+      position: fixed !important;
+      inset: 0 !important;
+      width: 100% !important;
+      max-width: none !important;
+      height: 100% !important;
+      margin: 0 !important;
+      padding: max(12px, env(safe-area-inset-top)) max(12px, env(safe-area-inset-right))
+               max(12px, env(safe-area-inset-bottom)) max(12px, env(safe-area-inset-left)) !important;
+      box-sizing: border-box !important;
+      background: rgba(0, 0, 0, 0.58) !important;
+      backdrop-filter: blur(6px);
+      -webkit-backdrop-filter: blur(6px);
+      border: none !important;
+      border-radius: 0 !important;
+      text-align: center;
+      z-index: 10050 !important;
+      box-shadow: none !important;
+      transform: none !important;
+      align-items: center;
+      justify-content: center;
+      overflow: hidden;
+      animation: replayEndFade 0.22s ease;
+    }
+    body.replay-ui .replay-end-card.visible,
+    .replay-end-card.visible {
+      display: flex !important;
+    }
+    .replay-end-card::before {
+      content: none !important;
+      display: none !important;
+    }
+    .replay-end-panel {
+      position: relative;
+      z-index: 1;
+      width: min(300px, calc(100vw - 28px));
+      max-width: 300px;
+      box-sizing: border-box;
+      padding: 18px 16px 15px;
+      background: rgba(16, 22, 32, 0.98);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      box-shadow: 0 12px 36px rgba(0,0,0,0.5);
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 0;
+    }
+    @keyframes replayEndFade {
+      from { opacity: 0; }
+      to { opacity: 1; }
+    }
+    .replay-end-close {
+      position: absolute;
+      top: 6px;
+      right: 6px;
+      width: 22px;
+      height: 22px;
+      border-radius: 7px;
+      border: 1px solid var(--border);
+      background: rgba(255,255,255,0.05);
+      color: var(--text-dim);
+      font-size: 0.72rem;
+      cursor: pointer;
+      line-height: 1;
+      padding: 0;
+      z-index: 2;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .replay-end-close:active { transform: scale(0.96); }
+    .replay-end-title {
+      font-size: 1.08rem;
+      font-weight: 800;
+      margin: 0 26px 10px 6px;
+      line-height: 1.25;
+      max-width: 100%;
+      box-sizing: border-box;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      background: linear-gradient(90deg, var(--accent), var(--accent2));
+      -webkit-background-clip: text;
+      background-clip: text;
+      color: transparent;
+      -webkit-text-fill-color: transparent;
+    }
+    .replay-end-scores {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 10px;
+      margin: 0 0 8px;
+      width: 100%;
+      box-sizing: border-box;
+    }
+    .replay-end-side {
+      display: flex;
+      flex-direction: column;
+      gap: 1px;
+      min-width: 0;
+      flex: 1;
+      max-width: 42%;
+      overflow: hidden;
+    }
+    .replay-end-who {
+      font-size: 0.68rem;
+      color: var(--text-dim);
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      max-width: 100%;
+    }
+    .replay-end-pts {
+      font-size: 1.3rem;
+      font-weight: 800;
+      font-variant-numeric: tabular-nums;
+      line-height: 1.15;
+    }
+    .replay-end-sep {
+      font-size: 1rem;
+      color: var(--text-dim);
+      font-weight: 700;
+      padding-bottom: 8px;
+      flex-shrink: 0;
+    }
+    .replay-end-meta {
+      font-size: 0.72rem;
+      color: var(--text-dim);
+      line-height: 1.35;
+      max-width: 100%;
+      width: 100%;
+      box-sizing: border-box;
+      padding: 0 4px;
+      overflow: hidden;
+      word-break: break-word;
+      overflow-wrap: anywhere;
+    }
+    /* Soft board fade when seeking */
+    #screenVersus.replay-seeking .board-wrap {
+      transition: opacity 0.18s ease, filter 0.18s ease;
+      opacity: 0.55;
+      filter: blur(1.5px);
+    }
+    #screenVersus .board-wrap {
+      transition: opacity 0.22s ease, filter 0.22s ease;
+    }
+    /* Do NOT shift layout — dock floats over empty right margin; boards stay centered */
+    body.replay-ui #screenVersus {
+      box-sizing: border-box;
+    }
+    body.replay-ui #screenVersus .versus-layout {
+      max-width: 100%;
+    }
+
+    

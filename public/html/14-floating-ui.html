@@ -1,0 +1,41 @@
+  <!-- Outside screens: fixed positioning must not be trapped by screen transforms -->
+  <div class="review-bar" id="reviewBar">
+    <div class="review-title" id="reviewTitle"></div>
+    <div class="review-meta" id="reviewMeta"></div>
+    <div class="controls" style="margin-top:4px">
+      <button type="button" class="primary" data-review-action="result" data-i18n="vs.result">Результат</button>
+      <button type="button" class="ghost" data-review-action="again" data-i18n="vs.again">Ещё матч</button>
+      <button type="button" class="ghost" data-review-action="menu" data-i18n="gameOver.menu">В меню</button>
+    </div>
+  </div>
+
+  <div id="matchRejoinPanel" aria-live="polite">
+    <div class="rj-title" data-i18n="rejoin.title">📡 Связь с матчем потеряна</div>
+    <div class="rj-sub" id="matchRejoinSub" data-i18n="rejoin.sub">Можно вернуться в бой или сдаться</div>
+    <div class="rj-actions">
+      <button type="button" class="rj-rejoin" id="btnMatchRejoin" data-i18n="rejoin.btn">Переподключиться</button>
+      <button type="button" class="rj-surrender" id="btnMatchSurrender" data-i18n="rejoin.surrender">Сдаться</button>
+    </div>
+  </div>
+  <!-- Soft loading overlay for heavy menu tabs (friends / ach / shop / history) -->
+  <div id="screenLoading" class="screen-loading" hidden aria-hidden="true" aria-busy="true">
+    <div class="sl-card" role="status">
+      <div class="sl-orbit" aria-hidden="true">
+        <div class="sl-ring"></div>
+        <span class="sl-cube c1"></span>
+        <span class="sl-cube c2"></span>
+        <span class="sl-cube c3"></span>
+        <span class="sl-cube c4"></span>
+      </div>
+      <div class="sl-text" id="screenLoadingText" data-i18n="boot.loading">Загрузка…</div>
+    </div>
+  </div>
+
+  <div id="rejoinLoading" aria-live="assertive" aria-busy="true">
+    <div class="rl-card">
+      <div class="rl-spin" aria-hidden="true"></div>
+      <div class="rl-title" data-i18n="rejoin.loading">Восстановление матча…</div>
+      <div class="rl-sub" id="rejoinLoadingSub" data-i18n="rejoin.sync">Синхронизация поля и фигур</div>
+    </div>
+  </div>
+

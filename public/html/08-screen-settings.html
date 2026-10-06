@@ -1,0 +1,371 @@
+  <div class="screen" id="screenSettings" role="region" aria-label="Настройки" data-i18n-aria="settings.title">
+    <div class="settings-top screen-chrome" style="max-width:420px">
+      <button type="button" class="ghost screen-back" id="btnSettingsBack" data-i18n="common.done">← Готово</button>
+      <h1 data-i18n="settings.title">Настройки</h1>
+      <button type="button" class="ghost screen-action" id="btnSettingsReset" title="Сбросить" data-i18n-title="common.reset">↺</button>
+    </div>
+    <div class="settings-tabs" id="settingsTabs" role="tablist" aria-label="Разделы настроек" data-i18n-aria="settings.tabs">
+      <button type="button" class="settings-tab on" data-stab="field" role="tab" aria-selected="true"><span class="tab-ico">📐</span><span data-i18n="settings.tab.field">Поле</span></button>
+      <button type="button" class="settings-tab" data-stab="look" role="tab" aria-selected="false"><span class="tab-ico">🎨</span><span data-i18n="settings.tab.look">Вид</span></button>
+      <button type="button" class="settings-tab" data-stab="gfx" role="tab" aria-selected="false"><span class="tab-ico">⚡</span><span data-i18n="settings.tab.gfx">Графика</span></button>
+      <button type="button" class="settings-tab" data-stab="sound" role="tab" aria-selected="false"><span class="tab-ico">🔊</span><span data-i18n="settings.tab.sound">Звук</span></button>
+      <button type="button" class="settings-tab" data-stab="feel" role="tab" aria-selected="false"><span class="tab-ico">🤖</span><span data-i18n="settings.tab.bots">Боты</span></button>
+      <button type="button" class="settings-tab" data-stab="play" role="tab" aria-selected="false"><span class="tab-ico">🎮</span><span data-i18n="settings.tab.play">Игра</span></button>
+      <button type="button" class="settings-tab" data-stab="a11y" role="tab" aria-selected="false"><span class="tab-ico">♿</span><span data-i18n="settings.tab.a11y">Доступ</span></button>
+    </div>
+    <div class="settings-list">
+      <div class="settings-section active-tab" data-stab="field">
+        <div class="settings-section-title" data-i18n="settings.field.size">Размер поля</div>
+        <div class="settings-row">
+          <div class="settings-label">
+            <span data-i18n="settings.field.classic">Классика</span>
+            <span class="settings-hint" data-i18n="settings.field.classic.hint">Масштаб доски в одиночной игре</span>
+          </div>
+          <div class="settings-ctrl">
+            <button type="button" class="set-chip" data-set="classicScale" data-val="0.85">S</button>
+            <button type="button" class="set-chip" data-set="classicScale" data-val="1">M</button>
+            <button type="button" class="set-chip" data-set="classicScale" data-val="1.12">L</button>
+            <button type="button" class="set-chip" data-set="classicScale" data-val="1.18">XL</button>
+          </div>
+          <div class="scale-preview-wrap" id="previewClassicRow"></div>
+        </div>
+        <div class="settings-row">
+          <div class="settings-label">
+            <span data-i18n="settings.field.versus">Versus</span>
+            <span class="settings-hint" data-i18n="settings.field.versus.hint">Масштаб досок в дуэли</span>
+          </div>
+          <div class="settings-ctrl">
+            <button type="button" class="set-chip" data-set="versusScale" data-val="0.85">S</button>
+            <button type="button" class="set-chip" data-set="versusScale" data-val="1">M</button>
+            <button type="button" class="set-chip" data-set="versusScale" data-val="1.12">L</button>
+          </div>
+          <div class="scale-preview-wrap" id="previewVersusRow"></div>
+        </div>
+      </div>
+
+      <div class="settings-section" data-stab="look">
+        <div class="settings-section-title" data-i18n="settings.look">Внешний вид</div>
+        <div class="settings-row">
+          <div class="settings-label">
+            <span data-i18n="settings.look.theme">Тема</span>
+            <span class="settings-hint" data-i18n="settings.look.theme.hint">Цветовая палитра интерфейса</span>
+          </div>
+          <div class="settings-ctrl">
+            <button type="button" class="set-chip" data-set="theme" data-val="default">Neon</button>
+            <button type="button" class="set-chip" data-set="theme" data-val="ocean">Ocean</button>
+            <button type="button" class="set-chip" data-set="theme" data-val="sunset">Sunset</button>
+            <button type="button" class="set-chip" data-set="theme" data-val="mono">Mono</button>
+          </div>
+        </div>
+        <div class="settings-row">
+          <div class="settings-label">
+            <span data-i18n="settings.anim">Анимации</span>
+            <span class="settings-hint" data-i18n="settings.anim.hint">Скорость появления и очистки клеток</span>
+          </div>
+          <div class="settings-ctrl">
+            <button type="button" class="set-chip" data-set="anim" data-val="full" data-i18n="settings.anim.full">Полные</button>
+            <button type="button" class="set-chip" data-set="anim" data-val="soft" data-i18n="settings.anim.soft">Мягкие</button>
+            <button type="button" class="set-chip" data-set="anim" data-val="off" data-i18n="common.off">Выкл</button>
+          </div>
+        </div>
+        <div class="settings-row">
+          <div class="settings-label">
+            <span data-i18n="settings.floats">Всплывающие очки</span>
+            <span class="settings-hint" data-i18n="settings.floats.hint">+очки и комбо над полем</span>
+          </div>
+          <div class="settings-ctrl">
+            <button type="button" class="set-chip" data-set="floats" data-val="1" data-i18n="common.on">Вкл</button>
+            <button type="button" class="set-chip" data-set="floats" data-val="0" data-i18n="common.off">Выкл</button>
+          </div>
+        </div>
+        <!-- Подсветка превью удалена из игры -->
+      </div>
+
+      <div class="settings-section" data-stab="gfx">
+        <div class="settings-section-title" data-i18n="settings.gfx.title">Графика и производительность</div>
+        <div class="settings-row">
+          <div class="settings-label">
+            <span data-i18n="settings.gfx.preset">Качество</span>
+            <span class="settings-hint" data-i18n="settings.gfx.preset.hint">Авто подбирает под устройство и сама снижает нагрузку, если игра тормозит</span>
+          </div>
+          <div class="settings-ctrl">
+            <button type="button" class="set-chip" data-set="gfx" data-val="auto" data-i18n="settings.gfx.auto">Авто</button>
+            <button type="button" class="set-chip" data-set="gfx" data-val="high" data-i18n="settings.gfx.high">Макс</button>
+            <button type="button" class="set-chip" data-set="gfx" data-val="balanced" data-i18n="settings.gfx.balanced">Баланс</button>
+            <button type="button" class="set-chip" data-set="gfx" data-val="low" data-i18n="settings.gfx.low">Эконом</button>
+          </div>
+        </div>
+        <div class="settings-row settings-row-note"><span class="settings-hint" id="gfxAutoInfo">&nbsp;</span></div>
+        <div class="settings-row">
+          <div class="settings-label">
+            <span data-i18n="settings.gfx.skin">Блеск скинов</span>
+            <span class="settings-hint" data-i18n="settings.gfx.skin.hint">Переливы клеток. «Лёгкая» — анимация в руке и поле без вращения на каждой клетке</span>
+          </div>
+          <div class="settings-ctrl">
+            <button type="button" class="set-chip" data-set="gfxSkin" data-val="auto" data-i18n="settings.gfx.auto">Авто</button>
+            <button type="button" class="set-chip" data-set="gfxSkin" data-val="full" data-i18n="settings.gfx.full">Полная</button>
+            <button type="button" class="set-chip" data-set="gfxSkin" data-val="tray" data-i18n="settings.gfx.lite">Лёгкая</button>
+            <button type="button" class="set-chip" data-set="gfxSkin" data-val="off" data-i18n="common.off">Выкл</button>
+          </div>
+        </div>
+        <div class="settings-row">
+          <div class="settings-label">
+            <span data-i18n="settings.gfx.field">Эффекты полей</span>
+            <span class="settings-hint" data-i18n="settings.gfx.field.hint">Анимация фона и рамки купленных полей</span>
+          </div>
+          <div class="settings-ctrl">
+            <button type="button" class="set-chip" data-set="gfxField" data-val="auto" data-i18n="settings.gfx.auto">Авто</button>
+            <button type="button" class="set-chip" data-set="gfxField" data-val="full" data-i18n="settings.gfx.full">Полная</button>
+            <button type="button" class="set-chip" data-set="gfxField" data-val="lite" data-i18n="settings.gfx.lite">Лёгкая</button>
+            <button type="button" class="set-chip" data-set="gfxField" data-val="off" data-i18n="common.off">Выкл</button>
+          </div>
+        </div>
+        <div class="settings-row">
+          <div class="settings-label">
+            <span data-i18n="settings.gfx.fx">Частицы и искры</span>
+            <span class="settings-hint" data-i18n="settings.gfx.fx.hint">Осколки и искры при очистке линий</span>
+          </div>
+          <div class="settings-ctrl">
+            <button type="button" class="set-chip" data-set="gfxFx" data-val="auto" data-i18n="settings.gfx.auto">Авто</button>
+            <button type="button" class="set-chip" data-set="gfxFx" data-val="full" data-i18n="settings.gfx.many">Много</button>
+            <button type="button" class="set-chip" data-set="gfxFx" data-val="lite" data-i18n="settings.gfx.few">Мало</button>
+            <button type="button" class="set-chip" data-set="gfxFx" data-val="off" data-i18n="common.off">Выкл</button>
+          </div>
+        </div>
+        <div class="settings-row">
+          <div class="settings-label">
+            <span data-i18n="settings.gfx.glow">Свечение и размытие</span>
+            <span class="settings-hint" data-i18n="settings.gfx.glow.hint">Ореолы вокруг клеток и размытие фона окон</span>
+          </div>
+          <div class="settings-ctrl">
+            <button type="button" class="set-chip" data-set="gfxGlow" data-val="auto" data-i18n="settings.gfx.auto">Авто</button>
+            <button type="button" class="set-chip" data-set="gfxGlow" data-val="full" data-i18n="settings.gfx.full">Полная</button>
+            <button type="button" class="set-chip" data-set="gfxGlow" data-val="lite" data-i18n="settings.gfx.lite">Лёгкая</button>
+            <button type="button" class="set-chip" data-set="gfxGlow" data-val="off" data-i18n="common.off">Выкл</button>
+          </div>
+        </div>
+        <div class="settings-row">
+          <div class="settings-label">
+            <span data-i18n="settings.gfx.fps">Счётчик FPS</span>
+            <span class="settings-hint" data-i18n="settings.gfx.fps.hint">Показывать кадры в секунду поверх игры</span>
+          </div>
+          <div class="settings-ctrl">
+            <button type="button" class="set-chip" data-set="gfxFps" data-val="0" data-i18n="common.off">Выкл</button>
+            <button type="button" class="set-chip" data-set="gfxFps" data-val="1" data-i18n="common.on">Вкл</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="settings-section" data-stab="sound">
+        <div class="settings-section-title" data-i18n="settings.sound">Звук</div>
+        <div class="settings-row">
+          <div class="settings-label">
+            <span data-i18n="settings.sfx">Звуки игры</span>
+            <span class="settings-hint" data-i18n="settings.sfx.hint">Постановка, очистка, UI</span>
+          </div>
+          <div class="settings-ctrl">
+            <button type="button" class="set-chip" data-set="sfx" data-val="1" data-i18n="common.on">Вкл</button>
+            <button type="button" class="set-chip" data-set="sfx" data-val="0" data-i18n="common.off">Выкл</button>
+          </div>
+        </div>
+        <div class="settings-row">
+          <div class="settings-label">
+            <span data-i18n="settings.music">Музыка</span>
+            <span class="settings-hint" data-i18n="settings.music.hint">Фоновая мелодия в меню и бою</span>
+          </div>
+          <div class="settings-ctrl">
+            <button type="button" class="set-chip" data-set="music" data-val="1" data-i18n="common.on">Вкл</button>
+            <button type="button" class="set-chip" data-set="music" data-val="0" data-i18n="common.off">Выкл</button>
+          </div>
+        </div>
+        <div class="settings-row">
+          <div class="settings-label" style="flex-direction:row;align-items:center;justify-content:space-between"><span data-i18n="settings.musicVol">Громкость музыки</span> <span class="vol-val" id="musicVolLabel">50%</span></div>
+          <input type="range" class="vol-slider" id="musicVolSlider" min="0" max="100" step="1" value="50" />
+        </div>
+        <div class="settings-row">
+          <div class="settings-label" style="flex-direction:row;align-items:center;justify-content:space-between"><span data-i18n="settings.voiceVol">Громкость реплик</span> <span class="vol-val" id="voiceVolLabel">70%</span></div>
+          <input type="range" class="vol-slider" id="voiceVolSlider" min="0" max="100" step="1" value="70" />
+        </div>
+      </div>
+
+      <div class="settings-section" data-stab="feel">
+        <div class="settings-section-title" data-i18n="settings.botsFeel">Боты и тактильность</div>
+        <div class="settings-row">
+          <div class="settings-label">
+            <span data-i18n="settings.speech">Реплики (текст)</span>
+            <span class="settings-hint" data-i18n="settings.speech.hint">Подсказки и фразы бота на экране</span>
+          </div>
+          <div class="settings-ctrl">
+            <button type="button" class="set-chip" data-set="speech" data-val="1" data-i18n="common.on">Вкл</button>
+            <button type="button" class="set-chip" data-set="speech" data-val="0" data-i18n="common.off">Выкл</button>
+          </div>
+        </div>
+        <div class="settings-row">
+          <div class="settings-label">
+            <span data-i18n="settings.voice">Озвучка реплик</span>
+            <span class="settings-hint" data-i18n="settings.voice.hint">Голосовое озвучивание фраз бота</span>
+          </div>
+          <div class="settings-ctrl">
+            <button type="button" class="set-chip" data-set="voice" data-val="1" data-i18n="common.on">Вкл</button>
+            <button type="button" class="set-chip" data-set="voice" data-val="0" data-i18n="common.off">Выкл</button>
+          </div>
+        </div>
+        <div class="settings-row">
+          <div class="settings-label">
+            <span data-i18n="settings.haptics">Вибрация</span>
+            <span class="settings-hint" data-i18n="settings.haptics.hint">Отклик при постановке фигур</span>
+          </div>
+          <div class="settings-ctrl">
+            <button type="button" class="set-chip" data-set="haptics" data-val="1" data-i18n="common.on">Вкл</button>
+            <button type="button" class="set-chip" data-set="haptics" data-val="0" data-i18n="common.off">Выкл</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="settings-section" data-stab="play">
+        <div class="settings-section-title" data-i18n="settings.gameplay">Геймплей</div>
+        <div class="settings-row">
+          <div class="settings-label">
+            <span data-i18n="settings.intro">Интро матча</span>
+            <span class="settings-hint" data-i18n="settings.intro.hint">Короткий экран «Вперёд!» перед стартом</span>
+          </div>
+          <div class="settings-ctrl">
+            <button type="button" class="set-chip" data-set="matchIntro" data-val="1" data-i18n="common.on">Вкл</button>
+            <button type="button" class="set-chip" data-set="matchIntro" data-val="0" data-i18n="common.off">Выкл</button>
+          </div>
+        </div>
+        <div class="settings-row">
+          <div class="settings-label">
+            <span data-i18n="settings.scoreDuel">Дуэль счёта</span>
+            <span class="settings-hint" data-i18n="settings.scoreDuel.hint">Анимация сравнения очков после боя</span>
+          </div>
+          <div class="settings-ctrl">
+            <button type="button" class="set-chip" data-set="scoreDuel" data-val="1" data-i18n="common.on">Вкл</button>
+            <button type="button" class="set-chip" data-set="scoreDuel" data-val="0" data-i18n="common.off">Выкл</button>
+          </div>
+        </div>
+        <div class="settings-row">
+          <div class="settings-label">
+            <span data-i18n="settings.confetti">Конфетти</span>
+            <span class="settings-hint" data-i18n="settings.confetti.hint">Эффект при победе в дуэли счёта</span>
+          </div>
+          <div class="settings-ctrl">
+            <button type="button" class="set-chip" data-set="confetti" data-val="1" data-i18n="common.on">Вкл</button>
+            <button type="button" class="set-chip" data-set="confetti" data-val="0" data-i18n="common.off">Выкл</button>
+          </div>
+        </div>
+        <div class="settings-row">
+          <div class="settings-label">
+            <span data-i18n="settings.confirmForfeit">Подтверждение сдачи</span>
+            <span class="settings-hint" data-i18n="settings.confirmForfeit.hint">Спрашивать перед forfeit в versus</span>
+          </div>
+          <div class="settings-ctrl">
+            <button type="button" class="set-chip" data-set="confirmForfeit" data-val="1" data-i18n="common.on">Вкл</button>
+            <button type="button" class="set-chip" data-set="confirmForfeit" data-val="0" data-i18n="common.off">Выкл</button>
+          </div>
+        </div>
+        <div class="settings-row">
+          <div class="settings-label">
+            <span data-i18n="settings.keepAwake">Не гасить экран</span>
+            <span class="settings-hint" data-i18n="settings.keepAwake.hint">Держать экран включённым в матче (если поддерживается)</span>
+          </div>
+          <div class="settings-ctrl">
+            <button type="button" class="set-chip" data-set="keepAwake" data-val="1" data-i18n="common.on">Вкл</button>
+            <button type="button" class="set-chip" data-set="keepAwake" data-val="0" data-i18n="common.off">Выкл</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="settings-section" data-stab="a11y">
+        <div class="settings-section-title" data-i18n="settings.a11y">Доступность</div>
+        <div class="settings-row">
+          <div class="settings-label">
+            <span data-i18n="settings.a11y.bigText">Крупный текст</span>
+            <span class="settings-hint" data-i18n="settings.a11y.bigText.hint">Чуть увеличить шрифт интерфейса</span>
+          </div>
+          <div class="settings-ctrl">
+            <button type="button" class="set-chip" data-set="bigText" data-val="0" data-i18n="settings.a11y.bigText.normal">Обычный</button>
+            <button type="button" class="set-chip" data-set="bigText" data-val="1" data-i18n="settings.a11y.bigText.large">Крупный</button>
+          </div>
+        </div>
+        <div class="settings-row">
+          <div class="settings-label">
+            <span data-i18n="settings.a11y.contrast">Высокий контраст</span>
+            <span class="settings-hint" data-i18n="settings.a11y.contrast.hint">Более чёткие границы и текст</span>
+          </div>
+          <div class="settings-ctrl">
+            <button type="button" class="set-chip" data-set="hiContrast" data-val="0" data-i18n="common.off">Выкл</button>
+            <button type="button" class="set-chip" data-set="hiContrast" data-val="1" data-i18n="common.on">Вкл</button>
+          </div>
+        </div>
+        <div class="settings-row">
+          <div class="settings-label">
+            <span data-i18n="settings.a11y.lang">Язык / Language</span>
+            <span class="settings-hint" data-i18n="settings.a11y.lang.hint">Интерфейс меню и экранов</span>
+          </div>
+          <div class="settings-ctrl" role="group" aria-label="Language">
+            <button type="button" class="set-chip" id="btnLangRu" data-lang="ru">Русский</button>
+            <button type="button" class="set-chip" id="btnLangEn" data-lang="en">English</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+<div class="screen" id="screenFriends" role="region" aria-label="Друзья" data-i18n-aria="friends.title">
+    <div class="screen-chrome friends-screen-top">
+      <button type="button" class="ghost screen-back" id="btnFriendsBack" data-i18n="common.back">← Назад</button>
+      <h1 data-i18n="friends.title">Друзья</h1>
+      <div class="ach-top-spacer" aria-hidden="true"></div>
+    </div>
+
+    <div class="fr-panel">
+      <div class="fr-code-row">
+        <div class="fr-code-meta">
+          <span class="fr-code-label" data-i18n="friends.yourCode">Твой код</span>
+          <span class="code" id="myFriendCode">————</span>
+        </div>
+        <div class="fr-code-btns">
+          <button type="button" class="ghost" id="btnCopyCode" data-i18n="friends.copy">Копировать</button>
+          <button type="button" class="ghost" id="btnShareCode" data-i18n="friends.share">Поделиться</button>
+        </div>
+      </div>
+      <div class="friend-add-row">
+        <input id="friendCodeInput" maxlength="12" placeholder="Код друга (8 символов)" data-i18n-placeholder="friends.code.ph" autocomplete="off" spellcheck="false" />
+        <button class="primary" id="btnAddFriend" data-i18n="friends.add">Добавить</button>
+      </div>
+      <button type="button" class="ghost friend-find-nick-btn" id="btnFindByNick" style="width:100%;margin-top:8px">Найти по нику</button>
+      <div class="friend-add-status" id="friendAddStatus"></div>
+    </div>
+
+    <div class="friends-section" id="friendsReqSection">
+      <div class="friends-section-head">
+        <div class="friends-section-title" data-i18n="friends.requests">Заявки</div>
+        <div class="friends-section-count" id="friendsReqCount">0</div>
+      </div>
+      <div class="friends-req-scroll" id="friendsReqScroll">
+        <div class="friend-req-list" id="friendReqList"></div>
+        <div class="friend-req-list" id="friendOutList"></div>
+      </div>
+      <div class="friends-section-empty" id="friendsReqEmpty" data-i18n="friends.noRequests">Нет активных заявок</div>
+    </div>
+
+    <div class="friends-section" id="friendsListSection">
+      <div class="friends-section-head">
+        <div class="friends-section-title" data-i18n="friends.list">Друзья</div>
+        <div class="friends-section-count" id="friendsListCount">0</div>
+      </div>
+      <div class="friend-search-row">
+        <input type="search" id="friendSearchInput" maxlength="24" placeholder="Поиск среди друзей…" data-i18n-placeholder="friends.search.ph" autocomplete="off" spellcheck="false" />
+      </div>
+      <div class="friend-list" id="friendList"></div>
+    </div>
+
+    <div class="friends-actions-bar">
+      <button class="primary" id="btnCreateRoom" data-i18n="friends.createRoom">Создать комнату</button>
+      <button class="ghost" id="btnJoinRoom" type="button" data-i18n="friends.enter">Войти</button>
+    </div>
+    <div id="mpStatus" class="fr-mp-status"></div>
+  </div>
+
+
