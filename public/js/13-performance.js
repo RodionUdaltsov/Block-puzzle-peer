@@ -9,7 +9,7 @@
  *   bp-glow-full | bp-glow-lite | bp-glow-off  glow radius + backdrop blur
  *   bp-full-board-fx                            (legacy gate, kept for styles-board.css)
  *
- * Settings (see 02-bots-achievements-settings.js):
+ * Settings (see 02-bots-achievements-settings/04-settings.js):
  *   gfx        auto | high | balanced | low
  *   gfxSkin    auto | full | tray | off
  *   gfxField   auto | full | lite | off

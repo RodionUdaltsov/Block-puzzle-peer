@@ -1,8 +1,8 @@
 {
   "version": "3.13.2",
-  "hash": "42abd454d7b8",
+  "hash": "5e14a8981965",
   "minified": true,
-  "generatedAt": "2026-10-07T13:47:00.429Z",
+  "generatedAt": "2026-10-07T16:48:16.566Z",
   "modules": [
     "public/shared/rules.js",
     "public/match-client.js",
@@ -15,7 +15,10 @@
     "public/js/01-cosmetics/04-shop-grid.js",
     "public/js/01-cosmetics/05-preview-modals.js",
     "public/js/01-cosmetics/06-inventory-and-server-state.js",
-    "public/js/02-bots-achievements-settings.js",
+    "public/js/02-bots-achievements-settings/01-bots-roster.js",
+    "public/js/02-bots-achievements-settings/02-bots-logic-avatars.js",
+    "public/js/02-bots-achievements-settings/03-achievements.js",
+    "public/js/02-bots-achievements-settings/04-settings.js",
     "public/js/03-audio.js",
     "public/js/04-profile-friends/01-profile-avatar.js",
     "public/js/04-profile-friends/02-friends-store.js",
@@ -154,429 +157,447 @@
       "bytes": 14616
     },
     {
-      "file": "public/js/02-bots-achievements-settings.js",
+      "file": "public/js/02-bots-achievements-settings/01-bots-roster.js",
       "startLine": 4163,
-      "endLine": 5052,
-      "bytes": 151963
+      "endLine": 4393,
+      "bytes": 95064
+    },
+    {
+      "file": "public/js/02-bots-achievements-settings/02-bots-logic-avatars.js",
+      "startLine": 4394,
+      "endLine": 4490,
+      "bytes": 4485
+    },
+    {
+      "file": "public/js/02-bots-achievements-settings/03-achievements.js",
+      "startLine": 4491,
+      "endLine": 4724,
+      "bytes": 38954
+    },
+    {
+      "file": "public/js/02-bots-achievements-settings/04-settings.js",
+      "startLine": 4725,
+      "endLine": 5075,
+      "bytes": 14351
     },
     {
       "file": "public/js/03-audio.js",
-      "startLine": 5053,
-      "endLine": 5561,
+      "startLine": 5076,
+      "endLine": 5584,
       "bytes": 18296
     },
     {
       "file": "public/js/04-profile-friends/01-profile-avatar.js",
-      "startLine": 5562,
-      "endLine": 6005,
+      "startLine": 5585,
+      "endLine": 6028,
       "bytes": 19380
     },
     {
       "file": "public/js/04-profile-friends/02-friends-store.js",
-      "startLine": 6006,
-      "endLine": 6089,
+      "startLine": 6029,
+      "endLine": 6112,
       "bytes": 3195
     },
     {
       "file": "public/js/04-profile-friends/03-friends-requests.js",
-      "startLine": 6090,
-      "endLine": 6702,
+      "startLine": 6113,
+      "endLine": 6725,
       "bytes": 24332
     },
     {
       "file": "public/js/04-profile-friends/04-friend-request-toast.js",
-      "startLine": 6703,
-      "endLine": 7049,
+      "startLine": 6726,
+      "endLine": 7072,
       "bytes": 12908
     },
     {
       "file": "public/js/04-profile-friends/05-friends-presence.js",
-      "startLine": 7050,
-      "endLine": 7421,
+      "startLine": 7073,
+      "endLine": 7444,
       "bytes": 13505
     },
     {
       "file": "public/js/04-profile-friends/06-friends-list-ui.js",
-      "startLine": 7422,
-      "endLine": 7905,
+      "startLine": 7445,
+      "endLine": 7928,
       "bytes": 19044
     },
     {
       "file": "public/js/04-profile-friends/07-live-match-rejoin.js",
-      "startLine": 7906,
-      "endLine": 8560,
+      "startLine": 7929,
+      "endLine": 8583,
       "bytes": 26678
     },
     {
       "file": "public/js/04-profile-friends/08-auth-session.js",
-      "startLine": 8561,
-      "endLine": 9139,
+      "startLine": 8584,
+      "endLine": 9162,
       "bytes": 23492
     },
     {
       "file": "public/js/04-profile-friends/09-guest-progress-migration.js",
-      "startLine": 9140,
-      "endLine": 9767,
+      "startLine": 9163,
+      "endLine": 9790,
       "bytes": 28367
     },
     {
       "file": "public/js/04-profile-friends/10-guest-mode-sync.js",
-      "startLine": 9768,
-      "endLine": 10191,
+      "startLine": 9791,
+      "endLine": 10214,
       "bytes": 16265
     },
     {
       "file": "public/js/04-profile-friends/11-auth-modal.js",
-      "startLine": 10192,
-      "endLine": 10860,
+      "startLine": 10215,
+      "endLine": 10883,
       "bytes": 29475
     },
     {
       "file": "public/js/04-profile-friends/12-account-delete-confirm.js",
-      "startLine": 10861,
-      "endLine": 11155,
+      "startLine": 10884,
+      "endLine": 11178,
       "bytes": 12387
     },
     {
       "file": "public/js/04-profile-friends/13-profile-sync-restore.js",
-      "startLine": 11156,
-      "endLine": 11274,
+      "startLine": 11179,
+      "endLine": 11297,
       "bytes": 5278
     },
     {
       "file": "public/js/04-profile-friends/14-entry-gate.js",
-      "startLine": 11275,
-      "endLine": 12035,
+      "startLine": 11298,
+      "endLine": 12058,
       "bytes": 32539
     },
     {
       "file": "public/js/04-profile-friends/15-account-ui-bind.js",
-      "startLine": 12036,
-      "endLine": 12266,
+      "startLine": 12059,
+      "endLine": 12289,
       "bytes": 9377
     },
     {
       "file": "public/js/05-render-and-match-state/01-soft-render.js",
-      "startLine": 12267,
-      "endLine": 12587,
+      "startLine": 12290,
+      "endLine": 12610,
       "bytes": 13411
     },
     {
       "file": "public/js/05-render-and-match-state/02-remote-match-state.js",
-      "startLine": 12588,
-      "endLine": 13179,
+      "startLine": 12611,
+      "endLine": 13202,
       "bytes": 22931
     },
     {
       "file": "public/js/05-render-and-match-state/03-online-room-state.js",
-      "startLine": 13180,
-      "endLine": 13651,
+      "startLine": 13203,
+      "endLine": 13674,
       "bytes": 16495
     },
     {
       "file": "public/js/05-render-and-match-state/04-disconnect-afk-ui.js",
-      "startLine": 13652,
-      "endLine": 14244,
+      "startLine": 13675,
+      "endLine": 14267,
       "bytes": 21700
     },
     {
       "file": "public/js/06-match-liveness.js",
-      "startLine": 14245,
-      "endLine": 14682,
+      "startLine": 14268,
+      "endLine": 14705,
       "bytes": 15277
     },
     {
       "file": "public/js/06-match-lifecycle/01-opponent-profile.js",
-      "startLine": 14683,
-      "endLine": 14841,
+      "startLine": 14706,
+      "endLine": 14864,
       "bytes": 6114
     },
     {
       "file": "public/js/06-match-lifecycle/02-rematch.js",
-      "startLine": 14842,
-      "endLine": 15288,
+      "startLine": 14865,
+      "endLine": 15311,
       "bytes": 16478
     },
     {
       "file": "public/js/06-match-lifecycle/03-room-create-join.js",
-      "startLine": 15289,
-      "endLine": 15437,
+      "startLine": 15312,
+      "endLine": 15460,
       "bytes": 6353
     },
     {
       "file": "public/js/06-match-lifecycle/04-friend-removal.js",
-      "startLine": 15438,
-      "endLine": 15510,
+      "startLine": 15461,
+      "endLine": 15533,
       "bytes": 2489
     },
     {
       "file": "public/js/06-match-lifecycle/05-lobby-ping-toasts.js",
-      "startLine": 15511,
-      "endLine": 15753,
+      "startLine": 15534,
+      "endLine": 15776,
       "bytes": 8656
     },
     {
       "file": "public/js/06-match-lifecycle/06-challenges.js",
-      "startLine": 15754,
-      "endLine": 16343,
+      "startLine": 15777,
+      "endLine": 16366,
       "bytes": 21155
     },
     {
       "file": "public/js/07-match-flow/01-match-loading.js",
-      "startLine": 16344,
-      "endLine": 16833,
+      "startLine": 16367,
+      "endLine": 16856,
       "bytes": 17349
     },
     {
       "file": "public/js/07-match-flow/02-opp-remote-moves.js",
-      "startLine": 16834,
-      "endLine": 17148,
+      "startLine": 16857,
+      "endLine": 17171,
       "bytes": 12242
     },
     {
       "file": "public/js/07-match-flow/03-bot-list-voice.js",
-      "startLine": 17149,
-      "endLine": 17320,
+      "startLine": 17172,
+      "endLine": 17343,
       "bytes": 7635
     },
     {
       "file": "public/js/07-match-flow/04-achievements-claim.js",
-      "startLine": 17321,
-      "endLine": 17607,
+      "startLine": 17344,
+      "endLine": 17630,
       "bytes": 12133
     },
     {
       "file": "public/js/07-match-flow/05-match-end-score-duel.js",
-      "startLine": 17608,
-      "endLine": 17970,
+      "startLine": 17631,
+      "endLine": 17993,
       "bytes": 13595
     },
     {
       "file": "public/js/07-match-flow/06-achievements-render.js",
-      "startLine": 17971,
-      "endLine": 18205,
+      "startLine": 17994,
+      "endLine": 18228,
       "bytes": 9338
     },
     {
       "file": "public/js/07-match-flow/07-opp-pieces-and-dom-refs.js",
-      "startLine": 18206,
-      "endLine": 18336,
+      "startLine": 18229,
+      "endLine": 18359,
       "bytes": 5106
     },
     {
       "file": "public/js/08-gameplay/01-screens.js",
-      "startLine": 18337,
-      "endLine": 18678,
+      "startLine": 18360,
+      "endLine": 18701,
       "bytes": 13388
     },
     {
       "file": "public/js/08-gameplay/02-placement-helpers.js",
-      "startLine": 18679,
-      "endLine": 18832,
+      "startLine": 18702,
+      "endLine": 18855,
       "bytes": 5843
     },
     {
       "file": "public/js/08-gameplay/03-clear-fx.js",
-      "startLine": 18833,
-      "endLine": 19344,
+      "startLine": 18856,
+      "endLine": 19367,
       "bytes": 22796
     },
     {
       "file": "public/js/08-gameplay/04-grid-and-pieces.js",
-      "startLine": 19345,
-      "endLine": 19775,
+      "startLine": 19368,
+      "endLine": 19798,
       "bytes": 16654
     },
     {
       "file": "public/js/08-gameplay/05-board-metrics-drag-state.js",
-      "startLine": 19776,
-      "endLine": 19997,
+      "startLine": 19799,
+      "endLine": 20020,
       "bytes": 9006
     },
     {
       "file": "public/js/08-gameplay/06-drag-input.js",
-      "startLine": 19998,
-      "endLine": 20373,
+      "startLine": 20021,
+      "endLine": 20396,
       "bytes": 15248
     },
     {
       "file": "public/js/08-gameplay/07-ghost-preview.js",
-      "startLine": 20374,
-      "endLine": 20888,
+      "startLine": 20397,
+      "endLine": 20911,
       "bytes": 19725
     },
     {
       "file": "public/js/08-gameplay/08-place-piece.js",
-      "startLine": 20889,
-      "endLine": 21251,
+      "startLine": 20912,
+      "endLine": 21274,
       "bytes": 14626
     },
     {
       "file": "public/js/08-gameplay/09-fx-combo-stuck.js",
-      "startLine": 21252,
-      "endLine": 21628,
+      "startLine": 21275,
+      "endLine": 21651,
       "bytes": 15670
     },
     {
       "file": "public/js/09-offline-and-ranked.js",
-      "startLine": 21629,
-      "endLine": 22240,
+      "startLine": 21652,
+      "endLine": 22263,
       "bytes": 24315
     },
     {
       "file": "public/js/10-match-handlers/01-bind-match-client.js",
-      "startLine": 22241,
-      "endLine": 22286,
+      "startLine": 22264,
+      "endLine": 22309,
       "bytes": 1689
     },
     {
       "file": "public/js/10-match-handlers/02-handlers-match-start.js",
-      "startLine": 22287,
-      "endLine": 22454,
+      "startLine": 22310,
+      "endLine": 22477,
       "bytes": 7832
     },
     {
       "file": "public/js/10-match-handlers/03-handlers-state-rejoin.js",
-      "startLine": 22455,
-      "endLine": 22618,
+      "startLine": 22478,
+      "endLine": 22641,
       "bytes": 7069
     },
     {
       "file": "public/js/10-match-handlers/04-handlers-opponent-moves.js",
-      "startLine": 22619,
-      "endLine": 22718,
+      "startLine": 22642,
+      "endLine": 22741,
       "bytes": 4528
     },
     {
       "file": "public/js/10-match-handlers/05-handlers-my-moves.js",
-      "startLine": 22719,
-      "endLine": 22987,
+      "startLine": 22742,
+      "endLine": 23010,
       "bytes": 12027
     },
     {
       "file": "public/js/10-match-handlers/06-handlers-status-clock.js",
-      "startLine": 22988,
-      "endLine": 23166,
+      "startLine": 23011,
+      "endLine": 23189,
       "bytes": 8603
     },
     {
       "file": "public/js/10-match-handlers/07-handlers-match-end.js",
-      "startLine": 23167,
-      "endLine": 23258,
+      "startLine": 23190,
+      "endLine": 23281,
       "bytes": 3797
     },
     {
       "file": "public/js/10-match-handlers/08-handlers-rematch.js",
-      "startLine": 23259,
-      "endLine": 23343,
+      "startLine": 23282,
+      "endLine": 23366,
       "bytes": 3436
     },
     {
       "file": "public/js/10-match-handlers/09-room-match-sync.js",
-      "startLine": 23344,
-      "endLine": 23739,
+      "startLine": 23367,
+      "endLine": 23762,
       "bytes": 15279
     },
     {
       "file": "public/js/10-match-handlers/10-match-intro.js",
-      "startLine": 23740,
-      "endLine": 24151,
+      "startLine": 23763,
+      "endLine": 24174,
       "bytes": 17072
     },
     {
       "file": "public/js/11-lobby-versus-replay/01-private-lobby.js",
-      "startLine": 24152,
-      "endLine": 24380,
+      "startLine": 24175,
+      "endLine": 24403,
       "bytes": 9302
     },
     {
       "file": "public/js/11-lobby-versus-replay/02-versus-start.js",
-      "startLine": 24381,
-      "endLine": 24652,
+      "startLine": 24404,
+      "endLine": 24675,
       "bytes": 11984
     },
     {
       "file": "public/js/11-lobby-versus-replay/03-bot-ai.js",
-      "startLine": 24653,
-      "endLine": 25060,
+      "startLine": 24676,
+      "endLine": 25083,
       "bytes": 15086
     },
     {
       "file": "public/js/11-lobby-versus-replay/04-stuck-and-match-end.js",
-      "startLine": 25061,
-      "endLine": 25436,
+      "startLine": 25084,
+      "endLine": 25459,
       "bytes": 12620
     },
     {
       "file": "public/js/11-lobby-versus-replay/05-end-versus.js",
-      "startLine": 25437,
-      "endLine": 25911,
+      "startLine": 25460,
+      "endLine": 25934,
       "bytes": 22877
     },
     {
       "file": "public/js/11-lobby-versus-replay/06-replay-core.js",
-      "startLine": 25912,
-      "endLine": 26509,
+      "startLine": 25935,
+      "endLine": 26532,
       "bytes": 23878
     },
     {
       "file": "public/js/11-lobby-versus-replay/07-replay-hands.js",
-      "startLine": 26510,
-      "endLine": 27132,
+      "startLine": 26533,
+      "endLine": 27155,
       "bytes": 23050
     },
     {
       "file": "public/js/11-lobby-versus-replay/08-replay-seek.js",
-      "startLine": 27133,
-      "endLine": 27569,
+      "startLine": 27156,
+      "endLine": 27592,
       "bytes": 18645
     },
     {
       "file": "public/js/11-lobby-versus-replay/09-bot-pick.js",
-      "startLine": 27570,
-      "endLine": 27757,
+      "startLine": 27593,
+      "endLine": 27780,
       "bytes": 7292
     },
     {
       "file": "public/js/11-lobby-versus-replay/10-shop-inventory-screens.js",
-      "startLine": 27758,
-      "endLine": 27927,
+      "startLine": 27781,
+      "endLine": 27950,
       "bytes": 7441
     },
     {
       "file": "public/js/11-lobby-versus-replay/11-forfeit-confirm.js",
-      "startLine": 27928,
-      "endLine": 28096,
+      "startLine": 27951,
+      "endLine": 28119,
       "bytes": 5927
     },
     {
       "file": "public/js/11-lobby-versus-replay/12-post-match-rematch.js",
-      "startLine": 28097,
-      "endLine": 28448,
+      "startLine": 28120,
+      "endLine": 28471,
       "bytes": 14154
     },
     {
       "file": "public/js/12-boot.js",
-      "startLine": 28449,
-      "endLine": 28600,
+      "startLine": 28472,
+      "endLine": 28623,
       "bytes": 5958
     },
     {
       "file": "public/js/13-performance.js",
-      "startLine": 28601,
-      "endLine": 28945,
-      "bytes": 14019
+      "startLine": 28624,
+      "endLine": 28968,
+      "bytes": 14031
     },
     {
       "file": "public/js/14-settings-ui.js",
-      "startLine": 28946,
-      "endLine": 29041,
+      "startLine": 28969,
+      "endLine": 29064,
       "bytes": 3616
     }
   ],
   "bytes": {
-    "classic": 1235710,
-    "esm": 1235753,
-    "classicRaw": 1276911
+    "classic": 1235755,
+    "esm": 1235798,
+    "classicRaw": 1277817
   }
 }

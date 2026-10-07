@@ -565,10 +565,11 @@ function loadLobbyFromCoord(code) { wireMatchmaking(); return matchmakingApi.loa
 /** Outbound message to a token that may live on another instance. */
 function deliverToToken(token, msg) {
   if (!token || !msg) return;
-  // Local fast path: scan rooms for a live ws
+  // Local fast path: real WS only — skip Redis remote stubs (they call deliverToToken
+  // themselves and would recurse forever / swallow the message).
   for (const room of rooms.values()) {
     const p = room.players && room.players[token];
-    if (p && p.ws && p.ws.readyState === 1) {
+    if (p && p.ws && p.ws.readyState === 1 && !p.ws._remoteStub) {
       try { p.ws.send(JSON.stringify(msg)); } catch (_) {}
       return;
     }
@@ -921,7 +922,46 @@ async function boot() {
               _remoteStub: true
             };
           }
-          if (type === 'match_ready' && typeof room.markReady === 'function') {
+          if (type === 'rejoin') {
+            // Remote client reconnected on another instance: attach delivery stub + push snapshot
+            if (!room.getPlayer || !room.getPlayer(token)) return;
+            if (room.status === 'ended') {
+              deliverToToken(token, { type: 'rejoin_fail', reason: 'ended', matchId: room.id });
+              return;
+            }
+            const stub = {
+              readyState: 1,
+              send(json) {
+                try {
+                  const msg = typeof json === 'string' ? JSON.parse(json) : json;
+                  deliverToToken(token, msg);
+                } catch (_) {}
+              },
+              _friendCode: (room.players[token] && room.players[token].friendCode) || null,
+              _token: token,
+              _matchId: room.id,
+              _remoteStub: true
+            };
+            room.attach(token, stub);
+            try {
+              const st = room.state[room.getPlayer(token).seat];
+              if (!st.pieces || !st.pieces.length || st.pieces.every(function (pc) { return pc && pc.used; })) {
+                if (typeof room.dealForSeat === 'function') st.pieces = room.dealForSeat(st);
+              }
+            } catch (_) {}
+            const snap = room.snapshotFor(token);
+            if (snap) {
+              snap.type = 'rejoin_ok';
+              snap.matchId = room.id;
+              snap.token = token;
+              snap.seat = room.getPlayer(token).seat;
+              snap.source = room.source || 'ranked';
+              snap.duration = room.duration;
+              snap.clockEndTs = room.clockEndTs;
+              try { snap.vsTimeLeft = room.timeLeft(); } catch (_) { snap.vsTimeLeft = room.duration; }
+              deliverToToken(token, snap);
+            }
+          } else if (type === 'match_ready' && typeof room.markReady === 'function') {
             room.markReady(token);
           } else if (type === 'place' && typeof room.applyPlace === 'function') {
             room.applyPlace(token, data);

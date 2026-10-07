@@ -1,7 +1,13 @@
-  <div class="screen active" id="screenMenu" role="main" aria-label="Главное меню" data-i18n-aria="menu.main">
+  <div class="screen active home-v2" id="screenMenu" role="main" aria-label="Главное меню" data-i18n-aria="menu.main">
+    <div class="home-aurora" aria-hidden="true">
+      <span class="home-orb home-orb-a"></span>
+      <span class="home-orb home-orb-b"></span>
+      <span class="home-orb home-orb-c"></span>
+      <span class="home-grid-fx"></span>
+    </div>
+
     <div class="home-top">
       <button type="button" class="home-profile" id="btnHomeProfile" title="Профиль" aria-label="Профиль" data-i18n-title="menu.profile" data-i18n-aria="menu.profile">
-
         <div class="home-profile-av" id="homeProfileAv">?</div>
         <div class="home-profile-meta">
           <div class="home-profile-name" id="homeProfileName" data-i18n="menu.guest">Гость</div>
@@ -16,10 +22,13 @@
         <div class="home-pill diamond" title="Алмазы" data-i18n-title="menu.diamonds">💎 <span id="menuDiamonds">3</span></div>
       </div>
     </div>
+
     <div class="home-hero">
+      <div class="home-hero-badge" aria-hidden="true">ONLINE · MULTI</div>
       <h1 data-i18n="menu.hero">Играй. Побеждай.</h1>
       <p data-i18n="menu.hero.sub">Линии на поле · рекорды · дуэли с друзьями и ботами</p>
     </div>
+
     <div class="home-deco-row" aria-hidden="true">
       <span class="home-deco-cell"></span>
       <span class="home-deco-cell"></span>
@@ -27,8 +36,10 @@
       <span class="home-deco-cell"></span>
       <span class="home-deco-cell"></span>
     </div>
+
     <div class="home-modes">
       <div class="home-mode" id="cardClassic" role="button" tabindex="0" data-i18n-aria="menu.classic" aria-label="Классика">
+        <div class="home-mode-glow" aria-hidden="true"></div>
         <div class="home-mode-icon">🎮</div>
         <div class="home-mode-body">
           <h3 data-i18n="menu.classic">Классика</h3>
@@ -38,6 +49,7 @@
         <div class="home-mode-arrow">›</div>
       </div>
       <div class="home-mode versus" id="cardVersus" role="button" tabindex="0" data-i18n-aria="menu.versus" aria-label="Соревнование">
+        <div class="home-mode-glow" aria-hidden="true"></div>
         <div class="home-mode-icon">⚔️</div>
         <div class="home-mode-body">
           <h3 data-i18n="menu.versus">Соревнование</h3>
@@ -46,6 +58,7 @@
         <div class="home-mode-arrow">›</div>
       </div>
     </div>
+
     <div class="home-nav">
       <button type="button" class="home-nav-btn" id="btnFriends"><span class="ico">👥</span><span data-i18n="menu.friends">Друзья</span></button>
       <button type="button" class="home-nav-btn" id="btnShop"><span class="ico">🛒</span><span data-i18n="menu.shop">Магазин</span></button>
@@ -55,5 +68,3 @@
       <button type="button" class="home-nav-btn" id="btnSettings"><span class="ico">⚙️</span><span data-i18n="menu.settings">Ещё</span></button>
     </div>
   </div>
-
-

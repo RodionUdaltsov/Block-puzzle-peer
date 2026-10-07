@@ -12,6 +12,17 @@ Server → client immediately:
 
 `token` is the socket session id until rebound by match.
 
+### Security note: match tokens as bearer credentials
+
+- **Registered players**: identity is established via session cookie / `friendCode` verification
+  (`presence_register` → verified session/device). The match `token` alone is not sufficient
+  to impersonate a registered seat when `wsMatchesPlayerSync` can resolve a real player.
+- **Anonymous (guest) players**: the match `token` **is** the bearer credential. Anyone who
+  knows `{ matchId, token }` can attempt to occupy that seat on a WebSocket. This is intentional
+  so guests can reconnect after reload without a durable login.
+- **Do not** log match tokens, put them in analytics, error trackers, or third-party telemetry.
+- Prefer short-lived tokens and avoid embedding them in shareable URLs.
+
 ## Ranked queue
 
 | Client → server | Server → client |
@@ -37,8 +48,12 @@ When both ready → both receive `match_found`.
 Client **must not** send `shape` / `color`. Only:
 
 ```json
-{ "type": "place", "matchId", "token", "pieceIdx", "r", "c" }
+{ "type": "place", "matchId", "token", "pieceIdx", "r", "c", "requestId?" }
 ```
+
+Optional `requestId` (string ≤ 64) is echoed on `place_ok` / `place_reject` so clients can
+correlate ACKs and dedupe when the room lives on another Node instance (Redis forward).
+If no ACK arrives within a short timeout, client should send `sync`.
 
 Also: `match_ready`, `deal`, `sync`, `forfeit`, `rematch_offer` / `accept` / `decline` / `cancel`, `leave_match`, `rejoin`.
 
