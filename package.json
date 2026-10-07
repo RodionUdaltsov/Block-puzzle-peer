@@ -1,7 +1,7 @@
 {
   "name": "block-puzzle-server",
-  "version": "3.11.0",
-  "description": "Block Puzzle — PostgreSQL-only player progress",
+  "version": "3.13.2",
+  "description": "Block Puzzle \u2014 PostgreSQL-only player progress",
   "license": "MIT",
   "main": "server.js",
   "scripts": {
@@ -13,11 +13,12 @@
     "start:postgres": "npm run build && BP_STORE=postgres node server.js",
     "migrate:postgres": "node scripts/migrate-file-to-postgres.js",
     "check": "node scripts/check.js",
-    "test": "node --test test/*.test.js",
-    "build:html": "node scripts/bundle-html.js"
+    "test": "node --test --test-concurrency=4 test/*.test.js",
+    "build:html": "node scripts/bundle-html.js",
+    "test:pg": "node --test --test-concurrency=4 test/postgres-concurrency.e2e.test.js"
   },
   "engines": {
-    "node": ">=18"
+    "node": ">=22"
   },
   "dependencies": {
     "pg": "^8.13.1"

@@ -33,7 +33,7 @@ function renderFriends(highlightNew) {
     return;
   }
   list.innerHTML = indexed.map(({ f, i }, visIdx) => {
-    const initials = (f.name || f.code || '?').slice(0, 2).toUpperCase();
+    const initials = escapeHtmlLobby((f.name || f.code || '?').slice(0, 2).toUpperCase());
     const cups = (typeof f.trophies === 'number') ? ` · 🏆 ${f.trophies}` : '';
     // Animate only on first paint of the screen (or new friend) — not on presence refresh
     const scr = document.getElementById('screenFriends');
@@ -48,11 +48,11 @@ function renderFriends(highlightNew) {
     let stText = pres === 'online' ? 'В сети' : pres === 'offline' ? 'Не в сети' : 'Проверка…';
     if (pres === 'online' && act) stText = activityLabel(act);
     const stCls = pres === 'online' ? 'on' : pres === 'offline' ? 'off' : '';
-    return `<div class="friend-card${anim}" data-fi="${i}" data-code="${f.code}"${delay}>
+    return `<div class="friend-card${anim}" data-fi="${i}" data-code="${escapeHtmlLobby(f.code)}"${delay}>
       <div class="f-av" data-av-fi="${i}">${initials}<span class="f-online-dot ${dotCls}"></span></div>
       <div class="f-info">
-        <div class="f-name">${f.name || 'Друг'}</div>
-        <div class="f-code">${f.code}${cups} · <span class="f-status-line ${stCls}" style="display:inline">${stText}</span></div>
+        <div class="f-name">${escapeHtmlLobby(f.name || 'Друг')}</div>
+        <div class="f-code">${escapeHtmlLobby(f.code)}${cups} · <span class="f-status-line ${stCls}" style="display:inline">${stText}</span></div>
       </div>
       <div class="f-actions">
         <button type="button" class="primary f-challenge" data-fi="${i}">Вызов</button>
@@ -389,10 +389,10 @@ function renderNickSearchResults(results, q) {
     const info = document.createElement('div');
     info.style.minWidth = '0';
     info.innerHTML =
-      '<div style="font-weight:800">' + name.replace(/</g, '') +
+      '<div style="font-weight:800">' + escapeHtmlLobby(name) +
       (isOnline ? ' <span style="color:#3dce6a;font-size:0.7rem">●</span>' : ' <span style="opacity:0.45;font-size:0.7rem">○</span>') +
       '</div>' +
-      '<div style="font-size:0.75rem;opacity:0.7">' + code +
+      '<div style="font-size:0.75rem;opacity:0.7">' + escapeHtmlLobby(code) +
       (r.trophies != null ? ' · 🏆 ' + (r.trophies | 0) : '') +
       ' · ' + statusLabel +
       '</div>';

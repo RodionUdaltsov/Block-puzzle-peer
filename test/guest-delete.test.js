@@ -82,16 +82,17 @@ describe('admin guest deletion is final (server e2e)', () => {
     assert.ok(g.got.some((m) => m.type === 'auth_revoked'), 'guest received auth_revoked');
     assert.deepEqual(g.state.closed && g.state.closed[0], 4001, 'socket closed with 4001');
 
-    // A stale client (not yet wiped) still claims the dead code on a new socket
+    // A stale client (not yet wiped) still claims the dead code on a new socket. The claim is no
+    // longer honoured at all (identity is server-decided): no profile, no starter balance, no buy.
     const stale = await openWs('delguestdevice00000002');
     stale.ws.send(JSON.stringify({ type: 'cosmetics_get', friendCode: code }));
     stale.ws.send(JSON.stringify({ type: 'cosmetics_buy', friendCode: code, kind: 'skin', id: 'nope' }));
     await wait(500);
     const st = stale.got.find((m) => m.type === 'cosmetics_state');
-    assert.ok(st && st.ok === false && st.error === 'account_deleted', JSON.stringify(st));
+    assert.ok(st && st.ok === false && (st.error === 'no_profile' || st.error === 'account_deleted'), JSON.stringify(st));
     assert.equal(st.diamonds, undefined, 'no starter balance handed out');
     const buy = stale.got.find((m) => m.type === 'cosmetics_buy_result');
-    assert.ok(buy && buy.ok === false && buy.error === 'account_deleted', JSON.stringify(buy));
+    assert.ok(buy && buy.ok === false && (buy.error === 'no_profile' || buy.error === 'account_deleted'), JSON.stringify(buy));
 
     const sync = await rq({ path: '/api/auth/guest-sync', method: 'POST', headers: { 'X-Device-Id': DEV } },
       { progress: { friendCode: code } });

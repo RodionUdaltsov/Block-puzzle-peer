@@ -1,4 +1,4 @@
-FROM node:20-bookworm-slim
+FROM node:24-bookworm-slim
 
 WORKDIR /app
 
@@ -23,7 +23,7 @@ ENV NODE_ENV=production
 ENV PORT=9000
 # Player progress source of truth: PostgreSQL
 # ENV BP_STORE=postgres
-# ENV DATABASE_URL=postgres://bp:bp@postgres:5432/blockpuzzle
+# ENV DATABASE_URL=postgres://bp:<password>@postgres:5432/blockpuzzle
 # Production: also set BP_ADMIN_KEY, BP_TRUST_PROXY and BP_WS_ORIGINS (see README)
 
 # Non-root user

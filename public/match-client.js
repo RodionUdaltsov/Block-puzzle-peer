@@ -240,7 +240,7 @@
 
         // Re-register presence
         if (this._lastPresence) {
-          try { ws.send(JSON.stringify(Object.assign({ type: 'presence_register' }, this._lastPresence))); } catch (_) {}
+          try { ws.send(JSON.stringify(this._presenceMsg())); } catch (_) {}
         }
 
         // Prefer in-memory, else sessionStorage (page refresh)
@@ -499,7 +499,6 @@
         avatarId: opts.avatarId || 'init',
         avatarCustom: opts.avatarCustom || '',
         duration: opts.duration || 120,
-        friendCode: opts.friendCode || null,
         platform: plat.platform,
         os: plat.os,
         protocolVersion: 1
@@ -518,7 +517,6 @@
         boardId: opts.boardId || 'field_default',
         avatarId: opts.avatarId || 'init',
         avatarCustom: opts.avatarCustom || '',
-        friendCode: opts.friendCode || null,
         platform: plat.platform,
         os: plat.os,
         protocolVersion: 1
@@ -532,6 +530,24 @@
       return this.send({ type: 'private_duration', duration: duration | 0, code: code || null });
     },
 
+    /**
+     * presence_register payload. `friendCode` is only a CLAIM; the server derives who this socket
+     * is from the session token (accounts) or the device cookie (guests). The token is read at
+     * send time so re-registers after login/logout/reconnect always carry the current one.
+     */
+    _presenceMsg() {
+      const msg = Object.assign({ type: 'presence_register' }, this._lastPresence);
+      try {
+        if (typeof pendingWsTicket !== 'undefined' && pendingWsTicket) {
+          // one-time ticket from the login response (this socket never saw the new HttpOnly cookie)
+          msg.authToken = 'ticket:' + String(pendingWsTicket);
+          pendingWsTicket = null;
+        } else if (typeof authToken !== 'undefined' && authToken) {
+          msg.authToken = String(authToken);
+        }
+      } catch (_) {}
+      return msg;
+    },
     registerPresence(opts) {
       opts = opts || {};
       this._lastPresence = {
@@ -554,41 +570,24 @@
         };
       }
       this.connect();
-      return this.send(Object.assign({ type: 'presence_register' }, this._lastPresence));
+      return this.send(this._presenceMsg());
     },
     cosmeticsGet() {
-      let fc = '';
-      try {
-        if (typeof myFriendCode !== 'undefined' && myFriendCode) fc = String(myFriendCode);
-        else if (this._lastPresence && this._lastPresence.friendCode) fc = String(this._lastPresence.friendCode);
-      } catch (_) {}
-      // Pass friendCode so inventory loads before presence_register binds the socket
-      return this.send({ type: 'cosmetics_get', friendCode: fc || undefined });
+      // Identity is decided by the server (session / device); no friendCode is sent
+      return this.send({ type: 'cosmetics_get' });
     },
     cosmeticsBuy(kind, id) {
-      let fc = '';
-      try {
-        if (typeof myFriendCode !== 'undefined' && myFriendCode) fc = String(myFriendCode);
-        else if (this._lastPresence && this._lastPresence.friendCode) fc = String(this._lastPresence.friendCode);
-      } catch (_) {}
       return this.send({
         type: 'cosmetics_buy',
         kind: kind === 'board' ? 'board' : 'skin',
-        id: String(id || ''),
-        friendCode: fc || undefined
+        id: String(id || '')
       });
     },
     cosmeticsEquip(kind, id) {
-      let fc = '';
-      try {
-        if (typeof myFriendCode !== 'undefined' && myFriendCode) fc = String(myFriendCode);
-        else if (this._lastPresence && this._lastPresence.friendCode) fc = String(this._lastPresence.friendCode);
-      } catch (_) {}
       return this.send({
         type: 'cosmetics_equip',
         kind: kind === 'board' ? 'board' : 'skin',
-        id: String(id || ''),
-        friendCode: fc || undefined
+        id: String(id || '')
       });
     },
     queryPresence(codes) {
@@ -620,8 +619,7 @@
         payload: payload,
         name: extra.name,
         trophies: extra.trophies,
-        activity: extra.activity,
-        from: extra.from
+        activity: extra.activity
       });
     }
   };

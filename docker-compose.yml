@@ -1,10 +1,14 @@
 # Production-oriented: PostgreSQL is the source of truth for player progress.
+# Optional Redis enables multi-instance app scaling (shared queue / lobbies / routing).
 #
+#   # Single instance (default):
 #   docker compose up -d --build
 #
-# Set BP_ADMIN_KEY (admin API is disabled without it), BP_TRUST_PROXY (=1 behind
-# nginx/Caddy) and BP_WS_ORIGINS for a real deployment.
+#   # Multi-instance (requires REDIS_URL):
+#   REDIS_URL=redis://redis:6379 docker compose up -d --build --scale app=2
 #
+# Set BP_ADMIN_KEY, BP_TRUST_PROXY (=1 behind nginx/Caddy) and BP_WS_ORIGINS for a real deployment.
+# Sticky WebSocket sessions at the load balancer are recommended when scaling app.
 services:
   app:
     build: .
@@ -14,16 +18,21 @@ services:
       PORT: "9000"
       NODE_ENV: ${NODE_ENV:-production}
       BP_STORE: ${BP_STORE:-postgres}
-      DATABASE_URL: ${DATABASE_URL:-postgres://bp:bp@postgres:5432/blockpuzzle}
+      DATABASE_URL: ${DATABASE_URL:-postgres://${POSTGRES_USER:-bp}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@postgres:5432/${POSTGRES_DB:-blockpuzzle}}
+      REDIS_URL: ${REDIS_URL:-}
+      BP_INSTANCE_ID: ${BP_INSTANCE_ID:-}
       BP_WS_ORIGINS: ${BP_WS_ORIGINS:-}
       BP_ADMIN_KEY: ${BP_ADMIN_KEY:-}
       BP_TRUST_PROXY: ${BP_TRUST_PROXY:-0}
       BP_LOG: ${BP_LOG:-info}
+      BP_COOKIE_SECURE: ${BP_COOKIE_SECURE:-}
     volumes:
       - bp-data:/app/data
     restart: unless-stopped
     depends_on:
       postgres:
+        condition: service_healthy
+      redis:
         condition: service_healthy
 
   postgres:
@@ -31,7 +40,7 @@ services:
     restart: unless-stopped
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-bp}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-bp}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
       POSTGRES_DB: ${POSTGRES_DB:-blockpuzzle}
     volumes:
       - bp-postgres:/var/lib/postgresql/data
@@ -42,7 +51,21 @@ services:
       timeout: 5s
       retries: 12
 
+  # Coordination keys (queue/token/room/lobby) must not be silently dropped.
+  # noeviction → OOM commands fail explicitly; monitor memory instead of LRU.
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes", "--maxmemory", "256mb", "--maxmemory-policy", "noeviction"]
+    volumes:
+      - bp-redis:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
 
 volumes:
   bp-data:
   bp-postgres:
+  bp-redis:

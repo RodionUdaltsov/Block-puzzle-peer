@@ -4,32 +4,26 @@
  * Shares the client bundle scope (order: public/js/modules.json).
  */
 /* ========== Server accounts (API) ========== */
+// The session token itself lives in an HttpOnly cookie (set by the server), so page JS never holds
+// it. `authToken` is a truthy marker ("cookie") meaning "logged in"; a legacy real token left in
+// localStorage keeps working as a Bearer token until the server upgrades it to the cookie.
+const AUTH_SESSION_MARKER = 'cookie';
 let authToken = null;
-function readAuthTokenCookie() {
-  try {
-    const m = /(?:^|;\s*)bp_auth_token=([^;]+)/.exec(document.cookie || '');
-    return m ? decodeURIComponent(m[1].trim()) : '';
-  } catch (_) { return ''; }
-}
+let pendingWsTicket = null; // one-time ticket from the login response for the already-open WebSocket
 function persistAuthToken(token) {
+  try { document.cookie = 'bp_auth_token=; path=/; max-age=0; SameSite=Lax'; } catch (_) {} // legacy JS cookie
   if (!token) {
     try { localStorage.removeItem('bp_auth_token'); } catch (_) {}
-    try { document.cookie = 'bp_auth_token=; path=/; max-age=0; SameSite=Lax'; } catch (_) {}
     return;
   }
   try { localStorage.setItem('bp_auth_token', String(token)); } catch (_) {}
-  try {
-    document.cookie = 'bp_auth_token=' + encodeURIComponent(String(token))
-      + '; path=/; max-age=2592000; SameSite=Lax';
-  } catch (_) {}
 }
 function loadAuthToken() {
   try {
     const ls = localStorage.getItem('bp_auth_token');
     if (ls) return ls;
   } catch (_) {}
-  const c = readAuthTokenCookie();
-  return c || null;
+  return null;
 }
 function readGuestOkCookie() {
   try {
@@ -68,7 +62,8 @@ function persistDeviceId(id) {
   if (!id || !/^[A-Za-z0-9_-]{16,64}$/.test(id)) return;
   try { localStorage.setItem('bp_device_id', id); } catch (_) {}
   try {
-    document.cookie = 'bp_device_id=' + id + '; path=/; max-age=315360000; SameSite=Lax';
+    document.cookie = 'bp_device_id=' + id + '; path=/; max-age=315360000; SameSite=Lax' +
+      (location.protocol === 'https:' ? '; Secure' : '');
   } catch (_) {}
 }
 
@@ -208,7 +203,8 @@ function getDeviceId() {
 async function apiFetch(path, opts) {
   opts = opts || {};
   const headers = Object.assign({ 'Content-Type': 'application/json' }, opts.headers || {});
-  if (authToken) headers.Authorization = 'Bearer ' + authToken;
+  headers['X-Auth-Cookie'] = '1';
+  if (authToken && authToken !== AUTH_SESSION_MARKER) headers.Authorization = 'Bearer ' + authToken;
   try {
     const did = getDeviceId();
     if (did) headers['X-Device-Id'] = did;
@@ -238,6 +234,13 @@ async function apiFetch(path, opts) {
   } catch (_) {
     data = null;
   }
+  // The server upgraded a legacy Bearer session to the HttpOnly cookie: drop the token from JS storage.
+  try {
+    if (res.headers && res.headers.get('x-session-cookie') === 'set' && authToken && authToken !== AUTH_SESSION_MARKER) {
+      authToken = AUTH_SESSION_MARKER;
+      persistAuthToken(authToken);
+    }
+  } catch (_) {}
   return { status: res.status, ok: res.ok, data, contentType: ct };
 }
 

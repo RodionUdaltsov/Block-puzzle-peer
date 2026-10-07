@@ -97,10 +97,12 @@ function bindPrivateLobbyHandlers() {
         full: 'Комната заполнена',
         self: 'Нельзя войти в свою комнату',
         in_match: 'Уже в матче',
-        not_in_lobby: 'Не в лобби'
+        not_in_lobby: 'Не в лобби',
+        rate_limited: 'Слишком часто — подожди немного',
+        server_busy: 'Сервер перегружен, попробуй позже'
       };
       setMpStatus(map[reason] || ('Ошибка: ' + reason));
-      if (reason === 'not_found' || reason === 'full') {
+      if (reason === 'not_found' || reason === 'full' || reason === 'rate_limited') {
         try { failJoinRoom(map[reason] || reason, true); } catch (_) {}
       }
     } catch (e) { console.warn('private_error', e); }

@@ -482,7 +482,7 @@ function renderLobbyInviteList() {
     return;
   }
   list.innerHTML = indexed.map(({ f, i }) => {
-    const initials = (f.name || f.code || '?').slice(0, 2).toUpperCase();
+    const initials = escapeHtmlLobby((f.name || f.code || '?').slice(0, 2).toUpperCase());
     const pres = getFriendPresence(f.code);
     const act = getFriendActivity(f.code);
     const dotCls = pres === 'online' ? 'on' : pres === 'offline' ? 'off' : 'checking';
@@ -493,11 +493,11 @@ function renderLobbyInviteList() {
     const btnLabel = waiting ? 'Ожидание...' : 'Пригласить';
     const btnCls = waiting ? 'primary lobby-inv-btn waiting' : 'primary lobby-inv-btn';
     const btnDis = waiting ? ' disabled' : '';
-    return `<div class="lobby-invite-item" data-code="${f.code}" data-fi="${i}">
+    return `<div class="lobby-invite-item" data-code="${escapeHtmlLobby(f.code)}" data-fi="${i}">
       <div class="f-av">${initials}<span class="f-online-dot ${dotCls}"></span></div>
       <div class="f-info">
-        <div class="f-name">${f.name || 'Друг'}</div>
-        <div class="f-meta">${f.code} · <span class="f-status-line ${stCls}" style="display:inline">${stText}</span></div>
+        <div class="f-name">${escapeHtmlLobby(f.name || 'Друг')}</div>
+        <div class="f-meta">${escapeHtmlLobby(f.code)} · <span class="f-status-line ${stCls}" style="display:inline">${stText}</span></div>
       </div>
       <button type="button" class="${btnCls}" data-fi="${i}"${btnDis}>${btnLabel}</button>
     </div>`;

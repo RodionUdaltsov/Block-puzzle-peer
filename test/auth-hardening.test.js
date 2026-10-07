@@ -45,8 +45,11 @@ describe('auth limiter', () => {
     c.hit('k', t0); c.hit('k', t0);
     assert.equal(c.blocked('k', t0 + 10), true);
     assert.equal(c.blocked('k', t0 + 1500), false);
-    for (let i = 0; i < 60000; i++) c.hit('u' + i, t0);
-    assert.ok(c.size <= 50000, 'size capped, got ' + c.size);
+    // Bounded size under unique-key flood (tiny hardCap so the test is O(ms), not O(n²×50k)).
+    const c2 = createWindowCounter(2, 1000, { softCap: 50, hardCap: 200, targetAfterHard: 120 });
+    for (let i = 0; i < 500; i++) c2.hit('u' + i, t0);
+    assert.ok(c2.size <= 200, 'size capped, got ' + c2.size);
+    assert.ok(c2.size >= 50, 'still retains recent keys, got ' + c2.size);
   });
 
   it('device id is tracked independently of IP (VPN / IP change does not reset it)', () => {
@@ -277,7 +280,12 @@ describe('live server: production without BP_ADMIN_KEY', () => {
   const P = PORT + 100;
   let child;
   before(async () => {
-    child = startServer(P, { NODE_ENV: 'production', BP_ADMIN_KEY: '' });
+    child = startServer(P, {
+      NODE_ENV: 'production',
+      BP_ADMIN_KEY: '',
+      BP_ALLOW_MEMORY_IN_PROD: '1',
+      BP_WS_ORIGINS_ALLOW_EMPTY: '1'
+    });
     await waitHealth(P);
   });
   after(() => stopServer(child));
@@ -297,7 +305,8 @@ describe('live server: production with BP_ADMIN_KEY + origin allowlist', () => {
     child = startServer(P, {
       NODE_ENV: 'production',
       BP_ADMIN_KEY: 'a-long-random-key-123',
-      BP_WS_ORIGINS: 'https://game.example'
+      BP_WS_ORIGINS: 'https://game.example',
+      BP_ALLOW_MEMORY_IN_PROD: '1'
     });
     await waitHealth(P);
   });
@@ -316,5 +325,67 @@ describe('live server: production with BP_ADMIN_KEY + origin allowlist', () => {
     assert.equal(allowed.headers['access-control-allow-origin'], 'https://game.example');
     const other = await request({ port: P, path: '/health', headers: { Origin: 'https://evil.example' } });
     assert.equal(other.headers['access-control-allow-origin'], undefined);
+  });
+});
+
+// ---------- production config validation (3.12) ----------
+describe('validateProductionConfig', () => {
+  const { validateProductionConfig } = require('../lib/security');
+
+  it('is a no-op outside production', () => {
+    assert.doesNotThrow(() => validateProductionConfig({ NODE_ENV: 'development' }));
+    assert.doesNotThrow(() => validateProductionConfig({}));
+  });
+
+  it('rejects memory store, missing DATABASE_URL, weak password, empty origins', () => {
+    assert.throws(
+      () => validateProductionConfig({ NODE_ENV: 'production', BP_STORE: 'memory' }),
+      /memory/
+    );
+    assert.throws(
+      () => validateProductionConfig({ NODE_ENV: 'production' }),
+      /DATABASE_URL/
+    );
+    assert.throws(
+      () => validateProductionConfig({
+        NODE_ENV: 'production',
+        DATABASE_URL: 'postgres://bp:bp@localhost/db',
+        BP_WS_ORIGINS: 'https://game.example'
+      }),
+      /weak password|default/
+    );
+    assert.throws(
+      () => validateProductionConfig({
+        NODE_ENV: 'production',
+        DATABASE_URL: 'postgres://bp:s3curePass99@localhost/db'
+      }),
+      /BP_WS_ORIGINS/
+    );
+  });
+
+  it('accepts a complete production config', () => {
+    assert.doesNotThrow(() => validateProductionConfig({
+      NODE_ENV: 'production',
+      DATABASE_URL: 'postgres://bp:s3curePass99@db:5432/blockpuzzle',
+      BP_WS_ORIGINS: 'https://game.example',
+      BP_ADMIN_KEY: 'a'.repeat(24)
+    }));
+    assert.doesNotThrow(() => validateProductionConfig({
+      NODE_ENV: 'production',
+      DATABASE_URL: 'postgres://bp:s3curePass99@db:5432/blockpuzzle',
+      BP_WS_ORIGINS_ALLOW_EMPTY: '1'
+    }));
+  });
+
+  it('rejects short or default admin keys', () => {
+    assert.throws(
+      () => validateProductionConfig({
+        NODE_ENV: 'production',
+        DATABASE_URL: 'postgres://bp:s3curePass99@db:5432/blockpuzzle',
+        BP_WS_ORIGINS: 'https://x',
+        BP_ADMIN_KEY: 'localdev'
+      }),
+      /BP_ADMIN_KEY/
+    );
   });
 });

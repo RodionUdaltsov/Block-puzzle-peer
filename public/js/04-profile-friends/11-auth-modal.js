@@ -224,7 +224,8 @@ async function submitAuthForm(e) {
         if (err) { err.textContent = msg; err.hidden = false; }
         return;
       }
-      authToken = data.token;
+      authToken = data.token || AUTH_SESSION_MARKER;
+      if (data.wsTicket) pendingWsTicket = data.wsTicket;
       try { persistAuthToken(authToken); } catch (_) {}
       try {
         if (data.account && data.account.friendCode) {
@@ -290,7 +291,9 @@ async function submitAuthForm(e) {
       return;
     }
 
-    authToken = data.token;
+    authToken = data.token || AUTH_SESSION_MARKER;
+
+    if (data.wsTicket) pendingWsTicket = data.wsTicket;
     try { persistAuthToken(authToken); } catch (_) {}
     try {
       if (data.guestProgress && authMode === 'register') {

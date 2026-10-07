@@ -422,7 +422,7 @@ function renderHistory() {
       ' ' + d.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
     const isOnline = h.mode === 'online';
     const isFriendly = h.mode === 'friendly';
-    const modeStr = isOnline ? '🌐 Рейтинг' : isFriendly ? '🤝 Товарищеский' : `🤖 ${h.difficulty || h.oppName || 'Бот'}`;
+    const modeStr = isOnline ? '🌐 Рейтинг' : isFriendly ? '🤝 Товарищеский' : `🤖 ${escapeHtmlLobby(h.difficulty || h.oppName || 'Бот')}`;
     const durStr = h.duration === 60 ? '1м' : h.duration === 180 ? '3м' : '2м';
     const cls = h.result === 'Победа' ? 'win' : h.result === 'Поражение' ? 'lose' : 'draw';
     const hasReplay = h.moves && h.moves.length;
@@ -454,7 +454,7 @@ function renderHistory() {
     }
     return `<div class="history-item" data-hist="${idx}">
       <div class="hi-left">
-        <div class="hi-opp" style="display:flex;align-items:center;gap:6px">${av}<span>vs ${oppLabel}</span></div>
+        <div class="hi-opp" style="display:flex;align-items:center;gap:6px">${av}<span>vs ${escapeHtmlLobby(oppLabel)}</span></div>
         <div class="hi-meta">${modeStr} · ${durStr} · ${h.my}:${h.oppScore} · ${dateStr}</div>
         ${hasReplay ? '<div class="hi-replay">▶ Смотреть повтор</div>' : '<div class="hi-meta">Повтор недоступен</div>'}
       </div>

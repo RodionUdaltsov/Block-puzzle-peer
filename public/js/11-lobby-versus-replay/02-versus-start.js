@@ -193,7 +193,7 @@ function beginVersusMatch() {
   if (!currentBot && BOTS.length) currentBot = BOTS[0];
   oppName = (currentBot && currentBot.name) || 'Бот';
   document.getElementById('oppName').innerHTML =
-    `${botAvatarHTML(currentBot, 24)} <span>${oppName}</span>` +
+    `${botAvatarHTML(currentBot, 24)} <span>${escapeHtmlLobby(oppName)}</span>` +
     (currentBot && typeof currentBot.trophies === 'number'
       ? `<span style="opacity:0.85;font-weight:700;font-size:0.72rem;margin-left:5px;color:var(--trophy);flex-shrink:0;white-space:nowrap">🏆 ${currentBot.trophies}</span>`
       : '');

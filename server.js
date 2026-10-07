@@ -7,6 +7,7 @@
  * No express required.
  */
 'use strict';
+const { clock } = require('./lib/clock');
 const path = require('path');
 const http = require('http');
 const crypto = require('crypto');
@@ -16,7 +17,7 @@ const { SKIN_PALETTES, paletteForSkin } = require('./shared/skins');
 const Cosmetics = require('./shared/cosmetics');
 const { log, PKG_VERSION } = require('./lib/logger');
 const { allowWsConnection, allowWsMessage } = require('./lib/rate-limit');
-const { WS_ORIGINS, applySecurityHeaders, isOriginAllowed, getClientIp, startupWarnings } = require('./lib/security');
+const { WS_ORIGINS, applySecurityHeaders, isOriginAllowed, getClientIp, startupWarnings, validateProductionConfig } = require('./lib/security');
 const { createAccounts } = require('./lib/accounts');
 const { createMatchRoomClass } = require('./lib/match-room');
 const { createHttpRequestListener } = require('./lib/http-api');
@@ -25,6 +26,7 @@ const { attachWsHandlers } = require('./lib/ws-handlers');
 const { createDeviceApi, DEVICE_GUEST_MARK, DEVICE_HAD_MARK } = require('./lib/device');
 const { createIdentityApi } = require('./lib/identity');
 const { createMatchmakingApi } = require('./lib/matchmaking');
+const { createCoord, disabledCoord } = require('./lib/coord');
 
 // Shared authoritative rules (single source with client)
 const R = require('./shared/rules');
@@ -39,10 +41,10 @@ const {
 
 /** Max inbound WS JSON message size (bytes). Default 64 KiB. */
 const MAX_WS_MSG = Math.max(4096, Number(process.env.BP_MAX_WS_MSG) || 65536);
+const WS_MAX_FRAGMENTS = Math.max(8, Number(process.env.BP_MAX_WS_FRAGMENTS) || 128);
 const PORT = Number(process.env.PORT) || 9000;
-const PROFILE_TTL = 365 * 24 * 3600;
+const { PROFILE_TTL_SEC: PROFILE_TTL, GUEST_PROFILE_TTL_SEC: GUEST_PROFILE_TTL } = require('./lib/economy-constants');
 /** Guest (unregistered) cosmetics profiles expire quickly so they do not clutter the store. */
-const GUEST_PROFILE_TTL = 48 * 3600; // 48 hours
 const GUEST_PROFILE_MAX_AGE_MS = 3 * 24 * 3600 * 1000; // purge guests older than 3 days
 
 /** In-memory cache friendCode → cosmetics profile (backed by store). */
@@ -66,10 +68,7 @@ async function loadCosmeticsProfile(friendCode, opts) {
   // Tombstoned identity: never rehydrate or re-persist
   if (await isFriendCodeDeletedAsync(code)) return Cosmetics.defaultProfile();
   // Cache is a hint only — always re-read durable stores so reloads see purchases.
-  // (Short-circuit cache was returning pre-merge empties after TTL purge.)
-  if (profileCache.has(code) && false) {
-    return Cosmetics.normalizeProfile(profileCache.get(code));
-  }
+  // (Short-circuit cache was intentionally disabled: it returned pre-merge empties after TTL purge.)
   let raw = null;
   try {
     if (store) raw = await store.loadProfile(code);
@@ -158,7 +157,7 @@ async function saveCosmeticsProfile(friendCode, profile) {
   if (!code) return;
   if (await isFriendCodeDeletedAsync(code)) return;
   const p = Cosmetics.normalizeProfile(profile);
-  if (!p.updatedAt) p.updatedAt = Date.now();
+  if (!p.updatedAt) p.updatedAt = clock.now();
   p.migrated = true; // purchases are durable
   profileCache.set(code, p);
   try {
@@ -278,6 +277,8 @@ const {
   bindDeviceGuest,
   unbindDeviceFully,
   unbindAccountFromAllDevices,
+  markDevicesAfterAccountDelete,
+  friendCodeClaimableByDevice,
   resolveAuthoritativeDiamonds,
   resolveAuthoritativeTrophies,
   filterClientOwnedSkins,
@@ -294,6 +295,8 @@ function wireDeviceHooks() {
   deviceHooks.store = store;
   deviceHooks.isFriendCodeDeleted = isFriendCodeDeleted;
   deviceHooks.isFriendCodeDeletedAsync = isFriendCodeDeletedAsync;
+  // lazy: `presence` is declared further down in this file
+  deviceHooks.getPresence = () => presence;
 }
 wireDeviceHooks();
 
@@ -305,7 +308,7 @@ function persistRoom(room) {
     const ttl = room.status === 'ended' ? ROOM_TTL_ENDED : ROOM_TTL_LIVE;
     let left = ROOM_TTL_LIVE;
     if (room.status === 'live' && room.clockEndTs) {
-      left = Math.max(30, Math.ceil((room.clockEndTs - Date.now()) / 1000) + 60);
+      left = Math.max(30, Math.ceil((room.clockEndTs - clock.now()) / 1000) + 60);
     } else if (room.status === 'loading') {
       left = ROOM_TTL_LIVE;
     } else {
@@ -361,7 +364,7 @@ function snapshotQueues() {
         name: p.name ? String(p.name).slice(0, 32) : '',
         platform: p.platform || 'web',
         os: p.os || 'unknown',
-        queuedAt: p.queuedAt || Date.now()
+        queuedAt: p.queuedAt || clock.now()
       });
     }
   }
@@ -377,7 +380,7 @@ function snapshotPresence() {
       trophies: e.trophies | 0,
       platform: e.platform || 'web',
       os: e.os || 'unknown',
-      lastSeen: e.lastSeen || Date.now(),
+      lastSeen: e.lastSeen || clock.now(),
       online: !!(e.ws && e.ws.readyState === 1)
     };
   }
@@ -388,7 +391,7 @@ let _persistMetaTimer = null;
 function schedulePersistMeta() {
   if (!store || store.kind === 'memory') return;
   if (_persistMetaTimer) return;
-  _persistMetaTimer = setTimeout(() => {
+  _persistMetaTimer = clock.setTimeout(() => {
     _persistMetaTimer = null;
     persistMetaNow();
   }, 800);
@@ -408,6 +411,9 @@ function persistMetaNow() {
 
 /** Pending queue intents restored from disk (token → entry). Re-applied on reconnect. */
 const pendingQueueIntents = new Map();
+
+/** Multi-instance Redis coordination (disabled unless REDIS_URL is set). */
+let coord = disabledCoord();
 
 
 function uid(prefix) {
@@ -472,7 +478,8 @@ const matchHooks = {
   persistRoom: null,
   forgetRoom: null,
   startRoom: null,
-  send: null
+  send: null,
+  deliverToToken: null // multi-instance remote delivery
 };
 const MatchRoom = createMatchRoomClass({
   uid,
@@ -502,6 +509,7 @@ const MatchRoom = createMatchRoomClass({
   hooks: matchHooks
 });
 matchHooks.rooms = rooms;
+matchHooks.deliverToToken = deliverToToken;
 
 
 // Matchmaking — lib/matchmaking.js
@@ -514,7 +522,8 @@ const mmHooks = {
   send: null,
   authorizeCosmetics: null,
   loadServerTrophies: null,
-  normalizePlatform: null
+  normalizePlatform: null,
+  coord: null
 };
 let matchmakingApi = null;
 function wireMatchmaking() {
@@ -527,6 +536,7 @@ function wireMatchmaking() {
   mmHooks.authorizeCosmetics = authorizeCosmetics;
   mmHooks.loadServerTrophies = loadServerTrophies;
   mmHooks.normalizePlatform = normalizePlatform;
+  mmHooks.coord = coord;
   if (!matchmakingApi) {
     matchmakingApi = createMatchmakingApi({
       hooks: mmHooks,
@@ -547,6 +557,26 @@ function leavePrivateLobby(token) { wireMatchmaking(); return matchmakingApi.lea
 function lobbySnapshot(lobby, role) { wireMatchmaking(); return matchmakingApi.lobbySnapshot(lobby, role); }
 function tryStartPrivate(lobby) { wireMatchmaking(); return matchmakingApi.tryStartPrivate(lobby); }
 function startPrivateLobbySweeper() { wireMatchmaking(); return matchmakingApi.startPrivateLobbySweeper(); }
+function tryMatchAcrossInstances(player) { wireMatchmaking(); return matchmakingApi.tryMatchAcrossInstances(player); }
+function tryClaimMatch(player) { wireMatchmaking(); return matchmakingApi.tryClaimMatch(player); }
+function syncLobbyToCoord(code, lobby) { wireMatchmaking(); return matchmakingApi.syncLobbyToCoord(code, lobby); }
+function loadLobbyFromCoord(code) { wireMatchmaking(); return matchmakingApi.loadLobbyFromCoord(code); }
+
+/** Outbound message to a token that may live on another instance. */
+function deliverToToken(token, msg) {
+  if (!token || !msg) return;
+  // Local fast path: scan rooms for a live ws
+  for (const room of rooms.values()) {
+    const p = room.players && room.players[token];
+    if (p && p.ws && p.ws.readyState === 1) {
+      try { p.ws.send(JSON.stringify(msg)); } catch (_) {}
+      return;
+    }
+  }
+  if (coord && coord.enabled) {
+    Promise.resolve(coord.publishToToken(token, msg)).catch(() => {});
+  }
+}
 function queueKey(d, t) { wireMatchmaking(); return matchmakingApi.queueKey(d, t); }
 function nearbyQueueKeys(d, t, g) { wireMatchmaking(); return matchmakingApi.nearbyQueueKeys(d, t, g); }
 
@@ -582,6 +612,8 @@ const httpHooks = {
   stripDeletedFriendCodeFromProgress: null,
   mergeGuestProgressLayers: null,
   unbindAccountFromAllDevices: null,
+  markDevicesAfterAccountDelete: null,
+  friendCodeClaimableByDevice: null,
   persistDeviceBind: null,
   loadDeviceBindRecord: null,
   clearDeviceGuestMark: null,
@@ -619,6 +651,8 @@ function wireHttpHooks() {
   httpHooks.stripDeletedFriendCodeFromProgress = stripDeletedFriendCodeFromProgress;
   httpHooks.mergeGuestProgressLayers = mergeGuestProgressLayers;
   httpHooks.unbindAccountFromAllDevices = unbindAccountFromAllDevices;
+  httpHooks.markDevicesAfterAccountDelete = markDevicesAfterAccountDelete;
+  httpHooks.friendCodeClaimableByDevice = friendCodeClaimableByDevice;
   httpHooks.persistDeviceBind = persistDeviceBind;
   httpHooks.loadDeviceBindRecord = loadDeviceBindRecord;
   httpHooks.clearDeviceGuestMark = clearDeviceGuestMark;
@@ -642,6 +676,8 @@ const server = http.createServer(createHttpRequestListener({
 const wss = new WebSocketServer({
   noServer: true,
   maxPayload: MAX_WS_MSG,
+  // Explicit cap on fragments per message (tiny-fragment memory-exhaustion hardening).
+  maxFragments: WS_MAX_FRAGMENTS,
   perMessageDeflate: false
 });
 wss.on('error', (err) => {
@@ -660,9 +696,9 @@ server.on('upgrade', (req, socket, head) => {
   try {
     const u = req.url || '';
     if (u === '/ws' || u.startsWith('/ws?')) {
-      if (WS_ORIGINS.length) {
+      {
         const origin = String(req.headers.origin || '');
-        if (!isOriginAllowed(origin)) {
+        if (!isOriginAllowed(origin, req.headers.host)) {
           socket.write('HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n');
           socket.destroy();
           return;
@@ -675,8 +711,12 @@ server.on('upgrade', (req, socket, head) => {
         return;
       }
       wss.handleUpgrade(req, socket, head, (ws) => {
+        ws._ip = ip; // used by per-IP limiters (join_private brute-force protection)
         // Remember which device owns this socket so admin can kick it by device id
         try { ws._deviceId = deviceApi.extractDeviceId(req, null) || ''; } catch (_) { ws._deviceId = ''; }
+        // HttpOnly session cookie travels with the (origin-checked) upgrade request; it is only used
+        // when presence_register says "use the cookie" (authToken marker), never implicitly.
+        try { ws._cookieToken = require('./lib/auth-cookie').readCookieToken(req.headers && req.headers.cookie); } catch (_) { ws._cookieToken = ''; }
         wss.emit('connection', ws, req);
       });
     } else {
@@ -709,10 +749,15 @@ const wsHooks = {
   rooms: null,
   queues: null,
   pendingQueueIntents: null,
+  coord: null,
   send: null,
   enqueue: null,
   dequeueToken: null,
   findMatch: null,
+  tryMatchAcrossInstances: null,
+  tryClaimMatch: null,
+  syncLobbyToCoord: null,
+  loadLobbyFromCoord: null,
   startRoom: null,
   leavePrivateLobby: null,
   genPrivateCode: null,
@@ -747,10 +792,15 @@ function wireWsHooks() {
   wsHooks.rooms = rooms;
   wsHooks.queues = queues;
   wsHooks.pendingQueueIntents = pendingQueueIntents;
+  wsHooks.coord = coord;
   wsHooks.send = send;
   wsHooks.enqueue = enqueue;
   wsHooks.dequeueToken = dequeueToken;
   wsHooks.findMatch = findMatch;
+  wsHooks.tryMatchAcrossInstances = tryMatchAcrossInstances;
+  wsHooks.tryClaimMatch = tryClaimMatch;
+  wsHooks.syncLobbyToCoord = syncLobbyToCoord;
+  wsHooks.loadLobbyFromCoord = loadLobbyFromCoord;
   wsHooks.startRoom = startRoom;
   wsHooks.leavePrivateLobby = leavePrivateLobby;
   wsHooks.genPrivateCode = genPrivateCode;
@@ -787,7 +837,7 @@ attachWsHandlers(wss, {
 });
 
 
-setInterval(() => {
+clock.setInterval(() => {
   wss.clients.forEach((ws) => {
     if (ws.isAlive === false) {
       try { ws.terminate(); } catch (_) {}
@@ -799,6 +849,107 @@ setInterval(() => {
 }, 25000);
 
 async function boot() {
+  // Fail fast on fatal production misconfiguration (before opening sockets / DB)
+  try {
+    validateProductionConfig(process.env);
+  } catch (e) {
+    console.error(e && e.message ? e.message : e);
+    process.exit(1);
+  }
+  // Multi-instance Redis coordination (optional)
+  try {
+    if (process.env.REDIS_URL) {
+      coord = await createCoord({ url: process.env.REDIS_URL, log: (lvl, msg, extra) => log(lvl, msg, extra) });
+      await coord.init();
+      matchHooks.deliverToToken = deliverToToken;
+      mmHooks.coord = coord;
+      coord.onDeliver((payload) => {
+        try {
+          if (!payload || payload.kind !== 'deliver' || !payload.token || !payload.message) return;
+          const token = String(payload.token);
+          const msg = payload.message;
+          function stampAndSend(ws) {
+            if (!ws || ws.readyState !== 1) return false;
+            try {
+              if (msg && msg.type === 'match_found') {
+                if (msg.matchId) ws._matchId = String(msg.matchId);
+                if (msg.token) ws._token = String(msg.token);
+              } else if (msg && msg.matchId) {
+                ws._matchId = String(msg.matchId);
+              }
+            } catch (_) {}
+            try { ws.send(JSON.stringify(msg)); } catch (_) {}
+            return true;
+          }
+          if (coord.localTokens && coord.localTokens.has(token)) {
+            if (stampAndSend(coord.localTokens.get(token))) return;
+          }
+          for (const room of rooms.values()) {
+            const p = room.players && room.players[token];
+            if (p && stampAndSend(p.ws)) return;
+          }
+          for (const e of presence.values()) {
+            if (e && e.token === token && stampAndSend(e.ws)) return;
+          }
+        } catch (err) {
+          log('warn', 'coord deliver handler error', { err: err && err.message });
+        }
+      });
+      coord.onRoomForward((payload) => {
+        // Inbound match action from a player whose WS is on another instance
+        try {
+          if (!payload || !payload.matchId || !payload.token || !payload.data) return;
+          const room = rooms.get(String(payload.matchId));
+          if (!room) return;
+          const token = String(payload.token);
+          const data = payload.data;
+          const type = data && data.type;
+          // Seat may have null ws (remote player) — attach a stub so identity checks that
+          // only need token still work; outbound replies go through deliverToToken.
+          if (room.players && room.players[token] && !room.players[token].ws) {
+            room.players[token].ws = {
+              readyState: 1,
+              send(json) {
+                try {
+                  const msg = typeof json === 'string' ? JSON.parse(json) : json;
+                  deliverToToken(token, msg);
+                } catch (_) {}
+              },
+              _friendCode: room.players[token].friendCode || null,
+              _token: token,
+              _matchId: room.id,
+              _remoteStub: true
+            };
+          }
+          if (type === 'match_ready' && typeof room.markReady === 'function') {
+            room.markReady(token);
+          } else if (type === 'place' && typeof room.applyPlace === 'function') {
+            room.applyPlace(token, data);
+          } else if (type === 'deal' && typeof room.applyDeal === 'function') {
+            room.applyDeal(token, data);
+          } else if (type === 'sync' && typeof room.applySync === 'function') {
+            room.applySync(token, data);
+          } else if (type === 'forfeit' && typeof room.forfeit === 'function') {
+            room.forfeit(token);
+          } else if (type === 'rematch_offer' && typeof room.offerRematch === 'function') {
+            room.offerRematch(token);
+          } else if (type === 'rematch_accept' && typeof room.acceptRematch === 'function') {
+            room.acceptRematch(token);
+          } else if (type === 'rematch_decline' && typeof room.declineRematch === 'function') {
+            room.declineRematch(token);
+          } else if (type === 'rematch_cancel' && typeof room.cancelRematch === 'function') {
+            room.cancelRematch(token);
+          }
+        } catch (err) {
+          log('warn', 'coord room-forward error', { err: err && err.message });
+        }
+      });
+      log('info', 'multi-instance coord enabled', { instanceId: coord.instanceId });
+    }
+  } catch (e) {
+    log('error', 'redis coord init failed — continuing single-instance', { err: e && e.message });
+    coord = disabledCoord();
+  }
   // Wire MatchRoom runtime hooks (store may be null until createStore resolves)
   matchHooks.persistRoom = persistRoom;
   matchHooks.forgetRoom = forgetRoom;
@@ -826,7 +977,7 @@ async function boot() {
       const list = await store.listDeletedCodes();
       let n = 0;
       for (const row of (list || [])) {
-        if (row && row.code && row.exp && row.exp > Date.now()) {
+        if (row && row.code && row.exp && row.exp > clock.now()) {
           DELETED_FRIEND_CODES.set(String(row.code).toUpperCase(), row.exp);
           n++;
         }
@@ -847,7 +998,7 @@ async function boot() {
           const data = await store.loadRoom(id);
           if (!data) continue;
           // Skip expired live matches whose clock is long over
-          if (data.status === 'live' && data.clockEndTs && Date.now() - data.clockEndTs > 120000) {
+          if (data.status === 'live' && data.clockEndTs && clock.now() - data.clockEndTs > 120000) {
             await store.deleteRoom(id);
             continue;
           }
@@ -867,7 +1018,7 @@ async function boot() {
     try {
       const qSnap = await store.loadQueue();
       if (Array.isArray(qSnap) && qSnap.length) {
-        const now = Date.now();
+        const now = clock.now();
         let qi = 0;
         for (const e of qSnap) {
           if (!e || !e.token) continue;
@@ -892,8 +1043,8 @@ async function boot() {
             trophies: e.trophies | 0,
             platform: e.platform || 'web',
             os: e.os || 'unknown',
-            lastSeen: e.lastSeen || Date.now(),
-            ts: e.lastSeen || Date.now()
+            lastSeen: e.lastSeen || clock.now(),
+            ts: e.lastSeen || clock.now()
           });
           pi++;
         } catch (_) {}
@@ -915,10 +1066,10 @@ async function boot() {
   }
 
   // Periodic meta flush (queues + presence) + occasional guest profile sweep
-  setInterval(() => {
+  clock.setInterval(() => {
     try { persistMetaNow(); } catch (_) {}
   }, 15000);
-  setInterval(() => {
+  clock.setInterval(() => {
     try {
       if (store && typeof store.purgeGuestProfiles === 'function') {
         store.purgeGuestProfiles(GUEST_PROFILE_MAX_AGE_MS).then((n) => {
@@ -934,7 +1085,7 @@ async function boot() {
       port: PORT,
       ws: '/ws',
       store: store && store.kind,
-      origins: WS_ORIGINS.length ? WS_ORIGINS.length : 'any'
+      origins: WS_ORIGINS.length ? WS_ORIGINS.length : 'same-origin'
     });
   });
 }
@@ -944,22 +1095,40 @@ boot().catch((e) => {
   process.exit(1);
 });
 
-function shutdown() {
+let _shuttingDown = false;
+function shutdown(signal) {
+  if (_shuttingDown) return;
+  _shuttingDown = true;
+  try { log('info', 'shutdown', { signal: signal || 'signal' }); } catch (_) {}
   try {
+    // Stop accepting new HTTP / WS connections
+    try { if (typeof server !== 'undefined' && server && server.close) server.close(); } catch (_) {}
+    try {
+      if (typeof wss !== 'undefined' && wss) {
+        wss.clients.forEach((ws) => {
+          try { ws.close(1001, 'server_shutdown'); } catch (_) {}
+        });
+        try { wss.close(); } catch (_) {}
+      }
+    } catch (_) {}
     // Flush live rooms + queue/presence meta one last time
     if (store) {
       for (const room of rooms.values()) {
         try { persistRoom(room); } catch (_) {}
       }
       try { persistMetaNow(); } catch (_) {}
-      setTimeout(() => {
+      const done = () => {
+        try { if (coord && coord.close) coord.close(); } catch (_) {}
         try { store.close(); } catch (_) {}
         process.exit(0);
-      }, 250);
+      };
+      // Give in-flight DB work a short window, then force exit
+      clock.setTimeout(done, 500);
+      clock.setTimeout(() => process.exit(0), 5000);
       return;
     }
   } catch (_) {}
   process.exit(0);
 }
-process.on('SIGTERM', shutdown);
-process.on('SIGINT', shutdown);
+process.on('SIGTERM', () => shutdown('SIGTERM'));
+process.on('SIGINT', () => shutdown('SIGINT'));

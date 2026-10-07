@@ -113,8 +113,8 @@ function startReplay(match, opts) {
   {
     const bot = match.botId ? BOTS.find(b => b.id === match.botId) : null;
     document.getElementById('oppName').innerHTML = bot
-      ? `${botAvatarHTML(bot, 24)} <span>${match.oppName || match.opp}</span>`
-      : `<span>${match.oppName || match.opp}</span>`;
+      ? `${botAvatarHTML(bot, 24)} <span>${escapeHtmlLobby(match.oppName || match.opp)}</span>`
+      : `<span>${escapeHtmlLobby(match.oppName || match.opp)}</span>`;
   }
   timerEl.classList.remove('urgent');
 

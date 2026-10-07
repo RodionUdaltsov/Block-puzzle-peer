@@ -24,8 +24,8 @@ Server → client immediately:
 
 | Client | Server |
 |--------|--------|
-| `create_private` | `private_lobby` `{ code, role: "host", … }` |
-| `join_private` `{ code }` | `private_lobby` / `private_error` |
+| `create_private` | `private_lobby` `{ code (7 chars), role: "host", … }`; errors `rate_limited` (3 s cooldown), `server_busy` (global cap) |
+| `join_private` `{ code }` | `private_lobby` / `private_error` (`not_found`, `full`, `self`, `rate_limited` after 10 misses/min/IP) |
 | `private_ready` `{ ready, code? }` | updated `private_lobby` |
 | `private_duration` `{ duration }` | host-only; resets ready |
 | `leave_private` | `private_left` |

@@ -268,7 +268,7 @@ function renderOutgoingPending(animateEnter) {
       const metaEl = card.querySelector('.f-meta');
       const av = card.querySelector('.f-av');
       if (nameEl && nameEl.textContent !== label) nameEl.textContent = label;
-      if (metaEl) metaEl.textContent = (typeof globalThis.t==='function'?globalThis.t('js.outgoing','Исходящая'):'Исходящая') + ' · ' + p.code + (ts ? ' · ' + ts : '');
+      if (metaEl) metaEl.textContent = (typeof globalThis.t==='function'?globalThis.t('js.outgoing','Исходящая'):'Исходящая') + ' · ' + escapeHtmlLobby(p.code) + (ts ? ' · ' + escapeHtmlLobby(ts) : '');
       if (av) {
         const initials = label.slice(0, 2).toUpperCase();
         av.childNodes.forEach(node => {
@@ -282,13 +282,13 @@ function renderOutgoingPending(animateEnter) {
     card.setAttribute('data-code', p.code);
     card.style.opacity = '0.95';
     card.innerHTML =
-      '<div class="f-av">' + label.slice(0, 2).toUpperCase() + '</div>' +
+      '<div class="f-av">' + escapeHtmlLobby(label.slice(0, 2).toUpperCase()) + '</div>' +
       '<div class="f-info">' +
-        '<div class="f-name">' + label.replace(/</g, '') + '</div>' +
+        '<div class="f-name">' + escapeHtmlLobby(label) + '</div>' +
         '<div class="f-meta">' + (typeof globalThis.t==='function'?globalThis.t('js.outgoing','Исходящая'):'Исходящая') + ' · ' + p.code + (ts ? ' · ' + ts : '') + '</div>' +
       '</div>' +
       '<div class="f-actions">' +
-        '<button type="button" class="ghost fr-out-cancel" data-code="' + p.code + '">✕</button>' +
+        '<button type="button" class="ghost fr-out-cancel" data-code="' + escapeHtmlLobby(p.code) + '">✕</button>' +
       '</div>';
     list.appendChild(card);
     const cancelBtn = card.querySelector('.fr-out-cancel');

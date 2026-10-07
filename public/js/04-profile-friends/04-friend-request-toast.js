@@ -250,14 +250,14 @@ function renderFriendRequests() {
 
   const parts = [];
   frIncoming.forEach((r, i) => {
-    const initials = (r.name || r.code || '?').slice(0, 2).toUpperCase();
+    const initials = escapeHtmlLobby((r.name || r.code || '?').slice(0, 2).toUpperCase());
     const cups = r.trophies != null ? ` · 🏆 ${r.trophies}` : '';
-    const nm = (r.name || r.code || 'Игрок').toString().replace(/</g, '');
-    parts.push(`<div class="friend-req-card" data-code="${r.code}">
+    const nm = escapeHtmlLobby((r.name || r.code || 'Игрок').toString());
+    parts.push(`<div class="friend-req-card" data-code="${escapeHtmlLobby(r.code)}">
       <div class="f-av">${initials}</div>
       <div class="f-info">
         <div class="f-name">${nm}</div>
-        <div class="f-meta"><span class="req-badge">Заявка</span>${r.code}${cups}</div>
+        <div class="f-meta"><span class="req-badge">Заявка</span>${escapeHtmlLobby(r.code)}${cups}</div>
       </div>
       <div class="f-actions">
         <button class="primary fr-acc" data-ri="${i}">✓</button>
@@ -268,13 +268,13 @@ function renderFriendRequests() {
 
   if (null && mpRoomCode) {
     const r = null;
-    const initials = (r.name || r.code || '?').slice(0, 2).toUpperCase();
+    const initials = escapeHtmlLobby((r.name || r.code || '?').slice(0, 2).toUpperCase());
     const cups = r.trophies != null ? ` · 🏆 ${r.trophies}` : '';
     parts.push(`<div class="friend-req-card lobby-join-card" data-join="1">
       <div class="f-av">${initials}</div>
       <div class="f-info">
-        <div class="f-name">${r.name || 'Игрок'}</div>
-        <div class="f-meta"><span class="req-badge">Вход</span>комната ${mpRoomCode}${r.code ? ' · ' + r.code : ''}${cups}</div>
+        <div class="f-name">${escapeHtmlLobby(r.name || 'Игрок')}</div>
+        <div class="f-meta"><span class="req-badge">Вход</span>комната ${escapeHtmlLobby(mpRoomCode)}${r.code ? ' · ' + escapeHtmlLobby(r.code) : ''}${cups}</div>
       </div>
       <div class="f-actions">
         <button class="primary" id="frJoinAcc">✓</button>
@@ -284,14 +284,14 @@ function renderFriendRequests() {
   }
   if (typeof chPending !== 'undefined' && chPending && chPending.room) {
     const r = chPending;
-    const initials = (r.name || r.code || '?').slice(0, 2).toUpperCase();
+    const initials = escapeHtmlLobby((r.name || r.code || '?').slice(0, 2).toUpperCase());
     const cups = r.trophies != null ? ` · 🏆 ${r.trophies}` : '';
     const mid = vsActive ? ' · матч идёт' : '';
     parts.push(`<div class="friend-req-card lobby-ch-card" data-ch="1">
       <div class="f-av">${initials}</div>
       <div class="f-info">
-        <div class="f-name">${r.name || 'Игрок'}</div>
-        <div class="f-meta"><span class="req-badge">Лобби</span>${r.room}${mid}${cups}</div>
+        <div class="f-name">${escapeHtmlLobby(r.name || 'Игрок')}</div>
+        <div class="f-meta"><span class="req-badge">Лобби</span>${escapeHtmlLobby(r.room)}${mid}${cups}</div>
       </div>
       <div class="f-actions">
         <button class="primary" id="frChAcc">✓</button>
@@ -301,11 +301,11 @@ function renderFriendRequests() {
   }
   if (typeof rmPending !== 'undefined' && rmPending) {
     const r = rmPending;
-    const initials = (r.name || '?').slice(0, 2).toUpperCase();
+    const initials = escapeHtmlLobby((r.name || '?').slice(0, 2).toUpperCase());
     parts.push(`<div class="friend-req-card lobby-rm-card" data-rm="1">
       <div class="f-av">${initials}</div>
       <div class="f-info">
-        <div class="f-name">${r.name || 'Соперник'}</div>
+        <div class="f-name">${escapeHtmlLobby(r.name || 'Соперник')}</div>
         <div class="f-meta"><span class="req-badge">Реванш</span>предлагает ещё матч</div>
       </div>
       <div class="f-actions">
