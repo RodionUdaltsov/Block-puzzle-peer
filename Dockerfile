@@ -21,10 +21,14 @@ RUN npm run build
 
 ENV NODE_ENV=production
 ENV PORT=9000
+# Allowed WebSocket / CORS origins (override on Render if you use a custom domain)
+ENV BP_WS_ORIGINS=https://block-puzzle-peer.onrender.com
+# Trust X-Forwarded-* from Render's reverse proxy
+ENV BP_TRUST_PROXY=1
 # Player progress source of truth: PostgreSQL
 # ENV BP_STORE=postgres
 # ENV DATABASE_URL=postgres://bp:<password>@postgres:5432/blockpuzzle
-# Production: also set BP_ADMIN_KEY, BP_TRUST_PROXY and BP_WS_ORIGINS (see README)
+# Production: also set BP_ADMIN_KEY (see README)
 
 # Non-root user
 RUN groupadd --system --gid 1001 bp \
