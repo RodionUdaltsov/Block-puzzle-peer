@@ -113,7 +113,6 @@ function saveClassicState() {
     const payload = {
       grid,
       score,
-      diamonds,
       pieces: (pieces || []).map(p => ({
         shape: p.shape.map(c => c.slice()),
         color: p.color,
@@ -201,7 +200,8 @@ function startClassic(forceNew) {
   if (saved) {
     grid = saved.grid.map(row => row.map(c => c));
     score = typeof saved.score === 'number' ? saved.score : 0;
-    if (typeof saved.diamonds === 'number') diamonds = saved.diamonds;
+    // NOTE: diamonds are NOT restored from the save. The balance lives on the server
+    // (shop purchases, achievement rewards); an old snapshot in the save used to overwrite it.
     if (diamonds < 0) diamonds = 0;
     pieces = Array.isArray(saved.pieces) && saved.pieces.length
       ? saved.pieces.map(p => ({

@@ -1,8 +1,8 @@
 {
   "version": "3.13.2",
-  "hash": "45aadefedb3e",
+  "hash": "8aea20d7b64e",
   "minified": true,
-  "generatedAt": "2026-10-07T22:58:42.172Z",
+  "generatedAt": "2026-10-08T14:17:33.651Z",
   "modules": [
     "public/shared/rules.js",
     "public/match-client.js",
@@ -406,7 +406,7 @@
       "file": "public/js/08-gameplay/04-grid-and-pieces.js",
       "startLine": 19399,
       "endLine": 19829,
-      "bytes": 16693
+      "bytes": 16788
     },
     {
       "file": "public/js/08-gameplay/05-board-metrics-drag-state.js",
@@ -596,8 +596,8 @@
     }
   ],
   "bytes": {
-    "classic": 1239153,
-    "esm": 1239196,
-    "classicRaw": 1281303
+    "classic": 1239248,
+    "esm": 1239291,
+    "classicRaw": 1281398
   }
 }
