@@ -33,6 +33,9 @@
     "public/css/30-match/04-score-duel-result.css",
     "public/css/30-match/05-versus-screen-overrides.css",
     "public/css/30-match/06-touch-perf-toasts-botpick-result.css",
+    "public/css/40-redesign/01-ui-v2.css",
+    "public/css/40-redesign/02-ui-v3.css",
+    "public/css/40-redesign/03-ui-v4.css",
     "public/css/styles-perf.css"
   ]
 }

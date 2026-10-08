@@ -244,7 +244,7 @@ function startClassic(forceNew) {
 function updateClassicUI() {
   scoreEl.textContent = score; bestEl.textContent = best; diamondsEl.textContent = diamonds;
   localStorage.setItem('bp_diamonds', diamonds);
-  document.getElementById('btnRelief').disabled = diamonds < 1;
+  document.getElementById('btnRelief').disabled = diamonds < 1 || !grid.some(row => row.some(x => x));
   if (score > best) {
     best = score;
     bestEl.textContent = best;

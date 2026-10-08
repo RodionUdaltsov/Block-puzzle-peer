@@ -165,3 +165,34 @@ document.getElementById('btnVsReview')?.addEventListener('click', () => {
   }
   startReplay(match, { from: 'result' });
 });
+
+/* Versus side panel: keep it vertically centered in the gap between the two boards. */
+(function bindVersusSidePanel() {
+  const scr = document.getElementById('screenVersus');
+  const hdr = scr && scr.querySelector(':scope > .header');
+  const bo = document.getElementById('boardOpp');
+  const bm = document.getElementById('boardMe');
+  if (!scr || !hdr || !bo || !bm) return;
+  let raf = 0;
+  function place() {
+    raf = 0;
+    if (!scr.classList.contains('active')) return;
+    const s = scr.getBoundingClientRect();
+    const a = bo.getBoundingClientRect();
+    const b = bm.getBoundingClientRect();
+    if (!a.height || !b.height) return;
+    const y = (a.bottom + b.top) / 2 - s.top;
+    if (y > 0) hdr.style.top = y + 'px';
+  }
+  function schedule() { if (!raf) raf = requestAnimationFrame(place); }
+  try {
+    if (typeof ResizeObserver !== 'undefined') {
+      const ro = new ResizeObserver(schedule);
+      [scr, bo, bm, scr.querySelector('.versus-layout')].forEach(el => { if (el) ro.observe(el); });
+    }
+    new MutationObserver(schedule).observe(scr, { attributes: true, attributeFilter: ['class', 'style'] });
+  } catch (_) {}
+  window.addEventListener('resize', schedule);
+  scr.addEventListener('animationend', schedule);
+  schedule();
+})();

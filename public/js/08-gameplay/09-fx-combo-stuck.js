@@ -335,6 +335,7 @@ function checkStuck() {
 }
 function doRelief() {
   if (diamonds<1||mode!=='classic') return;
+  if (!grid.some(row => row.some(x => x))) return; // empty board: nothing to clear, keep the diamond
   diamonds--;
   try { bumpAchStat('reliefUsed', 1); } catch (_) {}
   try { if (mode === 'classic') window._classicUsedRelief = true; } catch (_) {} updateClassicUI(); stuckOfferEl.classList.remove('visible');

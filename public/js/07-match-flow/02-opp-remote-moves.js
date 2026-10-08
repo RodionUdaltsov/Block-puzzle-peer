@@ -7,6 +7,9 @@
 let _oppPlaceAnimBusy = false;
 let _pendingOppDeal = null;
 let _pendingOppPlaces = [];
+// Token + animation handle so a finished move can never hide / cancel the NEXT move's ghost
+let _oppGhostTok = 0;
+let _oppGhostAnim = null;
 
 function applyOppRemoteDeal(data) {
   if (!data || !data.pieces) return;
@@ -171,22 +174,39 @@ function applyOppRemotePlace(data) {
     const m = getBoardCellMetrics(board);
     ghost.innerHTML = buildPieceGhostHTML({ shape, color }, m.px, m.gap);
   }
-  ghost.style.transition = 'none';
-  ghost.style.left = startX + 'px';
-  ghost.style.top = startY + 'px';
+  // Fly duration shrinks when moves are queued behind this one, so a burst of fast
+  // placements stays 1:1 with the opponent (no growing lag), yet every piece still
+  // visibly travels from its tray slot to its cell.
+  const _queued = _pendingOppPlaces ? _pendingOppPlaces.length : 0;
+  const FLY_MS = _queued > 0 ? Math.max(170, 340 - 90 * _queued) : 360;
+  const myGhostTok = ++_oppGhostTok;
+  if (_oppGhostAnim) { try { _oppGhostAnim.cancel(); } catch (_) {} _oppGhostAnim = null; }
+  ghost.style.transition = 'none'; // appear fully opaque instantly (no fade-in blink between back-to-back moves)
+  ghost.style.left = targetX + 'px';
+  ghost.style.top = targetY + 'px';
   ghost.style.display = 'block';
   ghost.style.opacity = '1';
   ghost.style.visibility = 'visible';
   ghost.style.zIndex = '50';
+  ghost.style.willChange = 'transform';
   void ghost.offsetWidth;
-  ghost.style.transition =
-    'left 0.38s cubic-bezier(0.25, 0.1, 0.25, 1), top 0.38s cubic-bezier(0.25, 0.1, 0.25, 1), opacity 0.15s ease';
-  requestAnimationFrame(() => {
-    requestAnimationFrame(() => {
+  ghost.style.transition = 'opacity 0.15s ease';
+  // GPU-composited transform flight (left/top transitions re-layout every frame and stutter)
+  try {
+    if (typeof ghost.animate === 'function') {
+      _oppGhostAnim = ghost.animate([
+        { transform: 'translate(calc(-50% + ' + (startX - targetX) + 'px), calc(-50% + ' + (startY - targetY) + 'px))' },
+        { transform: 'translate(-50%, -50%)' }
+      ], { duration: FLY_MS, easing: 'cubic-bezier(0.25, 0.1, 0.25, 1)', fill: 'both' });
+    } else {
+      ghost.style.transition = 'left ' + FLY_MS + 'ms cubic-bezier(0.25,0.1,0.25,1), top ' + FLY_MS + 'ms cubic-bezier(0.25,0.1,0.25,1), opacity 0.15s ease';
+      ghost.style.left = startX + 'px';
+      ghost.style.top = startY + 'px';
+      void ghost.offsetWidth;
       ghost.style.left = targetX + 'px';
       ghost.style.top = targetY + 'px';
-    });
-  });
+    }
+  } catch (_) {}
 
   try {
     window._lastOppPlace = { r, c, maxR, maxC };
@@ -225,8 +245,17 @@ function applyOppRemotePlace(data) {
         spawnLegendSparks(wrap, 6 + shape.length, skinForFx, origin);
       }
     } catch (_) {}
-    ghost.style.opacity = '0';
-    setTimeout(() => { ghost.style.display = 'none'; }, 160);
+    // Hide only if no newer move has taken over the shared ghost (the old unconditional
+    // 160ms hide killed the next piece mid-flight → it "vanished" and snapped into place).
+    if (_oppGhostTok === myGhostTok) {
+      ghost.style.opacity = '0';
+      setTimeout(() => {
+        if (_oppGhostTok === myGhostTok) {
+          ghost.style.display = 'none';
+          if (_oppGhostAnim) { try { _oppGhostAnim.cancel(); } catch (_) {} _oppGhostAnim = null; }
+        }
+      }, 160);
+    }
 
     // Soft collapse matching tray slot — no full re-render (avoids flicker)
     if (slotEl) {
@@ -309,5 +338,5 @@ function applyOppRemotePlace(data) {
     } catch (_) {}
     onAiScoreChanged();
     flushPendingOppDeal();
-  }, 400);
+  }, FLY_MS + 30);
 }

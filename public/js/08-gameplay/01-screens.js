@@ -22,7 +22,9 @@ function showScreen(name, opts) {
   // Animated loader on EVERY non-play navigation (including Back → menu)
   // so tab switches never feel frozen. Skip only if caller already owns the loader.
   try {
-    if (!opts.skipLoader && !isPlay) {
+    // Only when the caller asked to keep it (it owns the loader). Ordinary navigation is synchronous,
+    // so flashing a >=200ms overlay on every Back/Menu tap only looked like a glitch.
+    if (!opts.skipLoader && !isPlay && opts.keepLoader) {
       const labels = {
         menu: (typeof globalThis.t === 'function' ? globalThis.t('menu.main', 'Меню') : 'Меню'),
         friends: (typeof globalThis.t === 'function' ? globalThis.t('menu.friends', 'Друзья') : 'Друзья'),
@@ -247,7 +249,7 @@ function hideScreenLoading() {
           el.style.pointerEvents = '';
         }
       } catch (_) {}
-    }, 220);
+    }, 440); // matches the 0.4s fade-out in 03-ui-v4.css
   } catch (_) {}
 }
 /**
@@ -257,7 +259,7 @@ function hideScreenLoading() {
 function withScreenLoading(work, label) {
   const gen = ++_screenLoadingGen;
   const t0 = performance.now();
-  const MIN_VISIBLE_MS = 220;
+  const MIN_VISIBLE_MS = 380; // long enough for the fade-in + one loader pulse, so it reads as a transition, not a flash
   showScreenLoading(label || (typeof globalThis.t === 'function' ? globalThis.t('boot.loading', 'Загрузка…') : 'Загрузка…'));
   // Double rAF: first paints the new screen + loader, second runs work without blocking the transition
   requestAnimationFrame(() => {
